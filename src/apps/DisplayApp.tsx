@@ -1,38 +1,12 @@
-import { CloudRain, CloudSun, Droplets, Sun, Wind } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 const VIDEO_ROOT = "http://192.168.1.168:6113/Josh%20Photos/";
 const VIDEO_CACHE_KEY = "cannvas-video-list-v1";
 const VIDEO_PATTERN = /<a href="([^"]+)"/g;
-
-type Weather = {
-  temperature: number;
-  apparent: number;
-  humidity: number;
-  wind: number;
-  code: number;
-  max: number;
-  min: number;
-};
-
-function weatherLabel(code: number) {
-  if (code === 0) return "Clear skies";
-  if (code <= 3) return "Partly cloudy";
-  if (code <= 48) return "Misty";
-  if (code <= 67) return "Rainy";
-  if (code <= 77) return "Wintry";
-  if (code <= 82) return "Showers";
-  return "Stormy";
-}
-
-function WeatherIcon({ code }: { code: number }) {
-  if (code === 0) return <Sun />;
-  if (code >= 51) return <CloudRain />;
-  return <CloudSun />;
-}
+const YR_METEOGRAM = "https://www.yr.no/en/content/2-2075265/meteogram.svg";
 
 async function crawlVideos(root = VIDEO_ROOT, depth = 0, visited = new Set<string>()): Promise<string[]> {
-  if (depth > 5 || visited.has(root)) return [];
+  if (depth > 10 || visited.has(root)) return [];
   visited.add(root);
   const response = await fetch(root);
   if (!response.ok) throw new Error(`Video server returned ${response.status}`);
@@ -48,7 +22,7 @@ async function crawlVideos(root = VIDEO_ROOT, depth = 0, visited = new Set<strin
 
 export function DisplayApp() {
   const [now, setNow] = useState(new Date());
-  const [weather, setWeather] = useState<Weather | null>(null);
+  const [weatherVersion, setWeatherVersion] = useState(Date.now());
   const [videos, setVideos] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem(VIDEO_CACHE_KEY) ?? "[]") as string[]; } catch { return []; }
   });
@@ -60,30 +34,8 @@ export function DisplayApp() {
   }, []);
 
   useEffect(() => {
-    const loadWeather = async () => {
-      const url = new URL("https://api.open-meteo.com/v1/forecast");
-      url.search = new URLSearchParams({
-        latitude: "-33.6525",
-        longitude: "115.3455",
-        timezone: "Australia/Perth",
-        current: "temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m",
-        daily: "temperature_2m_max,temperature_2m_min",
-        forecast_days: "1",
-      }).toString();
-      const response = await fetch(url);
-      const data = await response.json();
-      setWeather({
-        temperature: data.current.temperature_2m,
-        apparent: data.current.apparent_temperature,
-        humidity: data.current.relative_humidity_2m,
-        wind: data.current.wind_speed_10m,
-        code: data.current.weather_code,
-        max: data.daily.temperature_2m_max[0],
-        min: data.daily.temperature_2m_min[0],
-      });
-    };
-    void loadWeather();
-    const timer = window.setInterval(() => void loadWeather(), 30 * 60 * 1000);
+    // Mike's Smarter Mirror refreshed this same Yr image every two hours.
+    const timer = window.setInterval(() => setWeatherVersion(Date.now()), 2 * 60 * 60 * 1000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -120,19 +72,14 @@ export function DisplayApp() {
         <p className="media-caption">{videoCaption}</p>
       </div>
 
-      <aside className="weather-panel">
-        {weather ? (
-          <>
-            <div className="weather-main"><WeatherIcon code={weather.code} /><strong>{Math.round(weather.temperature)}°</strong></div>
-            <h2>{weatherLabel(weather.code)}</h2>
-            <p>Feels like {Math.round(weather.apparent)}°</p>
-            <div className="weather-high-low"><span>High {Math.round(weather.max)}°</span><span>Low {Math.round(weather.min)}°</span></div>
-            <div className="weather-details"><span><Droplets /> {weather.humidity}%</span><span><Wind /> {Math.round(weather.wind)} km/h</span></div>
-            <small>Busselton</small>
-          </>
-        ) : (
-          <div className="weather-loading"><CloudSun /><span>Checking the weather…</span></div>
-        )}
+      <aside className="weather-panel yr-weather-panel">
+        <div className="yr-weather-heading">
+          <strong>Busselton weather</strong>
+          <span>Yr</span>
+        </div>
+        <div className="yr-weather-frame">
+          <img src={`${YR_METEOGRAM}?bust=${weatherVersion}`} alt="Busselton weather forecast from Yr" />
+        </div>
       </aside>
 
       <div className="wake-hint">Tap anywhere to return</div>

@@ -9,7 +9,8 @@ digital whiteboard, chores and pocket money, news, weather, and more.
 
 - Daily vector whiteboards with date history and Convex persistence
 - Joshua's weekly chore tracker and pocket-money totals
-- An idle home display with family videos and Busselton weather
+- An idle home display using the original Mike's Smarter Mirror family-video
+  library and Yr Busselton meteogram
 
 The interface is designed for the Pi's 1080x1920 portrait touchscreen. It
 returns to the home display after five minutes without pointer or keyboard
