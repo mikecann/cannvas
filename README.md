@@ -36,8 +36,9 @@ Chromium in Wayland kiosk mode after the service is reachable.
 
 Chore text fields use the system Squeekboard keyboard rather than an in-app
 keyboard. The mirror's larger touch layout lives at
-`~/.local/share/squeekboard/keyboards/us.yaml`; its tracked source is
-`deploy/squeekboard-us.yaml`.
+`~/.local/share/squeekboard/keyboards/us.yaml` and `us_wide.yaml`; both use the
+tracked source `deploy/squeekboard-us.yaml`. The rotated display currently asks
+Squeekboard for the wide layout name even though it is portrait on the wall.
 
 ### Multi-touch check
 
