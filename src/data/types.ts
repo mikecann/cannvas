@@ -35,6 +35,7 @@ export type CannvasData = {
   completions: Completion[];
   newsHeadlines: NewsHeadline[];
   addChore: (name: string, valueCents: number) => Promise<void>;
+  renameChore: (id: string, name: string) => Promise<void>;
   removeChore: (id: string) => Promise<void>;
   toggleCompletion: (choreId: string, date: string) => Promise<void>;
   clearWeek: (weekStart: string) => Promise<void>;

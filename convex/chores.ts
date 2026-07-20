@@ -64,6 +64,15 @@ export const add = mutation({
   },
 });
 
+export const rename = mutation({
+  args: { id: v.id("chores"), name: v.string() },
+  handler: async (ctx, { id, name }) => {
+    const trimmed = name.trim();
+    if (!trimmed) throw new Error("Chore name cannot be empty");
+    await ctx.db.patch(id, { name: trimmed });
+  },
+});
+
 export const remove = mutation({
   args: { id: v.id("chores") },
   handler: async (ctx, { id }) => {

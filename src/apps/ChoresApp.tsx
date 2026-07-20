@@ -1,17 +1,20 @@
-import { Check, ChevronLeft, ChevronRight, Plus, Sparkles, Trash2 } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { TouchKeyboard } from "../components/TouchKeyboard";
 import { useCannvasData } from "../data/DataProvider";
 import { addDays, dateKey, fromDateKey, money, startOfWeek } from "../lib/dates";
 
 export function ChoresApp() {
-  const { chores, completions, addChore, removeChore, toggleCompletion, clearWeek } = useCannvasData();
+  const { chores, completions, addChore, renameChore, removeChore, toggleCompletion, clearWeek } = useCannvasData();
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [showAdd, setShowAdd] = useState(false);
   const [showClear, setShowClear] = useState(false);
   const [choreToRemove, setChoreToRemove] = useState<string | null>(null);
+  const [choreToEdit, setChoreToEdit] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [value, setValue] = useState("0.50");
+  const [activeField, setActiveField] = useState<"name" | "value">("name");
   const days = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
   const completionKeys = useMemo(
     () => new Set(completions.map(({ choreId, date }) => `${choreId}:${date}`)),
@@ -33,6 +36,26 @@ export function ChoresApp() {
     setName("");
     setValue("0.50");
     setShowAdd(false);
+  };
+
+  const submitRename = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!choreToEdit || !name.trim()) return;
+    await renameChore(choreToEdit, name.trim());
+    setChoreToEdit(null);
+  };
+
+  const openAdd = () => {
+    setName("");
+    setValue("0.50");
+    setActiveField("name");
+    setShowAdd(true);
+  };
+
+  const openEdit = (id: string, currentName: string) => {
+    setName(currentName);
+    setActiveField("name");
+    setChoreToEdit(id);
   };
 
   return (
@@ -76,6 +99,7 @@ export function ChoresApp() {
             <div className="chore-name" style={{ "--chore-color": chore.color } as React.CSSProperties}>
               <span className="chore-dot" />
               <div><strong>{chore.name}</strong><small>{money(chore.valueCents)} each time</small></div>
+              <button className="edit-chore" onClick={() => openEdit(chore.id, chore.name)} aria-label={`Edit ${chore.name}`}><Pencil /></button>
               <button className="remove-chore" onClick={() => setChoreToRemove(chore.id)} aria-label={`Remove ${chore.name}`}><Trash2 /></button>
             </div>
             {days.map((day) => {
@@ -103,18 +127,33 @@ export function ChoresApp() {
       </div>
 
       <footer className="chores-actions">
-        <button className="button primary" onClick={() => setShowAdd(true)}><Plus /> Add a chore</button>
+        <button className="button primary" onClick={openAdd}><Plus /> Add a chore</button>
         <button className="button quiet-danger" onClick={() => setShowClear(true)} disabled={earned === 0}><Trash2 /> Clear this week</button>
       </footer>
 
       {showAdd && (
         <div className="dialog-backdrop" role="presentation" onPointerDown={() => setShowAdd(false)}>
-          <form className="dialog-card add-chore-card" onSubmit={(event) => void submitChore(event)} onPointerDown={(event) => event.stopPropagation()}>
+          <form className="dialog-card add-chore-card chore-editor-card" onSubmit={(event) => void submitChore(event)} onPointerDown={(event) => event.stopPropagation()}>
             <div className="dialog-symbol add"><Plus /></div>
             <h2>Add a new chore</h2>
-            <label><span>What needs doing?</span><input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Put away the dishes" /></label>
-            <label><span>Pocket money each time</span><div className="money-input"><b>$</b><input inputMode="decimal" value={value} onChange={(event) => setValue(event.target.value)} /></div></label>
+            <div className="chore-form-fields">
+              <label><span>What needs doing?</span><input className={activeField === "name" ? "active-input" : ""} readOnly value={name} onFocus={() => setActiveField("name")} onPointerDown={() => setActiveField("name")} placeholder="Tap here, then use the keyboard" /></label>
+              <label><span>Pocket money each time</span><div className="money-input"><b>$</b><input className={activeField === "value" ? "active-input" : ""} readOnly value={value} onFocus={() => setActiveField("value")} onPointerDown={() => setActiveField("value")} /></div></label>
+            </div>
+            <TouchKeyboard mode={activeField === "value" ? "decimal" : "letters"} onChange={activeField === "value" ? setValue : setName} />
             <div className="dialog-actions"><button type="button" className="button secondary" onClick={() => setShowAdd(false)}>Cancel</button><button className="button primary" type="submit" disabled={!name.trim()}>Add chore</button></div>
+          </form>
+        </div>
+      )}
+
+      {choreToEdit && (
+        <div className="dialog-backdrop" role="presentation" onPointerDown={() => setChoreToEdit(null)}>
+          <form className="dialog-card chore-editor-card" onSubmit={(event) => void submitRename(event)} onPointerDown={(event) => event.stopPropagation()}>
+            <div className="dialog-symbol edit"><Pencil /></div>
+            <h2>Edit chore name</h2>
+            <label><span>Chore name</span><input className="active-input" readOnly value={name} /></label>
+            <TouchKeyboard onChange={setName} />
+            <div className="dialog-actions"><button type="button" className="button secondary" onClick={() => setChoreToEdit(null)}>Cancel</button><button className="button primary" type="submit" disabled={!name.trim()}>Save name</button></div>
           </form>
         </div>
       )}

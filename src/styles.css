@@ -133,8 +133,9 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .chore-name > div { min-width: 0; display: flex; flex-direction: column; }
 .chore-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1rem; }
 .chore-name small { color: var(--muted); font-size: .72rem; }
-.remove-chore { width: 42px; height: 42px; margin-left: auto; display: grid; place-items: center; border: 0; border-radius: 13px; color: #aaa39a; background: transparent; }
-.remove-chore svg { width: 17px; }
+.edit-chore, .remove-chore { width: 42px; height: 42px; display: grid; place-items: center; border: 0; border-radius: 13px; color: #aaa39a; background: transparent; }
+.edit-chore { margin-left: auto; color: #6f777b; }
+.edit-chore svg, .remove-chore svg { width: 17px; }
 .chore-check { display: grid; place-items: center; border: 0; border-left: 1px solid #ebe4da; background: transparent; }
 .chore-check > span { width: 45px; height: 45px; display: grid; place-items: center; border: 3px solid #d9d2c7; border-radius: 15px; color: white; transition: transform .15s ease, background .15s ease; }
 .chore-check.checked > span { border-color: var(--chore-color); background: var(--chore-color); transform: rotate(-3deg) scale(1.04); box-shadow: 0 5px 12px color-mix(in srgb, var(--chore-color) 30%, transparent); }
@@ -150,6 +151,7 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .dialog-card h2 { margin: 12px 0 8px; font: 700 2rem "Fraunces", serif; }
 .dialog-symbol { width: 54px; height: 54px; margin: auto; display: grid; place-items: center; border-radius: 18px; color: white; background: #d74c43; font: 800 1.7rem "Fraunces", serif; }
 .dialog-symbol.add { background: var(--green); }
+.dialog-symbol.edit { background: #3478d4; }
 .dialog-copy { color: var(--muted); line-height: 1.5; }
 .dialog-actions { margin-top: 24px; display: flex; gap: 10px; justify-content: center; }
 .dialog-actions .button { flex: 1; }
@@ -161,6 +163,20 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .money-input { position: relative; }
 .money-input b { position: absolute; left: 17px; top: 50%; transform: translateY(-50%); }
 .money-input input { padding-left: 36px; }
+.chore-editor-card { width: min(94vw, 920px); padding: 22px 26px; }
+.chore-editor-card h2 { margin-top: 8px; }
+.chore-editor-card > label, .chore-form-fields label { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; text-align: left; }
+.chore-form-fields { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; }
+.chore-editor-card input { height: 62px; font-size: 1.15rem; }
+.chore-editor-card input.active-input { border-color: #3478d4; box-shadow: 0 0 0 4px rgba(52,120,212,.14); }
+.touch-keyboard { margin-top: 16px; display: grid; gap: 8px; }
+.touch-keyboard-row { display: flex; justify-content: center; gap: 7px; }
+.touch-keyboard button { width: 76px; height: 68px; border: 1px solid #d8d1c6; border-radius: 13px; background: white; box-shadow: 0 3px 0 #c9c1b6; font-size: 1.15rem; font-weight: 800; }
+.touch-keyboard button:active { transform: translateY(3px); box-shadow: none; background: #edf4ff; }
+.touch-keyboard .keyboard-wide-key { width: 230px; }
+.touch-keyboard .compact-row { margin-top: 1px; }
+.numeric-keyboard { min-height: 230px; align-content: center; }
+.numeric-keyboard .touch-keyboard-row:first-child { flex-wrap: wrap; max-width: 830px; margin: auto; }
 
 /* Idle display */
 .display-app { position: fixed; z-index: 50; inset: 0; overflow: hidden; color: white; background: #161719; cursor: none; }
@@ -178,10 +194,10 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .yr-weather-frame { width: 100%; height: 178px; overflow: hidden; }
 .yr-weather-frame img { width: 100%; height: calc(100% / .7954); display: block; transform: translateY(-20.46%); filter: invert(100%) grayscale(100%); }
 .news-panel { min-height: 198px; padding: 10px; border-radius: 8px; display: flex; flex-direction: column; }
-.news-label { margin: 0 0 9px; color: rgba(255,255,255,.66); font-size: .73rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.news-header { margin-bottom: 9px; display: flex; align-items: center; justify-content: flex-end; }
+.news-header span { color: rgba(255,255,255,.58); font-size: .7rem; font-weight: 700; }
 .news-headlines { display: grid; gap: 8px; }
 .news-headlines p { margin: 0; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.18); font-size: .9rem; font-weight: 650; line-height: 1.18; }
-.news-source { margin-top: auto; padding-top: 8px; color: rgba(255,255,255,.52); font-size: .7rem; }
 .wake-hint { position: absolute; z-index: 4; left: 50%; bottom: 20px; transform: translateX(-50%); color: rgba(255,255,255,.5); font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; }
 
 @media (orientation: portrait) {

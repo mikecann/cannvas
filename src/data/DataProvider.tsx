@@ -75,6 +75,12 @@ function LocalDataProvider({ children }: PropsWithChildren) {
         }],
       }));
     },
+    renameChore: async (id, name) => {
+      setState((current) => ({
+        ...current,
+        chores: current.chores.map((chore) => chore.id === id ? { ...chore, name } : chore),
+      }));
+    },
     removeChore: async (id) => {
       setState((current) => ({
         ...current,
@@ -127,6 +133,7 @@ function ConvexDataProvider({ children }: PropsWithChildren) {
   const saveBoardMutation = useMutation(api.boards.save);
   const addChoreMutation = useMutation(api.chores.add);
   const removeChoreMutation = useMutation(api.chores.remove);
+  const renameChoreMutation = useMutation(api.chores.rename);
   const toggleMutation = useMutation(api.chores.toggleCompletion);
   const clearMutation = useMutation(api.chores.clearWeek);
   const loadWorldNews = useAction(api.news.world);
@@ -159,6 +166,7 @@ function ConvexDataProvider({ children }: PropsWithChildren) {
     completions: completions ?? [],
     newsHeadlines,
     addChore: async (name, valueCents) => { await addChoreMutation({ name, valueCents }); },
+    renameChore: async (id, name) => { await renameChoreMutation({ id: id as Id<"chores">, name }); },
     removeChore: async (id) => { await removeChoreMutation({ id: id as Id<"chores"> }); },
     toggleCompletion: async (choreId, date) => { await toggleMutation({ choreId: choreId as Id<"chores">, date }); },
     clearWeek: async (weekStart) => { await clearMutation({ weekStart }); },
@@ -171,6 +179,7 @@ function ConvexDataProvider({ children }: PropsWithChildren) {
     clearMutation,
     completions,
     newsHeadlines,
+    renameChoreMutation,
     removeChoreMutation,
     saveBoardMutation,
     toggleMutation,

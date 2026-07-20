@@ -76,13 +76,12 @@ export function DisplayApp() {
           </div>
         </aside>
         <aside className="weather-panel news-panel">
-          <p className="news-label">World news</p>
+          <div className="news-header"><span>BBC News</span></div>
           <div className="news-headlines">
             {(newsHeadlines.length > 0 ? newsHeadlines : [{ title: "Loading latest headlines…", url: "" }]).slice(0, 3).map((headline) => (
               <p key={headline.title}>{headline.title}</p>
             ))}
           </div>
-          <span className="news-source">BBC News</span>
         </aside>
       </div>
 
