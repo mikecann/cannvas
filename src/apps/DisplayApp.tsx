@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
+// The mirror streams Joshua's videos directly from the Josh Photos share.
 const VIDEO_ROOT = "http://192.168.1.168:6113/Josh%20Photos/";
 const VIDEO_CACHE_KEY = "cannvas-video-list-v1";
 const VIDEO_PATTERN = /<a href="([^"]+)"/g;
@@ -12,8 +13,10 @@ async function crawlVideos(root = VIDEO_ROOT, depth = 0, visited = new Set<strin
   if (!response.ok) throw new Error(`Video server returned ${response.status}`);
   const html = await response.text();
   const urls = [...html.matchAll(VIDEO_PATTERN)]
-    .map((match) => new URL(match[1], root).toString())
-    .filter((url) => !url.includes("../"));
+    .map((match) => match[1])
+    .filter((href) => href !== "../" && href !== "./../")
+    .map((href) => new URL(href, root).toString())
+    .filter((url) => url.startsWith(VIDEO_ROOT));
   const videos = urls.filter((url) => /\.(mp4|m4v|mov|webm)$/i.test(url));
   const folders = urls.filter((url) => url.endsWith("/") && url !== root);
   const nested = await Promise.all(folders.map((folder) => crawlVideos(folder, depth + 1, visited)));
@@ -50,9 +53,9 @@ export function DisplayApp() {
 
   const currentVideo = videos[videoIndex % Math.max(1, videos.length)];
   const videoCaption = useMemo(() => {
-    if (!currentVideo) return "Family moments";
-    const parts = decodeURIComponent(currentVideo).split("/");
-    return parts.slice(-3, -1).filter(Boolean).join(" · ") || "Family moments";
+    if (!currentVideo) return "Loading Josh Photos…";
+    const parts = decodeURIComponent(new URL(currentVideo).pathname).split("/").filter(Boolean);
+    return parts.at(-2) ?? "Josh Photos";
   }, [currentVideo]);
 
   return (

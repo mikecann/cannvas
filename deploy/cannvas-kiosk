@@ -9,15 +9,26 @@ until /usr/bin/curl --fail --silent --output /dev/null "$app_url"; do
   sleep 1
 done
 
+# A true fullscreen Labwc window is rendered above Squeekboard, which hides the
+# touch keyboard. Use a borderless, screen-sized app window instead. The Labwc
+# rule on the mirror removes its decoration.
+panel_respawner=$(/usr/bin/pgrep -f '^/bin/sh /usr/bin/lwrespawn /usr/bin/wf-panel-pi$' || true)
+if [ -n "$panel_respawner" ]; then
+  /usr/bin/kill "$panel_respawner"
+fi
+/usr/bin/pkill -x wf-panel-pi || true
+
 exec /usr/bin/chromium \
-  --kiosk \
   --app="$app_url" \
+  --window-position=0,0 \
+  --window-size=1080,1920 \
+  --force-device-scale-factor=1 \
   --ozone-platform=wayland \
+  --touch-events=enabled \
   --lang=en-AU \
   --no-first-run \
   --noerrdialogs \
   --disable-infobars \
-  --disable-pinch \
   --disable-session-crashed-bubble \
   --disable-features=TranslateUI \
   --overscroll-history-navigation=0 \
