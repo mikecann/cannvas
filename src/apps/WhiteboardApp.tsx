@@ -162,6 +162,21 @@ export function WhiteboardApp() {
           <p className="eyebrow">Daily whiteboard</p>
           <h1>{longDate(selectedDate)}</h1>
         </div>
+      </header>
+
+      <div className="canvas-wrap">
+        <canvas
+          ref={canvasRef}
+          aria-label={`Whiteboard for ${longDate(selectedDate)}`}
+          onPointerDown={startDrawing}
+          onPointerMove={continueDrawing}
+          onPointerUp={() => void finishDrawing()}
+          onPointerCancel={() => void finishDrawing()}
+        />
+        {strokes.length === 0 && <div className="canvas-hint">Draw something for today</div>}
+      </div>
+
+      <div className="whiteboard-date-controls">
         <div className="date-navigation">
           <button className="icon-button" aria-label="Previous day" onClick={() => setSelectedDate(dateKey(addDays(fromDateKey(selectedDate), -1)))}>
             <ChevronLeft />
@@ -175,28 +190,15 @@ export function WhiteboardApp() {
             <ChevronRight />
           </button>
         </div>
-      </header>
-
-      <div className="date-strip" aria-label="Nearby whiteboards">
-        {nearbyDates.map((day) => (
-          <button key={day} className={day === selectedDate ? "date-chip selected" : "date-chip"} onClick={() => setSelectedDate(day)}>
-            <span>{fromDateKey(day).toLocaleDateString("en-AU", { weekday: "short" })}</span>
-            <strong>{fromDateKey(day).getDate()}</strong>
-            <i className={boardDates.includes(day) ? "has-drawing" : ""} />
-          </button>
-        ))}
-      </div>
-
-      <div className="canvas-wrap">
-        <canvas
-          ref={canvasRef}
-          aria-label={`Whiteboard for ${longDate(selectedDate)}`}
-          onPointerDown={startDrawing}
-          onPointerMove={continueDrawing}
-          onPointerUp={() => void finishDrawing()}
-          onPointerCancel={() => void finishDrawing()}
-        />
-        {strokes.length === 0 && <div className="canvas-hint">Draw something for today</div>}
+        <div className="date-strip" aria-label="Nearby whiteboards">
+          {nearbyDates.map((day) => (
+            <button key={day} className={day === selectedDate ? "date-chip selected" : "date-chip"} onClick={() => setSelectedDate(day)}>
+              <span>{fromDateKey(day).toLocaleDateString("en-AU", { weekday: "short" })}</span>
+              <strong>{fromDateKey(day).getDate()}</strong>
+              <i className={boardDates.includes(day) ? "has-drawing" : ""} />
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="drawing-tools">
