@@ -150,9 +150,8 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 
 /* Idle display */
 .display-app { position: fixed; z-index: 50; inset: 0; overflow: hidden; color: white; background: #161719; cursor: none; }
-.display-media, .display-media video, .media-shade { position: absolute; inset: 0; width: 100%; height: 100%; }
+.display-media, .display-media video { position: absolute; inset: 0; width: 100%; height: 100%; }
 .display-media video { object-fit: cover; }
-.media-shade { background: linear-gradient(90deg, rgba(8,12,18,.82) 0%, rgba(8,12,18,.28) 52%, rgba(8,12,18,.65) 100%), linear-gradient(0deg, rgba(8,12,18,.55), transparent 45%); }
 .display-gradient { width: 100%; height: 100%; display: grid; place-items: center; background: radial-gradient(circle at 70% 25%, #f9a55c, transparent 25%), radial-gradient(circle at 30% 65%, #527fc4, transparent 30%), linear-gradient(135deg, #27294a, #131620); }
 .display-gradient span { font: 700 38vw "Fraunces", serif; opacity: .06; }
 .display-content { position: absolute; z-index: 2; left: 56px; top: 50px; text-shadow: 0 3px 18px rgba(0,0,0,.4); }

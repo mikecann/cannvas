@@ -63,7 +63,6 @@ export function DisplayApp() {
         ) : (
           <div className="display-gradient"><span>C</span></div>
         )}
-        <div className="media-shade" />
       </div>
 
       <div className="display-content">
