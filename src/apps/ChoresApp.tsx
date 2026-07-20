@@ -1,19 +1,23 @@
-import { Check, ChevronLeft, ChevronRight, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, CircleHelp, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { ChoreCategoryPicker } from "../components/ChoreCategoryPicker";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { TouchKeyboard } from "../components/TouchKeyboard";
 import { useCannvasData } from "../data/DataProvider";
+import type { ChoreCategory } from "../data/types";
 import { addDays, dateKey, fromDateKey, money, startOfWeek } from "../lib/dates";
 
 export function ChoresApp() {
-  const { chores, completions, addChore, renameChore, removeChore, toggleCompletion, clearWeek } = useCannvasData();
+  const { chores, completions, addChore, updateChore, removeChore, toggleCompletion, clearWeek } = useCannvasData();
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [showAdd, setShowAdd] = useState(false);
   const [showClear, setShowClear] = useState(false);
+  const [showInfo, setShowInfo] = useState(false);
   const [choreToRemove, setChoreToRemove] = useState<string | null>(null);
   const [choreToEdit, setChoreToEdit] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [value, setValue] = useState("0.50");
+  const [category, setCategory] = useState<ChoreCategory>("standard");
   const [activeField, setActiveField] = useState<"name" | "value">("name");
   const days = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
   const completionKeys = useMemo(
@@ -21,18 +25,24 @@ export function ChoresApp() {
     [completions],
   );
   const weekDates = new Set(days.map(dateKey));
+  const bonusChores = chores.filter((chore) => chore.category === "bonus");
+  const standardChores = chores.filter((chore) => chore.category === "standard");
   const earned = completions.reduce((total, completion) => {
     if (!weekDates.has(completion.date)) return total;
-    return total + (chores.find((chore) => chore.id === completion.choreId)?.valueCents ?? 0);
+    const chore = chores.find((candidate) => candidate.id === completion.choreId);
+    return total + (chore?.category === "bonus" ? chore.valueCents : 0);
   }, 0);
-  const possible = chores.reduce((total, chore) => total + chore.valueCents * 7, 0);
+  const possible = bonusChores.reduce((total, chore) => total + chore.valueCents * 7, 0);
+  const standardDone = completions.filter((completion) => weekDates.has(completion.date) && standardChores.some((chore) => chore.id === completion.choreId)).length;
+  const standardPossible = standardChores.length * 7;
+  const weekCompletionCount = completions.filter((completion) => weekDates.has(completion.date)).length;
   const isThisWeek = dateKey(weekStart) === dateKey(startOfWeek(new Date()));
 
   const submitChore = async (event: React.FormEvent) => {
     event.preventDefault();
     const valueCents = Math.round(Number(value) * 100);
     if (!name.trim() || !Number.isFinite(valueCents) || valueCents < 0) return;
-    await addChore(name.trim(), valueCents);
+    await addChore(name.trim(), valueCents, category);
     setName("");
     setValue("0.50");
     setShowAdd(false);
@@ -41,7 +51,9 @@ export function ChoresApp() {
   const submitRename = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!choreToEdit || !name.trim()) return;
-    await renameChore(choreToEdit, name.trim());
+    const valueCents = Math.round(Number(value) * 100);
+    if (!Number.isFinite(valueCents) || valueCents < 0) return;
+    await updateChore(choreToEdit, name.trim(), valueCents, category);
     setChoreToEdit(null);
   };
 
@@ -49,11 +61,16 @@ export function ChoresApp() {
     setName("");
     setValue("0.50");
     setActiveField("name");
+    setCategory("standard");
     setShowAdd(true);
   };
 
-  const openEdit = (id: string, currentName: string) => {
-    setName(currentName);
+  const openEdit = (id: string) => {
+    const chore = chores.find((candidate) => candidate.id === id);
+    if (!chore) return;
+    setName(chore.name);
+    setValue((chore.valueCents / 100).toFixed(2));
+    setCategory(chore.category);
     setActiveField("name");
     setChoreToEdit(id);
   };
@@ -67,10 +84,11 @@ export function ChoresApp() {
           <p className="header-note">Small jobs, big wins.</p>
         </div>
         <div className="reward-card">
-          <span>Earned this week</span>
+          <span>Bonus earned this week</span>
           <strong>{money(earned)}</strong>
           <div className="reward-progress"><span style={{ width: `${possible ? Math.min(100, (earned / possible) * 100) : 0}%` }} /></div>
-          <small>{money(possible)} possible</small>
+          <small>{money(possible)} bonus available</small>
+          <small className="standard-summary">Standard checks {standardDone}/{standardPossible}</small>
         </div>
       </header>
 
@@ -98,8 +116,8 @@ export function ChoresApp() {
           <div className="chore-grid chore-row" key={chore.id}>
             <div className="chore-name" style={{ "--chore-color": chore.color } as React.CSSProperties}>
               <span className="chore-dot" />
-              <div><strong>{chore.name}</strong><small>{money(chore.valueCents)} each time</small></div>
-              <button className="edit-chore" onClick={() => openEdit(chore.id, chore.name)} aria-label={`Edit ${chore.name}`}><Pencil /></button>
+              <div><strong>{chore.name}</strong><small><span className={`category-badge ${chore.category}`}>{chore.category}</span>{chore.category === "bonus" ? `${money(chore.valueCents)} each time` : "Weekly responsibility"}</small></div>
+              <button className="edit-chore" onClick={() => openEdit(chore.id)} aria-label={`Edit ${chore.name}`}><Pencil /></button>
               <button className="remove-chore" onClick={() => setChoreToRemove(chore.id)} aria-label={`Remove ${chore.name}`}><Trash2 /></button>
             </div>
             {days.map((day) => {
@@ -128,7 +146,8 @@ export function ChoresApp() {
 
       <footer className="chores-actions">
         <button className="button primary" onClick={openAdd}><Plus /> Add a chore</button>
-        <button className="button quiet-danger" onClick={() => setShowClear(true)} disabled={earned === 0}><Trash2 /> Clear this week</button>
+        <button className="button secondary pocket-money-info-button" onClick={() => setShowInfo(true)}><CircleHelp /> How pocket money works</button>
+        <button className="button quiet-danger" onClick={() => setShowClear(true)} disabled={weekCompletionCount === 0}><Trash2 /> Clear this week</button>
       </footer>
 
       {showAdd && (
@@ -136,9 +155,10 @@ export function ChoresApp() {
           <form className="dialog-card add-chore-card chore-editor-card" onSubmit={(event) => void submitChore(event)} onPointerDown={(event) => event.stopPropagation()}>
             <div className="dialog-symbol add"><Plus /></div>
             <h2>Add a new chore</h2>
+            <ChoreCategoryPicker value={category} onChange={(next) => { setCategory(next); if (next === "standard") setActiveField("name"); }} />
             <div className="chore-form-fields">
               <label><span>What needs doing?</span><input className={activeField === "name" ? "active-input" : ""} readOnly value={name} onFocus={() => setActiveField("name")} onPointerDown={() => setActiveField("name")} placeholder="Tap here, then use the keyboard" /></label>
-              <label><span>Pocket money each time</span><div className="money-input"><b>$</b><input className={activeField === "value" ? "active-input" : ""} readOnly value={value} onFocus={() => setActiveField("value")} onPointerDown={() => setActiveField("value")} /></div></label>
+              {category === "bonus" && <label><span>Bonus money each time</span><div className="money-input"><b>$</b><input className={activeField === "value" ? "active-input" : ""} readOnly value={value} onFocus={() => setActiveField("value")} onPointerDown={() => setActiveField("value")} /></div></label>}
             </div>
             <TouchKeyboard mode={activeField === "value" ? "decimal" : "letters"} onChange={activeField === "value" ? setValue : setName} />
             <div className="dialog-actions"><button type="button" className="button secondary" onClick={() => setShowAdd(false)}>Cancel</button><button className="button primary" type="submit" disabled={!name.trim()}>Add chore</button></div>
@@ -150,11 +170,33 @@ export function ChoresApp() {
         <div className="dialog-backdrop" role="presentation" onPointerDown={() => setChoreToEdit(null)}>
           <form className="dialog-card chore-editor-card" onSubmit={(event) => void submitRename(event)} onPointerDown={(event) => event.stopPropagation()}>
             <div className="dialog-symbol edit"><Pencil /></div>
-            <h2>Edit chore name</h2>
-            <label><span>Chore name</span><input className="active-input" readOnly value={name} /></label>
-            <TouchKeyboard onChange={setName} />
-            <div className="dialog-actions"><button type="button" className="button secondary" onClick={() => setChoreToEdit(null)}>Cancel</button><button className="button primary" type="submit" disabled={!name.trim()}>Save name</button></div>
+            <h2>Edit chore</h2>
+            <ChoreCategoryPicker value={category} onChange={(next) => { setCategory(next); if (next === "standard") setActiveField("name"); }} />
+            <label><span>Chore name</span><input className={activeField === "name" ? "active-input" : ""} readOnly value={name} onFocus={() => setActiveField("name")} onPointerDown={() => setActiveField("name")} /></label>
+            {category === "bonus" && <label><span>Bonus money each time</span><div className="money-input"><b>$</b><input className={activeField === "value" ? "active-input" : ""} readOnly value={value} onFocus={() => setActiveField("value")} onPointerDown={() => setActiveField("value")} /></div></label>}
+            <TouchKeyboard mode={activeField === "value" ? "decimal" : "letters"} onChange={activeField === "value" ? setValue : setName} />
+            <div className="dialog-actions"><button type="button" className="button secondary" onClick={() => setChoreToEdit(null)}>Cancel</button><button className="button primary" type="submit" disabled={!name.trim()}>Save chore</button></div>
           </form>
+        </div>
+      )}
+
+      {showInfo && (
+        <div className="dialog-backdrop" role="presentation" onPointerDown={() => setShowInfo(false)}>
+          <section className="dialog-card pocket-money-card" role="dialog" aria-modal="true" aria-labelledby="pocket-money-title" onPointerDown={(event) => event.stopPropagation()}>
+            <div className="dialog-symbol info"><CircleHelp /></div>
+            <h2 id="pocket-money-title">How pocket money works</h2>
+            <div className="category-explanations">
+              <div className="standard"><strong>Standard</strong><p>Regular family responsibilities that need doing for the weekly pocket-money routine. They do not pay per check.</p></div>
+              <div className="bonus"><strong>Bonus</strong><p>Optional extra jobs. Every completed check earns the amount shown on that chore.</p></div>
+            </div>
+            <ul>
+              <li>Payday is Sunday afternoon.</li>
+              <li>The weekly $3 is split into $1 Spend, $1 Grow and $1 Give.</li>
+              <li>Joshua chooses which jar receives his Bonus money.</li>
+              <li>Grow earns a 10% monthly Dad Bank bonus.</li>
+            </ul>
+            <button className="button primary" onClick={() => setShowInfo(false)}>Got it</button>
+          </section>
         </div>
       )}
 

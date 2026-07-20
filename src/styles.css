@@ -113,12 +113,13 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .reward-progress { height: 7px; overflow: hidden; border-radius: 10px; background: rgba(255,255,255,.15); }
 .reward-progress span { display: block; height: 100%; border-radius: inherit; background: #ffd36f; transition: width .3s ease; }
 .reward-card small { margin-top: 6px; text-align: right; }
+.reward-card .standard-summary { margin-top: 9px; padding-top: 7px; border-top: 1px solid rgba(255,255,255,.14); color: #aee3d3; }
 .week-toolbar { margin: 20px auto 14px; display: flex; align-items: center; justify-content: center; gap: 12px; }
 .week-label { min-width: 220px; padding: 7px 15px; display: flex; flex-direction: column; align-items: center; border: 0; background: transparent; }
 .week-label strong { font-size: 1.08rem; }
 .week-label span { color: var(--orange); font-size: .7rem; }
 .chore-board { min-width: 870px; overflow: hidden; border: 1px solid #e0d8cb; border-radius: 25px; background: rgba(255,253,248,.82); box-shadow: var(--shadow); }
-.chore-grid { display: grid; grid-template-columns: minmax(220px, 1.8fr) repeat(7, minmax(70px, 1fr)); }
+.chore-grid { display: grid; grid-template-columns: minmax(270px, 2.2fr) repeat(7, minmax(70px, 1fr)); }
 .grid-header { min-height: 76px; border-bottom: 1px solid #e7e0d5; background: rgba(238,232,220,.6); }
 .chore-title-cell { padding-left: 22px; display: flex; align-items: center; font: 700 1.2rem "Fraunces", serif; }
 .day-heading { display: flex; flex-direction: column; align-items: center; justify-content: center; border-left: 1px solid #e7e0d5; }
@@ -130,9 +131,12 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .chore-row:last-child { border-bottom: 0; }
 .chore-name { padding: 12px 12px 12px 20px; display: flex; align-items: center; gap: 12px; }
 .chore-dot { width: 13px; height: 38px; flex: 0 0 auto; border-radius: 8px; background: var(--chore-color); }
-.chore-name > div { min-width: 0; display: flex; flex-direction: column; }
+.chore-name > div { min-width: 0; display: flex; flex: 1; flex-direction: column; }
 .chore-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1rem; }
-.chore-name small { color: var(--muted); font-size: .72rem; }
+.chore-name small { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: .68rem; }
+.category-badge { padding: 2px 6px; border-radius: 999px; font-size: .58rem; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; }
+.category-badge.standard { color: #176d5a; background: #d9f0e9; }
+.category-badge.bonus { color: #8b5c08; background: #ffebae; }
 .edit-chore, .remove-chore { width: 42px; height: 42px; display: grid; place-items: center; border: 0; border-radius: 13px; color: #aaa39a; background: transparent; }
 .edit-chore { margin-left: auto; color: #6f777b; }
 .edit-chore svg, .remove-chore svg { width: 17px; }
@@ -143,7 +147,8 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .empty-chores { padding: 60px 20px; text-align: center; color: var(--muted); }
 .empty-chores svg { width: 40px; height: 40px; color: #f2a821; }
 .empty-chores h2 { margin: 8px 0; color: var(--ink); font-family: "Fraunces", serif; }
-.chores-actions { padding: 16px 0 0; display: flex; justify-content: space-between; }
+.chores-actions { padding: 16px 0 0; display: flex; justify-content: space-between; gap: 10px; }
+.pocket-money-info-button { margin-left: auto; }
 
 /* Dialogs */
 .dialog-backdrop { position: fixed; z-index: 100; inset: 0; padding: 30px; display: grid; place-items: center; background: rgba(31,31,30,.52); backdrop-filter: blur(10px); }
@@ -152,6 +157,7 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .dialog-symbol { width: 54px; height: 54px; margin: auto; display: grid; place-items: center; border-radius: 18px; color: white; background: #d74c43; font: 800 1.7rem "Fraunces", serif; }
 .dialog-symbol.add { background: var(--green); }
 .dialog-symbol.edit { background: #3478d4; }
+.dialog-symbol.info { background: #7a5ac7; }
 .dialog-copy { color: var(--muted); line-height: 1.5; }
 .dialog-actions { margin-top: 24px; display: flex; gap: 10px; justify-content: center; }
 .dialog-actions .button { flex: 1; }
@@ -167,6 +173,7 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .chore-editor-card h2 { margin-top: 8px; }
 .chore-editor-card > label, .chore-form-fields label { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; text-align: left; }
 .chore-form-fields { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; }
+.chore-form-fields > label:only-child { grid-column: 1 / -1; }
 .chore-editor-card input { height: 62px; font-size: 1.15rem; }
 .chore-editor-card input.active-input { border-color: #3478d4; box-shadow: 0 0 0 4px rgba(52,120,212,.14); }
 .touch-keyboard { margin-top: 16px; display: grid; gap: 8px; }
@@ -177,6 +184,23 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .touch-keyboard .compact-row { margin-top: 1px; }
 .numeric-keyboard { min-height: 230px; align-content: center; }
 .numeric-keyboard .touch-keyboard-row:first-child { flex-wrap: wrap; max-width: 830px; margin: auto; }
+.category-picker { margin: 12px 0 0; padding: 0; border: 0; text-align: left; }
+.category-picker legend { margin-bottom: 6px; font-size: .82rem; font-weight: 800; }
+.category-picker > div { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.category-picker button { min-height: 60px; padding: 8px 14px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; border: 2px solid #ded7cc; border-radius: 15px; background: white; }
+.category-picker button span { color: var(--muted); font-size: .72rem; }
+.category-picker button.standard.selected { border-color: #168b70; background: #ecf8f4; box-shadow: 0 0 0 3px rgba(22,139,112,.12); }
+.category-picker button.bonus.selected { border-color: #d99b19; background: #fff8df; box-shadow: 0 0 0 3px rgba(217,155,25,.12); }
+.pocket-money-card { width: min(88vw, 650px); text-align: left; }
+.pocket-money-card h2 { text-align: center; }
+.category-explanations { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 20px 0; }
+.category-explanations > div { padding: 16px; border-radius: 17px; }
+.category-explanations .standard { background: #e7f5f0; }
+.category-explanations .bonus { background: #fff3c8; }
+.category-explanations strong { font-size: 1.05rem; }
+.category-explanations p { margin: 5px 0 0; color: #55534f; line-height: 1.4; }
+.pocket-money-card ul { margin: 0 0 22px; padding-left: 24px; color: #55534f; line-height: 1.55; }
+.pocket-money-card > .button { width: 100%; }
 
 /* Idle display */
 .display-app { position: fixed; z-index: 50; inset: 0; overflow: hidden; color: white; background: #161719; cursor: none; }
@@ -211,7 +235,7 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
   .week-toolbar { margin-top: auto; }
   .chore-board, .chores-actions { flex: 0 0 auto; }
   .chore-board { min-width: 0; overflow-x: auto; }
-  .chore-grid { min-width: 940px; }
+  .chore-grid { min-width: 990px; }
   .display-content { top: 80px; left: 48px; }
   .display-time { font-size: 9rem; }
   .display-widgets { bottom: 72px; }

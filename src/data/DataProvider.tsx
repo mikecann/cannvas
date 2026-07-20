@@ -9,7 +9,7 @@ import {
 import { ConvexProvider, ConvexReactClient, useAction, useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
-import type { CannvasData, Chore, Completion, NewsHeadline, Stroke } from "./types";
+import type { CannvasData, Chore, ChoreCategory, Completion, NewsHeadline, Stroke } from "./types";
 
 const DataContext = createContext<CannvasData | null>(null);
 const STORAGE_KEY = "cannvas-local-data-v1";
@@ -29,9 +29,9 @@ type LocalState = {
 const initialState: LocalState = {
   boards: {},
   chores: [
-    { id: "make-bed", name: "Make my bed", valueCents: 50, color: COLORS[0], position: 0 },
-    { id: "feed-pets", name: "Feed the pets", valueCents: 50, color: COLORS[2], position: 1 },
-    { id: "tidy-room", name: "Tidy my room", valueCents: 100, color: COLORS[3], position: 2 },
+    { id: "make-bed", name: "Make my bed", valueCents: 50, category: "standard", color: COLORS[0], position: 0 },
+    { id: "feed-pets", name: "Feed the pets", valueCents: 50, category: "standard", color: COLORS[2], position: 1 },
+    { id: "tidy-room", name: "Tidy my room", valueCents: 100, category: "standard", color: COLORS[3], position: 2 },
   ],
   completions: [],
 };
@@ -39,7 +39,10 @@ const initialState: LocalState = {
 function readLocalState(): LocalState {
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY);
-    return stored ? (JSON.parse(stored) as LocalState) : initialState;
+    if (!stored) return initialState;
+    const state = JSON.parse(stored) as LocalState;
+    // Local data predates categories, just like the production Convex rows.
+    return { ...state, chores: state.chores.map((chore) => ({ ...chore, category: chore.category ?? "standard" })) };
   } catch {
     return initialState;
   }
@@ -63,22 +66,23 @@ function LocalDataProvider({ children }: PropsWithChildren) {
     chores: state.chores,
     completions: state.completions,
     newsHeadlines: PREVIEW_HEADLINES,
-    addChore: async (name, valueCents) => {
+    addChore: async (name, valueCents, category) => {
       setState((current) => ({
         ...current,
         chores: [...current.chores, {
           id: crypto.randomUUID(),
           name,
           valueCents,
+          category,
           color: COLORS[current.chores.length % COLORS.length],
           position: current.chores.length,
         }],
       }));
     },
-    renameChore: async (id, name) => {
+    updateChore: async (id, name, valueCents, category) => {
       setState((current) => ({
         ...current,
-        chores: current.chores.map((chore) => chore.id === id ? { ...chore, name } : chore),
+        chores: current.chores.map((chore) => chore.id === id ? { ...chore, name, valueCents, category } : chore),
       }));
     },
     removeChore: async (id) => {
@@ -123,7 +127,7 @@ function LocalDataProvider({ children }: PropsWithChildren) {
 }
 
 type ConvexBoard = { date: string; strokes: Stroke[] };
-type ConvexChore = Chore & { _id: Id<"chores"> };
+type ConvexChore = Omit<Chore, "category"> & { category?: ChoreCategory; _id: Id<"chores"> };
 
 function ConvexDataProvider({ children }: PropsWithChildren) {
   const boards = useQuery(api.boards.list) as ConvexBoard[] | undefined;
@@ -133,7 +137,7 @@ function ConvexDataProvider({ children }: PropsWithChildren) {
   const saveBoardMutation = useMutation(api.boards.save);
   const addChoreMutation = useMutation(api.chores.add);
   const removeChoreMutation = useMutation(api.chores.remove);
-  const renameChoreMutation = useMutation(api.chores.rename);
+  const updateChoreMutation = useMutation(api.chores.update);
   const toggleMutation = useMutation(api.chores.toggleCompletion);
   const clearMutation = useMutation(api.chores.clearWeek);
   const loadWorldNews = useAction(api.news.world);
@@ -162,11 +166,11 @@ function ConvexDataProvider({ children }: PropsWithChildren) {
     boardDates: (boards ?? []).filter((board) => board.strokes.length > 0).map((board) => board.date),
     getBoard: (date) => boards?.find((board) => board.date === date)?.strokes ?? [],
     saveBoard: async (date, strokes) => { await saveBoardMutation({ date, strokes }); },
-    chores: (chores ?? []).map(({ _id, ...chore }) => ({ ...chore, id: _id })),
+    chores: (chores ?? []).map(({ _id, ...chore }) => ({ ...chore, category: chore.category ?? "standard", id: _id })),
     completions: completions ?? [],
     newsHeadlines,
-    addChore: async (name, valueCents) => { await addChoreMutation({ name, valueCents }); },
-    renameChore: async (id, name) => { await renameChoreMutation({ id: id as Id<"chores">, name }); },
+    addChore: async (name, valueCents, category) => { await addChoreMutation({ name, valueCents, category }); },
+    updateChore: async (id, name, valueCents, category) => { await updateChoreMutation({ id: id as Id<"chores">, name, valueCents, category }); },
     removeChore: async (id) => { await removeChoreMutation({ id: id as Id<"chores"> }); },
     toggleCompletion: async (choreId, date) => { await toggleMutation({ choreId: choreId as Id<"chores">, date }); },
     clearWeek: async (weekStart) => { await clearMutation({ weekStart }); },
@@ -179,7 +183,7 @@ function ConvexDataProvider({ children }: PropsWithChildren) {
     clearMutation,
     completions,
     newsHeadlines,
-    renameChoreMutation,
+    updateChoreMutation,
     removeChoreMutation,
     saveBoardMutation,
     toggleMutation,

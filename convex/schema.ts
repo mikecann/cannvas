@@ -20,6 +20,8 @@ export default defineSchema({
   chores: defineTable({
     name: v.string(),
     valueCents: v.number(),
+    // Optional keeps existing production chores valid; the app treats missing as Standard.
+    category: v.optional(v.union(v.literal("standard"), v.literal("bonus"))),
     color: v.string(),
     position: v.number(),
     active: v.boolean(),
