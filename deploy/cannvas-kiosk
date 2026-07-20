@@ -1,0 +1,24 @@
+#!/bin/sh
+set -eu
+
+app_url=http://127.0.0.1:4173
+
+# The desktop can start a little before the web service. Avoid showing Chromium's
+# connection error page by waiting for Cannvas to answer first.
+until /usr/bin/curl --fail --silent --output /dev/null "$app_url"; do
+  sleep 1
+done
+
+exec /usr/bin/chromium \
+  --kiosk \
+  --app="$app_url" \
+  --ozone-platform=wayland \
+  --lang=en-AU \
+  --no-first-run \
+  --noerrdialogs \
+  --disable-infobars \
+  --disable-pinch \
+  --disable-session-crashed-bubble \
+  --disable-features=TranslateUI \
+  --overscroll-history-navigation=0 \
+  --password-store=basic

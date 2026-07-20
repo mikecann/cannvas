@@ -1,0 +1,22 @@
+[Unit]
+Description=Cannvas touchscreen web app
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/opt/cannvas/current
+ExecStart=/usr/bin/python3 -m http.server 4173 --bind 127.0.0.1 --directory /opt/cannvas/current
+Restart=on-failure
+RestartSec=2
+
+# The static app only needs to read its release directory and open a local port.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
