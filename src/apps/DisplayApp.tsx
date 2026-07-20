@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 // The mirror streams Joshua's videos directly from the Josh Photos share.
 const VIDEO_ROOT = "http://192.168.1.168:6113/Josh%20Photos/";
-const VIDEO_CACHE_KEY = "cannvas-video-list-v1";
+const VIDEO_CACHE_KEY = "cannvas-video-list-v2";
 const VIDEO_PATTERN = /<a href="([^"]+)"/g;
 const YR_METEOGRAM = "https://www.yr.no/en/content/2-2075265/meteogram.svg";
 
