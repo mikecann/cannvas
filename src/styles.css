@@ -169,21 +169,13 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .money-input { position: relative; }
 .money-input b { position: absolute; left: 17px; top: 50%; transform: translateY(-50%); }
 .money-input input { padding-left: 36px; }
-.chore-editor-card { width: min(94vw, 920px); padding: 22px 26px; }
+.chore-editor-card { width: min(88vw, 720px); padding: 26px 30px; }
 .chore-editor-card h2 { margin-top: 8px; }
 .chore-editor-card > label, .chore-form-fields label { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; text-align: left; }
 .chore-form-fields { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; }
 .chore-form-fields > label:only-child { grid-column: 1 / -1; }
 .chore-editor-card input { height: 62px; font-size: 1.15rem; }
-.chore-editor-card input.active-input { border-color: #3478d4; box-shadow: 0 0 0 4px rgba(52,120,212,.14); }
-.touch-keyboard { margin-top: 16px; display: grid; gap: 8px; }
-.touch-keyboard-row { display: flex; justify-content: center; gap: 7px; }
-.touch-keyboard button { width: 76px; height: 68px; border: 1px solid #d8d1c6; border-radius: 13px; background: white; box-shadow: 0 3px 0 #c9c1b6; font-size: 1.15rem; font-weight: 800; }
-.touch-keyboard button:active { transform: translateY(3px); box-shadow: none; background: #edf4ff; }
-.touch-keyboard .keyboard-wide-key { width: 230px; }
-.touch-keyboard .compact-row { margin-top: 1px; }
-.numeric-keyboard { min-height: 230px; align-content: center; }
-.numeric-keyboard .touch-keyboard-row:first-child { flex-wrap: wrap; max-width: 830px; margin: auto; }
+.chore-editor-card input:focus { border-color: #3478d4; outline: 0; box-shadow: 0 0 0 4px rgba(52,120,212,.14); }
 .category-picker { margin: 12px 0 0; padding: 0; border: 0; text-align: left; }
 .category-picker legend { margin-bottom: 6px; font-size: .82rem; font-weight: 800; }
 .category-picker > div { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }

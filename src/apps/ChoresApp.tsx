@@ -2,7 +2,6 @@ import { Check, ChevronLeft, ChevronRight, CircleHelp, Pencil, Plus, Sparkles, T
 import { useMemo, useState } from "react";
 import { ChoreCategoryPicker } from "../components/ChoreCategoryPicker";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { TouchKeyboard } from "../components/TouchKeyboard";
 import { useCannvasData } from "../data/DataProvider";
 import type { ChoreCategory } from "../data/types";
 import { addDays, dateKey, fromDateKey, money, startOfWeek } from "../lib/dates";
@@ -18,7 +17,6 @@ export function ChoresApp() {
   const [name, setName] = useState("");
   const [value, setValue] = useState("0.50");
   const [category, setCategory] = useState<ChoreCategory>("standard");
-  const [activeField, setActiveField] = useState<"name" | "value">("name");
   const days = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
   const completionKeys = useMemo(
     () => new Set(completions.map(({ choreId, date }) => `${choreId}:${date}`)),
@@ -60,7 +58,6 @@ export function ChoresApp() {
   const openAdd = () => {
     setName("");
     setValue("0.50");
-    setActiveField("name");
     setCategory("standard");
     setShowAdd(true);
   };
@@ -71,7 +68,6 @@ export function ChoresApp() {
     setName(chore.name);
     setValue((chore.valueCents / 100).toFixed(2));
     setCategory(chore.category);
-    setActiveField("name");
     setChoreToEdit(id);
   };
 
@@ -155,12 +151,11 @@ export function ChoresApp() {
           <form className="dialog-card add-chore-card chore-editor-card" onSubmit={(event) => void submitChore(event)} onPointerDown={(event) => event.stopPropagation()}>
             <div className="dialog-symbol add"><Plus /></div>
             <h2>Add a new chore</h2>
-            <ChoreCategoryPicker value={category} onChange={(next) => { setCategory(next); if (next === "standard") setActiveField("name"); }} />
+            <ChoreCategoryPicker value={category} onChange={setCategory} />
             <div className="chore-form-fields">
-              <label><span>What needs doing?</span><input className={activeField === "name" ? "active-input" : ""} readOnly value={name} onFocus={() => setActiveField("name")} onPointerDown={() => setActiveField("name")} placeholder="Tap here, then use the keyboard" /></label>
-              {category === "bonus" && <label><span>Bonus money each time</span><div className="money-input"><b>$</b><input className={activeField === "value" ? "active-input" : ""} readOnly value={value} onFocus={() => setActiveField("value")} onPointerDown={() => setActiveField("value")} /></div></label>}
+              <label><span>What needs doing?</span><input type="text" value={name} onChange={(event) => setName(event.target.value)} autoComplete="off" autoCapitalize="sentences" enterKeyHint="done" placeholder="Tap here to enter a chore" /></label>
+              {category === "bonus" && <label><span>Bonus money each time</span><div className="money-input"><b>$</b><input type="text" inputMode="decimal" value={value} onChange={(event) => setValue(event.target.value)} autoComplete="off" enterKeyHint="done" /></div></label>}
             </div>
-            <TouchKeyboard mode={activeField === "value" ? "decimal" : "letters"} onChange={activeField === "value" ? setValue : setName} />
             <div className="dialog-actions"><button type="button" className="button secondary" onClick={() => setShowAdd(false)}>Cancel</button><button className="button primary" type="submit" disabled={!name.trim()}>Add chore</button></div>
           </form>
         </div>
@@ -171,10 +166,9 @@ export function ChoresApp() {
           <form className="dialog-card chore-editor-card" onSubmit={(event) => void submitRename(event)} onPointerDown={(event) => event.stopPropagation()}>
             <div className="dialog-symbol edit"><Pencil /></div>
             <h2>Edit chore</h2>
-            <ChoreCategoryPicker value={category} onChange={(next) => { setCategory(next); if (next === "standard") setActiveField("name"); }} />
-            <label><span>Chore name</span><input className={activeField === "name" ? "active-input" : ""} readOnly value={name} onFocus={() => setActiveField("name")} onPointerDown={() => setActiveField("name")} /></label>
-            {category === "bonus" && <label><span>Bonus money each time</span><div className="money-input"><b>$</b><input className={activeField === "value" ? "active-input" : ""} readOnly value={value} onFocus={() => setActiveField("value")} onPointerDown={() => setActiveField("value")} /></div></label>}
-            <TouchKeyboard mode={activeField === "value" ? "decimal" : "letters"} onChange={activeField === "value" ? setValue : setName} />
+            <ChoreCategoryPicker value={category} onChange={setCategory} />
+            <label><span>Chore name</span><input type="text" value={name} onChange={(event) => setName(event.target.value)} autoComplete="off" autoCapitalize="sentences" enterKeyHint="done" /></label>
+            {category === "bonus" && <label><span>Bonus money each time</span><div className="money-input"><b>$</b><input type="text" inputMode="decimal" value={value} onChange={(event) => setValue(event.target.value)} autoComplete="off" enterKeyHint="done" /></div></label>}
             <div className="dialog-actions"><button type="button" className="button secondary" onClick={() => setChoreToEdit(null)}>Cancel</button><button className="button primary" type="submit" disabled={!name.trim()}>Save chore</button></div>
           </form>
         </div>

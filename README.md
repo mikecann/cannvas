@@ -34,6 +34,11 @@ Production assets live under versioned `/opt/cannvas/releases` directories.
 `cannvas-web.service` serves the active release on localhost, and Labwc starts
 Chromium in Wayland kiosk mode after the service is reachable.
 
+Chore text fields use the system Squeekboard keyboard rather than an in-app
+keyboard. The mirror's larger touch layout lives at
+`~/.local/share/squeekboard/keyboards/us.yaml`; its tracked source is
+`deploy/squeekboard-us.yaml`.
+
 ### Multi-touch check
 
 The whiteboard handles concurrent pointer contacts, and the kiosk launcher does
