@@ -1,0 +1,2 @@
+# Raspberry Pi's sbtest launcher sources this file before starting Squeekboard.
+export SQUEEKBOARD_KEYBOARDSDIR=/home/pi/.local/share/squeekboard/keyboards

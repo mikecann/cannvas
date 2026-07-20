@@ -39,6 +39,9 @@ keyboard. The mirror's larger touch layout lives at
 `~/.local/share/squeekboard/keyboards/us.yaml` and `us_wide.yaml`; both use the
 tracked source `deploy/squeekboard-us.yaml`. The rotated display currently asks
 Squeekboard for the wide layout name even though it is portrait on the wall.
+The Raspberry Pi `sbtest` launcher sources `deploy/squeekboard-output`, installed
+as `/usr/share/squeekboard/output`, so the older packaged Squeekboard build finds
+the custom layout directory after every reboot.
 
 ### Multi-touch check
 
