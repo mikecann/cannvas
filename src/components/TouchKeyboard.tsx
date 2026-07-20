@@ -23,7 +23,7 @@ export function TouchKeyboard({ mode = "letters", onChange }: TouchKeyboardProps
         </div>
         <div className="touch-keyboard-row compact-row">
           <button type="button" onClick={() => onChange((current) => current.includes(".") ? current : `${current}.`)}>.</button>
-          <button type="button" className="keyboard-wide-key" onClick={erase}>⌫ Delete</button>
+          <button type="button" className="keyboard-wide-key" onClick={erase}>Delete</button>
         </div>
       </div>
     );
@@ -40,7 +40,7 @@ export function TouchKeyboard({ mode = "letters", onChange }: TouchKeyboardProps
       ))}
       <div className="touch-keyboard-row compact-row">
         <button type="button" className="keyboard-wide-key" onClick={() => onChange((current) => `${current} `)}>Space</button>
-        <button type="button" className="keyboard-wide-key" onClick={erase}>⌫ Delete</button>
+        <button type="button" className="keyboard-wide-key" onClick={erase}>Delete</button>
       </div>
     </div>
   );
