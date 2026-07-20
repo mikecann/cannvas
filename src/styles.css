@@ -58,9 +58,9 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 /* Whiteboard */
 .whiteboard-app { height: 100%; padding: 34px 34px 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto; gap: 16px; }
 .whiteboard-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
-.whiteboard-date-controls { display: flex; align-items: center; justify-content: center; gap: 18px; }
-.date-navigation { display: flex; align-items: center; gap: 9px; }
+.whiteboard-date-controls { display: flex; align-items: center; gap: 12px; }
 .date-picker { height: 56px; min-width: 190px; padding: 7px 14px; position: relative; display: flex; flex-direction: column; justify-content: center; border: 1px solid #dfd8cc; border-radius: 17px; background: var(--paper); cursor: pointer; }
+.whiteboard-date-controls .date-picker { margin-left: auto; }
 .date-picker span { color: var(--muted); font-size: .65rem; font-weight: 700; text-transform: uppercase; }
 .date-picker strong { font-size: .9rem; }
 .date-picker input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
@@ -172,7 +172,6 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
   .app-stage { height: calc(100% - 132px); }
   .whiteboard-app, .chores-app { padding-left: 28px; padding-right: 28px; }
   .whiteboard-header { align-items: center; }
-  .whiteboard-date-controls { flex-direction: column; gap: 10px; }
   .drawing-tools { flex-wrap: wrap; }
   .history-tools { margin-left: auto; }
   .chores-app { display: flex; flex-direction: column; overflow: hidden; }
@@ -190,7 +189,8 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
   .app-dock { min-width: calc(100vw - 24px); bottom: 12px; }
   .dock-item { min-width: 105px; }
   .whiteboard-header { align-items: flex-start; }
-  .date-navigation { align-items: stretch; }
+  .whiteboard-date-controls { flex-wrap: wrap; justify-content: center; }
+  .whiteboard-date-controls .date-picker { margin-left: 0; }
   .date-picker { min-width: 150px; }
   .reward-card { min-width: 220px; }
 }

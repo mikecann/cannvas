@@ -177,19 +177,9 @@ export function WhiteboardApp() {
       </div>
 
       <div className="whiteboard-date-controls">
-        <div className="date-navigation">
-          <button className="icon-button" aria-label="Previous day" onClick={() => setSelectedDate(dateKey(addDays(fromDateKey(selectedDate), -1)))}>
-            <ChevronLeft />
-          </button>
-          <label className="date-picker">
-            <span>Choose date</span>
-            <strong>{fromDateKey(selectedDate).toLocaleDateString("en-AU")}</strong>
-            <input aria-label="Choose date" type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
-          </label>
-          <button className="icon-button" aria-label="Next day" onClick={() => setSelectedDate(dateKey(addDays(fromDateKey(selectedDate), 1)))}>
-            <ChevronRight />
-          </button>
-        </div>
+        <button className="icon-button" aria-label="Previous day" onClick={() => setSelectedDate(dateKey(addDays(fromDateKey(selectedDate), -1)))}>
+          <ChevronLeft />
+        </button>
         <div className="date-strip" aria-label="Nearby whiteboards">
           {nearbyDates.map((day) => (
             <button key={day} className={day === selectedDate ? "date-chip selected" : "date-chip"} onClick={() => setSelectedDate(day)}>
@@ -199,6 +189,14 @@ export function WhiteboardApp() {
             </button>
           ))}
         </div>
+        <button className="icon-button" aria-label="Next day" onClick={() => setSelectedDate(dateKey(addDays(fromDateKey(selectedDate), 1)))}>
+          <ChevronRight />
+        </button>
+        <label className="date-picker">
+          <span>Choose date</span>
+          <strong>{fromDateKey(selectedDate).toLocaleDateString("en-AU")}</strong>
+          <input aria-label="Choose date" type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
+        </label>
       </div>
 
       <div className="drawing-tools">
