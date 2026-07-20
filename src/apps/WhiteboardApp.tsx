@@ -3,6 +3,8 @@ import {
   ChevronRight,
   Circle,
   Eraser,
+  Palette,
+  Pencil,
   RotateCcw,
   Trash2,
 } from "lucide-react";
@@ -19,9 +21,21 @@ import type { Point, Stroke } from "../data/types";
 import { addDays, dateKey, fromDateKey, longDate } from "../lib/dates";
 
 const COLORS = ["#20252b", "#f05b52", "#f5a623", "#168b70", "#3478d4", "#894fc7"];
+const STICKERS = ["⭐", "❤️", "😊", "🌈", "🦖", "🚀", "⚽", "🐾"];
+type DrawingTool = "pen" | "eraser" | "sticker";
 
 function drawStroke(context: CanvasRenderingContext2D, stroke: Stroke, width: number, height: number) {
   if (stroke.points.length === 0) return;
+  if (stroke.kind === "sticker" && stroke.sticker) {
+    const point = stroke.points[0];
+    context.save();
+    context.font = `${stroke.width}px system-ui, sans-serif`;
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText(stroke.sticker, point.x * width, point.y * height);
+    context.restore();
+    return;
+  }
   context.beginPath();
   context.strokeStyle = stroke.color;
   context.lineWidth = stroke.width;
@@ -41,9 +55,13 @@ export function WhiteboardApp() {
   const [redoStack, setRedoStack] = useState<Stroke[]>([]);
   const [color, setColor] = useState(COLORS[0]);
   const [lineWidth, setLineWidth] = useState(5);
+  const [tool, setTool] = useState<DrawingTool>("pen");
+  const [sticker, setSticker] = useState(STICKERS[0]);
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const drawing = useRef<Stroke | null>(null);
+  const activeStrokes = useRef(new Map<number, Stroke>());
+  const activeErasers = useRef(new Set<number>());
   const strokesRef = useRef(strokes);
 
   useEffect(() => {
@@ -66,7 +84,7 @@ export function WhiteboardApp() {
     const cssWidth = canvas.width / window.devicePixelRatio;
     const cssHeight = canvas.height / window.devicePixelRatio;
     for (const stroke of strokesRef.current) drawStroke(context, stroke, cssWidth, cssHeight);
-    if (drawing.current) drawStroke(context, drawing.current, cssWidth, cssHeight);
+    for (const stroke of activeStrokes.current.values()) drawStroke(context, stroke, cssWidth, cssHeight);
     context.restore();
   }, []);
 
@@ -100,30 +118,77 @@ export function WhiteboardApp() {
   };
 
   const startDrawing = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const point = pointFromEvent(event);
+    if (tool === "sticker") {
+      const next = [...strokesRef.current, {
+        id: crypto.randomUUID(),
+        kind: "sticker" as const,
+        color,
+        width: 72,
+        points: [point],
+        sticker,
+      }];
+      strokesRef.current = next;
+      setStrokes(next);
+      setRedoStack([]);
+      void saveBoard(selectedDate, next);
+      return;
+    }
     event.currentTarget.setPointerCapture(event.pointerId);
-    drawing.current = {
+    if (tool === "eraser") {
+      activeErasers.current.add(event.pointerId);
+      eraseAt(point);
+      return;
+    }
+    activeStrokes.current.set(event.pointerId, {
       id: crypto.randomUUID(),
+      kind: "stroke",
       color,
       width: lineWidth,
-      points: [pointFromEvent(event)],
-    };
+      points: [point],
+    });
     setRedoStack([]);
     redraw();
   };
 
   const continueDrawing = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!drawing.current) return;
-    drawing.current.points.push(pointFromEvent(event));
+    const point = pointFromEvent(event);
+    if (activeErasers.current.has(event.pointerId)) {
+      eraseAt(point);
+      return;
+    }
+    const stroke = activeStrokes.current.get(event.pointerId);
+    if (!stroke) return;
+    stroke.points.push(point);
     redraw();
   };
 
-  const finishDrawing = async () => {
-    if (!drawing.current) return;
-    const next = [...strokesRef.current, drawing.current];
-    drawing.current = null;
+  const finishDrawing = async (pointerId: number) => {
+    if (activeErasers.current.delete(pointerId)) return;
+    const stroke = activeStrokes.current.get(pointerId);
+    if (!stroke) return;
+    activeStrokes.current.delete(pointerId);
+    const next = [...strokesRef.current, stroke];
     strokesRef.current = next;
     setStrokes(next);
     await saveBoard(selectedDate, next);
+  };
+
+  const eraseAt = (point: Point) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const radius = 34;
+    const isNear = (candidate: Point) => Math.hypot(
+      (candidate.x - point.x) * rect.width,
+      (candidate.y - point.y) * rect.height,
+    ) <= radius;
+    const next = strokesRef.current.filter((stroke) => !stroke.points.some(isNear));
+    if (next.length === strokesRef.current.length) return;
+    strokesRef.current = next;
+    setStrokes(next);
+    setRedoStack([]);
+    void saveBoard(selectedDate, next);
   };
 
   const undo = async () => {
@@ -170,8 +235,8 @@ export function WhiteboardApp() {
           aria-label={`Whiteboard for ${longDate(selectedDate)}`}
           onPointerDown={startDrawing}
           onPointerMove={continueDrawing}
-          onPointerUp={() => void finishDrawing()}
-          onPointerCancel={() => void finishDrawing()}
+          onPointerUp={(event) => void finishDrawing(event.pointerId)}
+          onPointerCancel={(event) => void finishDrawing(event.pointerId)}
         />
         {strokes.length === 0 && <div className="canvas-hint">Draw something for today</div>}
       </div>
@@ -200,6 +265,25 @@ export function WhiteboardApp() {
       </div>
 
       <div className="drawing-tools">
+        <div className="tool-menu-wrap">
+          {toolsOpen && (
+            <div className="whiteboard-tool-tray" role="menu" aria-label="Whiteboard tools">
+              <div className="tool-mode-row">
+                <button className={tool === "pen" ? "tray-tool selected" : "tray-tool"} onClick={() => { setTool("pen"); setToolsOpen(false); }}><Pencil /> Pen</button>
+                <button className={tool === "eraser" ? "tray-tool selected" : "tray-tool"} onClick={() => { setTool("eraser"); setToolsOpen(false); }}><Eraser /> Eraser</button>
+              </div>
+              <p>Stickers</p>
+              <div className="sticker-tools">
+                {STICKERS.map((value) => (
+                  <button key={value} className={tool === "sticker" && sticker === value ? "sticker-button selected" : "sticker-button"} onClick={() => { setSticker(value); setTool("sticker"); setToolsOpen(false); }} aria-label={`Use ${value} sticker`}>{value}</button>
+                ))}
+              </div>
+            </div>
+          )}
+          <button className={toolsOpen ? "tool-button tools-button selected" : "tool-button tools-button"} aria-expanded={toolsOpen} onClick={() => setToolsOpen((open) => !open)}>
+            <Palette /> Tools
+          </button>
+        </div>
         <div className="color-tools" aria-label="Pen colours">
           {COLORS.map((value) => (
             <button

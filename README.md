@@ -33,3 +33,12 @@ the dock `Local`. This is useful for UI work, but the Pi release must show
 Production assets live under versioned `/opt/cannvas/releases` directories.
 `cannvas-web.service` serves the active release on localhost, and Labwc starts
 Chromium in Wayland kiosk mode after the service is reachable.
+
+### Multi-touch check
+
+The whiteboard handles concurrent pointer contacts, and the kiosk launcher does
+not disable touch input. On the Pi, `sudo libinput debug-events` should show a
+separate `TOUCH_DOWN` event for each finger. If it reports only one contact,
+check the display's USB touch cable and driver; HDMI carries the picture but
+usually not touch input. `sudo evtest` can also confirm that the device exposes
+`ABS_MT_SLOT` and `ABS_MT_TRACKING_ID`, which indicate multi-touch support.

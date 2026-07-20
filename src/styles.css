@@ -78,6 +78,19 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .canvas-hint { position: absolute; inset: 0; z-index: 1; display: grid; place-items: center; color: #c0b9ad; font: 600 1.4rem "Fraunces", serif; pointer-events: none; }
 .drawing-tools { min-height: 70px; padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-radius: 20px; background: #e8e1d5; }
 .color-tools, .width-tools, .history-tools { display: flex; align-items: center; gap: 7px; }
+.tool-menu-wrap { position: relative; }
+.tools-button { min-width: 92px; background: rgba(255,253,248,.7); }
+.tools-button.selected { color: white; background: var(--ink); }
+.whiteboard-tool-tray { position: absolute; z-index: 20; left: 0; bottom: calc(100% + 18px); width: 390px; padding: 16px; border: 1px solid #ddd5c8; border-radius: 22px; background: var(--paper); box-shadow: 0 18px 50px rgba(54,45,34,.2); }
+.whiteboard-tool-tray::after { content: ""; position: absolute; left: 34px; bottom: -9px; width: 18px; height: 18px; transform: rotate(45deg); border-right: 1px solid #ddd5c8; border-bottom: 1px solid #ddd5c8; background: var(--paper); }
+.tool-mode-row { display: flex; gap: 8px; }
+.tray-tool { min-height: 52px; flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 15px; background: #eee9df; font-weight: 800; }
+.tray-tool.selected { color: white; background: var(--ink); }
+.tray-tool svg { width: 20px; }
+.whiteboard-tool-tray p { margin: 15px 0 8px; color: var(--muted); font-size: .72rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.sticker-tools { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.sticker-button { height: 58px; border: 0; border-radius: 15px; background: #f3eee5; font-size: 1.8rem; }
+.sticker-button.selected { box-shadow: inset 0 0 0 3px var(--orange); background: #fff5ef; }
 .color-swatch { width: 42px; height: 42px; border: 4px solid transparent; border-radius: 50%; background: var(--swatch); box-shadow: inset 0 0 0 2px rgba(255,255,255,.8); }
 .color-swatch.selected { border-color: var(--paper); box-shadow: 0 0 0 2px var(--ink), inset 0 0 0 2px rgba(255,255,255,.8); }
 .width-tools { padding-left: 12px; border-left: 1px solid #ccc4b8; }

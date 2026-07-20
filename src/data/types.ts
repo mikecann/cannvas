@@ -2,9 +2,11 @@ export type Point = { x: number; y: number };
 
 export type Stroke = {
   id: string;
+  kind?: "stroke" | "sticker";
   color: string;
   width: number;
   points: Point[];
+  sticker?: string;
 };
 
 export type Chore = {
