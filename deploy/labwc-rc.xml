@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+  <touch deviceName="Touch p403 Touch Device,40-40P" mapToOutput="HDMI-A-1" mouseEmulation="yes"/>
+
+  <!-- Keep Cannvas visually fullscreen without Labwc's fullscreen layer,
+       otherwise that layer covers the on-screen keyboard. -->
+  <windowRules>
+    <windowRule title="Cannvas" serverDecoration="no" skipTaskbar="yes" fixedPosition="yes"/>
+  </windowRules>
+</openbox_config>

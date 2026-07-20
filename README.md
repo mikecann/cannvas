@@ -32,4 +32,7 @@ the dock `Local`. This is useful for UI work, but the Pi release must show
 
 Production assets live under versioned `/opt/cannvas/releases` directories.
 `cannvas-web.service` serves the active release on localhost, and Labwc starts
-Chromium in Wayland kiosk mode after the service is reachable.
+Chromium as a borderless screen-sized app after the service is reachable. The
+Pi uses Squeekboard in automatic mode for touch input. Cannvas deliberately
+avoids Chromium's true kiosk/fullscreen layer because Labwc places that layer
+above the on-screen keyboard.
