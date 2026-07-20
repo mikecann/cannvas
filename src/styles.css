@@ -173,10 +173,7 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .display-time { font: 600 clamp(7rem, 18vw, 13rem)/.9 "Fraunces", serif; letter-spacing: -.08em; }
 .media-caption { position: fixed; left: 58px; bottom: 50px; color: rgba(255,255,255,.8); font-size: 1rem; }
 .weather-panel { position: absolute; z-index: 3; right: 36px; bottom: 36px; width: 300px; padding: 28px; border: 1px solid rgba(255,255,255,.25); border-radius: 30px; background: rgba(16,22,29,.58); backdrop-filter: blur(26px); box-shadow: 0 24px 70px rgba(0,0,0,.26); }
-.yr-weather-panel { width: min(720px, calc(100% - 72px)); padding: 20px 24px 22px; }
-.yr-weather-heading { height: 34px; display: flex; align-items: center; justify-content: space-between; }
-.yr-weather-heading strong { font: 600 1.1rem "Fraunces", serif; }
-.yr-weather-heading span { color: rgba(255,255,255,.55); font-size: .75rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.yr-weather-panel { width: min(720px, calc(100% - 72px)); padding: 20px; border-radius: 4px; }
 .yr-weather-frame { width: 100%; aspect-ratio: 792 / 311; overflow: hidden; }
 .yr-weather-frame img { width: 100%; display: block; transform: translateY(-20.46%); filter: invert(100%) grayscale(100%); }
 .wake-hint { position: absolute; z-index: 4; left: 50%; bottom: 20px; transform: translateX(-50%); color: rgba(255,255,255,.5); font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; }

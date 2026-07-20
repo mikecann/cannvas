@@ -75,10 +75,6 @@ export function DisplayApp() {
       </div>
 
       <aside className="weather-panel yr-weather-panel">
-        <div className="yr-weather-heading">
-          <strong>Busselton weather</strong>
-          <span>Yr</span>
-        </div>
         <div className="yr-weather-frame">
           <img src={`${YR_METEOGRAM}?bust=${weatherVersion}`} alt="Busselton weather forecast from Yr" />
         </div>
