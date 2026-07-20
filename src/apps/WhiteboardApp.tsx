@@ -109,16 +109,16 @@ export function WhiteboardApp() {
     redraw();
   }, [redraw, strokes]);
 
-  const pointFromEvent = (event: React.PointerEvent<HTMLCanvasElement>): Point => {
-    const rect = event.currentTarget.getBoundingClientRect();
+  const pointFromClient = (clientX: number, clientY: number): Point => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return { x: 0, y: 0 };
     return {
-      x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
-      y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)),
+      x: Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)),
+      y: Math.max(0, Math.min(1, (clientY - rect.top) / rect.height)),
     };
   };
 
-  const startDrawing = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const point = pointFromEvent(event);
+  const startContact = (contactId: number, point: Point) => {
     if (tool === "sticker") {
       const next = [...strokesRef.current, {
         id: crypto.randomUUID(),
@@ -134,13 +134,12 @@ export function WhiteboardApp() {
       void saveBoard(selectedDate, next);
       return;
     }
-    event.currentTarget.setPointerCapture(event.pointerId);
     if (tool === "eraser") {
-      activeErasers.current.add(event.pointerId);
+      activeErasers.current.add(contactId);
       eraseAt(point);
       return;
     }
-    activeStrokes.current.set(event.pointerId, {
+    activeStrokes.current.set(contactId, {
       id: crypto.randomUUID(),
       kind: "stroke",
       color,
@@ -151,16 +150,26 @@ export function WhiteboardApp() {
     redraw();
   };
 
-  const continueDrawing = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const point = pointFromEvent(event);
-    if (activeErasers.current.has(event.pointerId)) {
+  const continueContact = (contactId: number, point: Point) => {
+    if (activeErasers.current.has(contactId)) {
       eraseAt(point);
       return;
     }
-    const stroke = activeStrokes.current.get(event.pointerId);
+    const stroke = activeStrokes.current.get(contactId);
     if (!stroke) return;
     stroke.points.push(point);
     redraw();
+  };
+
+  const startDrawing = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (event.pointerType === "touch") return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    startContact(event.pointerId, pointFromClient(event.clientX, event.clientY));
+  };
+
+  const continueDrawing = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (event.pointerType === "touch") return;
+    continueContact(event.pointerId, pointFromClient(event.clientX, event.clientY));
   };
 
   const finishDrawing = async (pointerId: number) => {
@@ -190,6 +199,37 @@ export function WhiteboardApp() {
     setRedoStack([]);
     void saveBoard(selectedDate, next);
   };
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const startTouches = (event: TouchEvent) => {
+      event.preventDefault();
+      for (const touch of event.changedTouches) {
+        startContact(touch.identifier, pointFromClient(touch.clientX, touch.clientY));
+      }
+    };
+    const moveTouches = (event: TouchEvent) => {
+      event.preventDefault();
+      for (const touch of event.changedTouches) {
+        continueContact(touch.identifier, pointFromClient(touch.clientX, touch.clientY));
+      }
+    };
+    const finishTouches = (event: TouchEvent) => {
+      event.preventDefault();
+      for (const touch of event.changedTouches) void finishDrawing(touch.identifier);
+    };
+    canvas.addEventListener("touchstart", startTouches, { passive: false });
+    canvas.addEventListener("touchmove", moveTouches, { passive: false });
+    canvas.addEventListener("touchend", finishTouches, { passive: false });
+    canvas.addEventListener("touchcancel", finishTouches, { passive: false });
+    return () => {
+      canvas.removeEventListener("touchstart", startTouches);
+      canvas.removeEventListener("touchmove", moveTouches);
+      canvas.removeEventListener("touchend", finishTouches);
+      canvas.removeEventListener("touchcancel", finishTouches);
+    };
+  });
 
   const undo = async () => {
     const removed = strokes.at(-1);

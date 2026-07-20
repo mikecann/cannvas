@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { useCannvasData } from "../data/DataProvider";
 
 // The mirror streams Joshua's videos directly from the Josh Photos share.
 const VIDEO_ROOT = "http://192.168.1.168:6113/Josh%20Photos/";
@@ -24,6 +25,7 @@ async function crawlVideos(root = VIDEO_ROOT, depth = 0, visited = new Set<strin
 }
 
 export function DisplayApp() {
+  const { newsHeadlines } = useCannvasData();
   const [now, setNow] = useState(new Date());
   const [weatherVersion, setWeatherVersion] = useState(Date.now());
   const [videos, setVideos] = useState<string[]>(() => {
@@ -52,12 +54,6 @@ export function DisplayApp() {
   }, []);
 
   const currentVideo = videos[videoIndex % Math.max(1, videos.length)];
-  const videoCaption = useMemo(() => {
-    if (!currentVideo) return "Loading Josh Photos…";
-    const parts = decodeURIComponent(new URL(currentVideo).pathname).split("/").filter(Boolean);
-    return parts.at(-2) ?? "Josh Photos";
-  }, [currentVideo]);
-
   return (
     <section className="display-app">
       <div className="display-media">
@@ -71,14 +67,24 @@ export function DisplayApp() {
       <div className="display-content">
         <p className="display-date">{now.toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" })}</p>
         <div className="display-time">{now.toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit", hour12: false })}</div>
-        <p className="media-caption">{videoCaption}</p>
       </div>
 
-      <aside className="weather-panel yr-weather-panel">
-        <div className="yr-weather-frame">
-          <img src={`${YR_METEOGRAM}?bust=${weatherVersion}`} alt="Busselton weather forecast from Yr" />
-        </div>
-      </aside>
+      <div className="display-widgets">
+        <aside className="weather-panel yr-weather-panel">
+          <div className="yr-weather-frame">
+            <img src={`${YR_METEOGRAM}?bust=${weatherVersion}`} alt="Busselton weather forecast from Yr" />
+          </div>
+        </aside>
+        <aside className="weather-panel news-panel">
+          <p className="news-label">World news</p>
+          <div className="news-headlines">
+            {(newsHeadlines.length > 0 ? newsHeadlines : [{ title: "Loading latest headlines…", url: "" }]).slice(0, 3).map((headline) => (
+              <p key={headline.title}>{headline.title}</p>
+            ))}
+          </div>
+          <span className="news-source">BBC News</span>
+        </aside>
+      </div>
 
       <div className="wake-hint">Tap anywhere to return</div>
     </section>

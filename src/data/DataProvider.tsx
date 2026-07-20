@@ -6,14 +6,19 @@ import {
   useMemo,
   useState,
 } from "react";
-import { ConvexProvider, ConvexReactClient, useMutation, useQuery } from "convex/react";
+import { ConvexProvider, ConvexReactClient, useAction, useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
-import type { CannvasData, Chore, Completion, Stroke } from "./types";
+import type { CannvasData, Chore, Completion, NewsHeadline, Stroke } from "./types";
 
 const DataContext = createContext<CannvasData | null>(null);
 const STORAGE_KEY = "cannvas-local-data-v1";
 const COLORS = ["#ff8066", "#ffbf47", "#5ec6a5", "#6ba7ff", "#a77bea", "#ff7eb3"];
+const PREVIEW_HEADLINES: NewsHeadline[] = [
+  { title: "World headlines will update automatically", url: "https://www.bbc.com/news/world" },
+  { title: "The news source can be changed later", url: "https://www.bbc.com/news/world" },
+  { title: "Fresh stories appear throughout the day", url: "https://www.bbc.com/news/world" },
+];
 
 type LocalState = {
   boards: Record<string, Stroke[]>;
@@ -57,6 +62,7 @@ function LocalDataProvider({ children }: PropsWithChildren) {
     },
     chores: state.chores,
     completions: state.completions,
+    newsHeadlines: PREVIEW_HEADLINES,
     addChore: async (name, valueCents) => {
       setState((current) => ({
         ...current,
@@ -123,6 +129,23 @@ function ConvexDataProvider({ children }: PropsWithChildren) {
   const removeChoreMutation = useMutation(api.chores.remove);
   const toggleMutation = useMutation(api.chores.toggleCompletion);
   const clearMutation = useMutation(api.chores.clearWeek);
+  const loadWorldNews = useAction(api.news.world);
+  const [newsHeadlines, setNewsHeadlines] = useState<NewsHeadline[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      void loadWorldNews({}).then((headlines) => {
+        if (active && headlines.length > 0) setNewsHeadlines(headlines);
+      }).catch(() => undefined);
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 60 * 60 * 1000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [loadWorldNews]);
 
   useEffect(() => {
     if (chores?.length === 0) void seed();
@@ -134,6 +157,7 @@ function ConvexDataProvider({ children }: PropsWithChildren) {
     saveBoard: async (date, strokes) => { await saveBoardMutation({ date, strokes }); },
     chores: (chores ?? []).map(({ _id, ...chore }) => ({ ...chore, id: _id })),
     completions: completions ?? [],
+    newsHeadlines,
     addChore: async (name, valueCents) => { await addChoreMutation({ name, valueCents }); },
     removeChore: async (id) => { await removeChoreMutation({ id: id as Id<"chores"> }); },
     toggleCompletion: async (choreId, date) => { await toggleMutation({ choreId: choreId as Id<"chores">, date }); },
@@ -146,6 +170,7 @@ function ConvexDataProvider({ children }: PropsWithChildren) {
     chores,
     clearMutation,
     completions,
+    newsHeadlines,
     removeChoreMutation,
     saveBoardMutation,
     toggleMutation,

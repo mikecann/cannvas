@@ -22,12 +22,18 @@ export type Completion = {
   date: string;
 };
 
+export type NewsHeadline = {
+  title: string;
+  url: string;
+};
+
 export type CannvasData = {
   boardDates: string[];
   getBoard: (date: string) => Stroke[];
   saveBoard: (date: string, strokes: Stroke[]) => Promise<void>;
   chores: Chore[];
   completions: Completion[];
+  newsHeadlines: NewsHeadline[];
   addChore: (name: string, valueCents: number) => Promise<void>;
   removeChore: (id: string) => Promise<void>;
   toggleCompletion: (choreId: string, date: string) => Promise<void>;

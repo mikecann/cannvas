@@ -171,11 +171,17 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .display-content { position: absolute; z-index: 2; left: 56px; top: 50px; text-shadow: 0 3px 18px rgba(0,0,0,.4); }
 .display-date { margin-bottom: 2px; font-size: 1.4rem; font-weight: 600; }
 .display-time { font: 600 clamp(7rem, 18vw, 13rem)/.9 "Fraunces", serif; letter-spacing: -.08em; }
-.media-caption { position: fixed; left: 58px; bottom: 50px; color: rgba(255,255,255,.8); font-size: 1rem; }
 .weather-panel { position: absolute; z-index: 3; right: 36px; bottom: 36px; width: 300px; padding: 28px; border: 1px solid rgba(255,255,255,.25); border-radius: 30px; background: rgba(16,22,29,.58); backdrop-filter: blur(26px); box-shadow: 0 24px 70px rgba(0,0,0,.26); }
-.yr-weather-panel { width: min(720px, calc(100% - 72px)); padding: 20px; border-radius: 4px; }
-.yr-weather-frame { width: 100%; aspect-ratio: 792 / 311; overflow: hidden; }
-.yr-weather-frame img { width: 100%; display: block; transform: translateY(-20.46%); filter: invert(100%) grayscale(100%); }
+.display-widgets { position: absolute; z-index: 3; left: 36px; right: 36px; bottom: 72px; display: grid; grid-template-columns: minmax(0, 2fr) minmax(290px, 1fr); gap: 16px; align-items: stretch; }
+.display-widgets .weather-panel { position: relative; inset: auto; width: auto; }
+.yr-weather-panel { padding: 20px; border-radius: 4px; }
+.yr-weather-frame { width: 100%; height: 178px; overflow: hidden; }
+.yr-weather-frame img { width: 100%; height: calc(100% / .7954); display: block; transform: translateY(-20.46%); filter: invert(100%) grayscale(100%); }
+.news-panel { min-height: 218px; padding: 18px 20px; border-radius: 4px; display: flex; flex-direction: column; }
+.news-label { margin: 0 0 9px; color: rgba(255,255,255,.66); font-size: .73rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.news-headlines { display: grid; gap: 8px; }
+.news-headlines p { margin: 0; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.18); font-size: .9rem; font-weight: 650; line-height: 1.18; }
+.news-source { margin-top: auto; padding-top: 8px; color: rgba(255,255,255,.52); font-size: .7rem; }
 .wake-hint { position: absolute; z-index: 4; left: 50%; bottom: 20px; transform: translateX(-50%); color: rgba(255,255,255,.5); font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; }
 
 @media (orientation: portrait) {
@@ -192,7 +198,7 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
   .chore-grid { min-width: 940px; }
   .display-content { top: 80px; left: 48px; }
   .display-time { font-size: 9rem; }
-  .weather-panel { width: calc(100% - 72px); right: 36px; bottom: 90px; }
+  .display-widgets { bottom: 72px; }
 }
 
 @media (max-width: 800px) {
