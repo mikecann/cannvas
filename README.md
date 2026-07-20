@@ -40,6 +40,8 @@ starts a 620-pixel-high keyboard with large keys. Labwc starts the controller
 before Chromium, while the user autostart override in `deploy/squeekboard.desktop`
 disables the much smaller Squeekboard panel.
 
+Install the native keyboard package on a new mirror with `sudo apt install wvkbd`.
+
 ### Multi-touch check
 
 The whiteboard handles concurrent pointer contacts, and the kiosk launcher does
