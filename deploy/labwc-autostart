@@ -1,2 +1,4 @@
 # Cannvas owns the fullscreen touchscreen session on this Pi.
+LABWC_PID=$(/usr/bin/pgrep -o labwc) /usr/bin/labwc -r
+/usr/bin/sleep 1
 /usr/local/bin/cannvas-kiosk &

@@ -5,6 +5,6 @@
   <!-- Keep Cannvas visually fullscreen without Labwc's fullscreen layer,
        otherwise that layer covers the on-screen keyboard. -->
   <windowRules>
-    <windowRule identifier="chromium" serverDecoration="no" skipTaskbar="yes" fixedPosition="yes"/>
+    <windowRule identifier="*" serverDecoration="no" skipTaskbar="yes" fixedPosition="yes"/>
   </windowRules>
 </openbox_config>
