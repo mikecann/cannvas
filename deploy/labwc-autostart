@@ -1,2 +1,3 @@
 # Cannvas owns the fullscreen touchscreen session on this Pi.
+/usr/local/bin/cannvas-keyboard &
 /usr/local/bin/cannvas-kiosk &

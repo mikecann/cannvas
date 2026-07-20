@@ -34,14 +34,11 @@ Production assets live under versioned `/opt/cannvas/releases` directories.
 `cannvas-web.service` serves the active release on localhost, and Labwc starts
 Chromium in Wayland kiosk mode after the service is reachable.
 
-Chore text fields use the system Squeekboard keyboard rather than an in-app
-keyboard. The mirror's larger touch layout lives at
-`~/.local/share/squeekboard/keyboards/us.yaml` and `us_wide.yaml`; both use the
-tracked source `deploy/squeekboard-us.yaml`. The rotated display currently asks
-Squeekboard for the wide layout name even though it is portrait on the wall.
-The Raspberry Pi `sbtest` launcher sources `deploy/squeekboard-output`, installed
-as `/usr/share/squeekboard/output`, so the older packaged Squeekboard build finds
-the custom layout directory after every reboot.
+Chore text fields use the native `wvkbd` Wayland keyboard rather than an in-app
+keyboard. `deploy/cannvas-keyboard` runs a loopback-only show/hide controller and
+starts a 620-pixel-high keyboard with large keys. Labwc starts the controller
+before Chromium, while the user autostart override in `deploy/squeekboard.desktop`
+disables the much smaller Squeekboard panel.
 
 ### Multi-touch check
 

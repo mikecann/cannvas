@@ -1,0 +1,58 @@
+#!/usr/bin/python3
+"""Loopback controller for the mirror's native Wayland keyboard."""
+
+from __future__ import annotations
+
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import os
+import signal
+import subprocess
+import time
+
+
+KEYBOARD_COMMAND = [
+    "/usr/bin/wvkbd-mobintl",
+    "--hidden",
+    "-H",
+    "620",
+    "-L",
+    "620",
+    "--fn",
+    "DejaVu Sans 34",
+]
+keyboard: subprocess.Popen[bytes] | None = None
+
+
+def ensure_keyboard() -> subprocess.Popen[bytes]:
+    global keyboard
+    if keyboard is None or keyboard.poll() is not None:
+        keyboard = subprocess.Popen(KEYBOARD_COMMAND)
+        # Let wvkbd install its signal handlers before the first show request.
+        time.sleep(0.2)
+    return keyboard
+
+
+class KeyboardHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        if self.path == "/health":
+            self.send_response(204)
+            self.end_headers()
+            return
+
+        if self.path not in {"/show", "/hide"}:
+            self.send_error(404)
+            return
+
+        process = ensure_keyboard()
+        process.send_signal(signal.SIGUSR2 if self.path == "/show" else signal.SIGUSR1)
+        self.send_response(204)
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+
+    def log_message(self, format: str, *args: object) -> None:
+        print(f"keyboard control: {format % args}", flush=True)
+
+
+if __name__ == "__main__":
+    ensure_keyboard()
+    ThreadingHTTPServer(("127.0.0.1", 4174), KeyboardHandler).serve_forever()
