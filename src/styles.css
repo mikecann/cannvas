@@ -323,7 +323,7 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .calendar-home-list article small { display: flex; align-items: center; justify-content: flex-end; gap: 3px; color: rgba(255,255,255,.58); font-size: .61rem; font-weight: 700; }
 .calendar-home-list article small svg { width: 11px; height: 11px; }
 .calendar-home-expand-hint { margin: 4px 0 0; color: rgba(255,255,255,.64); font-size: .62rem; font-weight: 800; letter-spacing: .04em; text-align: center; text-transform: uppercase; }
-.calendar-home-widget.has-more:not(.expanded) .calendar-home-expand-hint { position: absolute; z-index: 2; right: 16px; bottom: 9px; left: 16px; margin: 0; padding-top: 14px; background: linear-gradient(to bottom, transparent, rgba(28,34,41,.98) 55%); }
+.calendar-home-widget.has-more:not(.expanded) .calendar-home-expand-hint { position: absolute; z-index: 2; right: 16px; bottom: 7px; left: 16px; margin: 0; padding: 28px 0 3px; background: linear-gradient(to bottom, transparent, rgba(28,34,41,.98) 58%); }
 .calendar-home-empty, .calendar-home-status { margin: 0; padding: 11px; border-radius: 11px; color: rgba(255,255,255,.65); background: rgba(255,255,255,.08); font-size: .73rem; font-weight: 700; }
 .calendar-home-status { margin-top: 12px; }
 .weather-panel { position: absolute; z-index: 3; right: 36px; bottom: 36px; width: 300px; padding: 28px; border: 1px solid rgba(255,255,255,.25); border-radius: 30px; background: rgba(16,22,29,.58); backdrop-filter: blur(26px); box-shadow: 0 24px 70px rgba(0,0,0,.26); }
