@@ -305,19 +305,19 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .display-content { position: absolute; z-index: 2; left: 56px; top: 50px; text-shadow: 0 3px 18px rgba(0,0,0,.4); }
 .display-date { margin-bottom: 2px; font-size: 1.4rem; font-weight: 600; }
 .display-time { font: 600 clamp(7rem, 18vw, 13rem)/.9 "Fraunces", serif; letter-spacing: -.08em; }
-.calendar-home-widget { position: absolute; z-index: 3; top: 42px; right: 36px; width: 400px; max-height: 680px; padding: 19px 20px; overflow: hidden; border: 1px solid rgba(255,255,255,.25); border-radius: 20px; background: rgba(16,22,29,.62); backdrop-filter: blur(26px); box-shadow: 0 24px 70px rgba(0,0,0,.26); }
-.calendar-home-widget > header { padding-bottom: 13px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid rgba(255,255,255,.2); }
-.calendar-home-widget > header > svg { width: 34px; height: 34px; padding: 7px; border-radius: 11px; color: #202832; background: #ffd36f; }
+.calendar-home-widget { position: absolute; z-index: 3; top: 42px; right: 36px; width: 410px; max-height: 560px; padding: 14px 16px; overflow: hidden; border: 1px solid rgba(255,255,255,.25); border-radius: 18px; background: rgba(16,22,29,.62); backdrop-filter: blur(26px); box-shadow: 0 24px 70px rgba(0,0,0,.26); }
+.calendar-home-widget > header { padding-bottom: 9px; display: flex; align-items: center; gap: 9px; border-bottom: 1px solid rgba(255,255,255,.2); }
+.calendar-home-widget > header > svg { width: 30px; height: 30px; padding: 6px; border-radius: 10px; color: #202832; background: #ffd36f; }
 .calendar-home-widget > header div { display: flex; flex-direction: column; }
 .calendar-home-widget > header strong { font: 700 1.05rem "Fraunces", serif; }
 .calendar-home-widget > header span { color: rgba(255,255,255,.6); font-size: .66rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
-.calendar-home-widget section { margin-top: 14px; }
-.calendar-home-widget h2 { margin: 0 0 7px; color: #ffd36f; font-size: .72rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
-.calendar-home-list { display: grid; gap: 6px; }
-.calendar-home-list article { min-height: 42px; padding: 8px 10px; display: grid; grid-template-columns: 74px minmax(0, 1fr); align-items: center; gap: 8px; border-radius: 11px; background: rgba(255,255,255,.1); }
+.calendar-home-widget section { margin-top: 9px; }
+.calendar-home-widget h2 { margin: 0 0 5px; color: #ffd36f; font-size: .68rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.calendar-home-list { display: grid; gap: 4px; }
+.calendar-home-list article { min-height: 34px; padding: 5px 8px; display: grid; grid-template-columns: 70px minmax(0, 1fr); align-items: center; gap: 7px; border-radius: 9px; background: rgba(255,255,255,.1); }
 .calendar-home-list article strong { overflow: hidden; font-size: .83rem; line-height: 1.15; white-space: nowrap; text-overflow: ellipsis; }
 .calendar-home-time, .calendar-home-day { color: rgba(255,255,255,.68); font-size: .67rem; font-weight: 800; }
-.calendar-home-list.upcoming article { grid-template-columns: 62px minmax(0, 1fr) 72px; }
+.calendar-home-list.upcoming article { grid-template-columns: 58px minmax(0, 1fr) 68px; }
 .calendar-home-list article small { display: flex; align-items: center; justify-content: flex-end; gap: 3px; color: rgba(255,255,255,.58); font-size: .61rem; font-weight: 700; }
 .calendar-home-list article small svg { width: 11px; height: 11px; }
 .calendar-home-empty, .calendar-home-status { margin: 0; padding: 11px; border-radius: 11px; color: rgba(255,255,255,.65); background: rgba(255,255,255,.08); font-size: .73rem; font-weight: 700; }
