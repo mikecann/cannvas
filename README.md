@@ -32,7 +32,14 @@ the dock `Local`. This is useful for UI work, but the Pi release must show
 
 Production assets live under versioned `/opt/cannvas/releases` directories.
 `cannvas-web.service` serves the active release on localhost, and Labwc starts
-Chromium in Wayland kiosk mode after the service is reachable.
+Chromium in Wayland kiosk mode after the service is reachable and the real HDMI
+display is connected. This prevents Chromium from opening on Labwc's temporary
+headless output when the TV is still asleep.
+
+`deploy/cannvas-display-wake` sends HDMI-CEC One Touch Play commands during
+desktop startup so a CEC-enabled TV powers on and selects Cannvas. The TV's own
+HDMI-CEC setting must be enabled for it to respond. On the mirror, CEC uses
+`/dev/cec0` and the TV is connected to `HDMI-A-1` at physical address `1.0.0.0`.
 
 Chore text fields use the native `wvkbd` Wayland keyboard rather than an in-app
 keyboard. `deploy/cannvas-keyboard` runs a loopback-only show/hide controller and

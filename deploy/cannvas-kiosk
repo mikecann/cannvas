@@ -2,6 +2,14 @@
 set -eu
 
 app_url=http://127.0.0.1:4173
+connector_status=/sys/class/drm/card1-HDMI-A-1/status
+
+# Labwc creates a temporary headless output when it starts before the TV. If
+# Chromium launches on that output, it can stay invisible after HDMI connects.
+# Wait for the real portrait display so the kiosk lands on HDMI-A-1.
+while [ -r "$connector_status" ] && [ "$(/usr/bin/cat "$connector_status")" != connected ]; do
+  sleep 1
+done
 
 # The desktop can start a little before the web service. Avoid showing Chromium's
 # connection error page by waiting for Cannvas to answer first.

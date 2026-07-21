@@ -1,0 +1,43 @@
+#!/bin/sh
+set -u
+
+cec_device=/dev/cec0
+connector_status=/sys/class/drm/card1-HDMI-A-1/status
+physical_address=1.0.0.0
+attempt=1
+
+# The TV can still be asleep when Labwc starts. Register Cannvas as a playback
+# device, then repeat One Touch Play long enough for a slow television to wake.
+# Failures are deliberately non-fatal because the kiosk can still start after
+# someone turns the TV on manually.
+while [ "$attempt" -le 12 ]; do
+  if [ -e "$cec_device" ]; then
+    /usr/bin/cec-ctl \
+      --device "$cec_device" \
+      --playback \
+      --osd-name Cannvas \
+      >/dev/null 2>&1 || true
+
+    /usr/bin/cec-ctl \
+      --device "$cec_device" \
+      --to 0 \
+      --image-view-on \
+      --no-reply \
+      >/dev/null 2>&1 || true
+
+    /usr/bin/cec-ctl \
+      --device "$cec_device" \
+      --active-source "phys-addr=$physical_address" \
+      --no-reply \
+      >/dev/null 2>&1 || true
+  fi
+
+  if [ -r "$connector_status" ] && [ "$(/usr/bin/cat "$connector_status")" = connected ]; then
+    exit 0
+  fi
+
+  attempt=$((attempt + 1))
+  sleep 5
+done
+
+exit 0
