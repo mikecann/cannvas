@@ -1,5 +1,5 @@
 import { CalendarDays, Clock3 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useCannvasData } from "../data/DataProvider";
 import { addCalendarDays, calendarDateKey, calendarEventTime, eventsForDate } from "../lib/calendar";
 
@@ -30,6 +30,8 @@ export function DisplayApp() {
   const { calendarEvents, calendarStatus, newsHeadlines } = useCannvasData();
   const [now, setNow] = useState(new Date());
   const [calendarExpanded, setCalendarExpanded] = useState(false);
+  const [calendarCanExpand, setCalendarCanExpand] = useState(false);
+  const calendarWidgetRef = useRef<HTMLElement>(null);
   const [weatherVersion, setWeatherVersion] = useState(Date.now());
   const [videos, setVideos] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem(VIDEO_CACHE_KEY) ?? "[]") as string[]; } catch { return []; }
@@ -70,8 +72,18 @@ export function DisplayApp() {
     }
     return result;
   }, [calendarEvents, todayKey]);
-  const hiddenUpcomingCount = Math.max(0, upcomingEvents.length - 4);
-  const visibleUpcomingEvents = calendarExpanded ? upcomingEvents : upcomingEvents.slice(0, 4);
+
+  useEffect(() => {
+    if (calendarExpanded) return;
+    const widget = calendarWidgetRef.current;
+    if (!widget) return;
+
+    const updateOverflow = () => setCalendarCanExpand(widget.scrollHeight > widget.clientHeight + 1);
+    updateOverflow();
+    const observer = new ResizeObserver(updateOverflow);
+    observer.observe(widget);
+    return () => observer.disconnect();
+  }, [calendarExpanded, calendarStatus, todayEvents.length, upcomingEvents.length]);
 
   return (
     <section className="display-app">
@@ -89,7 +101,8 @@ export function DisplayApp() {
       </div>
 
       <aside
-        className={`calendar-home-widget${calendarExpanded ? " expanded" : ""}${hiddenUpcomingCount > 0 ? " has-more" : ""}`}
+        ref={calendarWidgetRef}
+        className={`calendar-home-widget${calendarExpanded ? " expanded" : ""}${calendarCanExpand ? " has-more" : ""}`}
         aria-label={`Calendar for today and the next seven days. ${calendarExpanded ? "Tap to collapse" : "Tap to expand"}.`}
         aria-expanded={calendarExpanded}
         role="button"
@@ -116,7 +129,7 @@ export function DisplayApp() {
         <section>
           <h2>Upcoming</h2>
           <div className="calendar-home-list upcoming">
-            {visibleUpcomingEvents.map(({ event, date, key }) => (
+            {upcomingEvents.map(({ event, date, key }) => (
               <article key={key}>
                 <span className="calendar-home-day">{date.toLocaleDateString("en-AU", { weekday: "short", day: "numeric" })}</span>
                 <strong>{event.title}</strong>
@@ -125,8 +138,8 @@ export function DisplayApp() {
             ))}
             {calendarStatus === "ready" && upcomingEvents.length === 0 && <p className="calendar-home-empty">Nothing in the next 7 days</p>}
           </div>
-          {hiddenUpcomingCount > 0 && !calendarExpanded && <p className="calendar-home-expand-hint">Tap to show {hiddenUpcomingCount} more</p>}
-          {calendarExpanded && upcomingEvents.length > 4 && <p className="calendar-home-expand-hint">Tap to collapse</p>}
+          {calendarCanExpand && !calendarExpanded && <p className="calendar-home-expand-hint">Tap to show more</p>}
+          {calendarCanExpand && calendarExpanded && <p className="calendar-home-expand-hint">Tap to collapse</p>}
         </section>
         {calendarStatus !== "ready" && calendarEvents.length === 0 && (
           <p className="calendar-home-status">{calendarStatus === "not-configured" ? "Connect Google Calendar to see your schedule" : calendarStatus === "error" ? "Calendar is temporarily unavailable" : "Loading calendar…"}</p>
