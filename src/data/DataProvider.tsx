@@ -12,7 +12,7 @@ import {
 } from "react";
 import { ConvexProvider, ConvexReactClient, useAction, useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
-import type { CannvasData, Chore, ChoreCategory, Completion, NewsHeadline, Stroke } from "./types";
+import type { CannvasData, Chore, ChoreCategory, Completion, NewsHeadline, Stroke, Todo } from "./types";
 
 const DataContext = createContext<CannvasData | null>(null);
 const DEVICE_STORAGE_KEY = "cannvas-device-data-v2";
@@ -31,6 +31,7 @@ type LocalState = {
   boards: Record<string, Stroke[]>;
   chores: Chore[];
   completions: Completion[];
+  todos: Todo[];
 };
 
 type DeviceState = LocalState & {
@@ -52,6 +53,7 @@ function createInitialLocalState(): LocalState {
       { id: "tidy-room", name: "Tidy my room", valueCents: 100, category: "standard", color: COLORS[3], position: 2 },
     ],
     completions: [],
+    todos: [],
   };
 }
 
@@ -67,6 +69,9 @@ function toDeviceState(value: Partial<LocalState & Pick<DeviceState, "revision">
       category: chore.category ?? "standard",
     })),
     completions: value.completions ?? fallback.completions,
+    // Older device snapshots pre-date To-do's. An empty list migrates them
+    // without replacing any device-owned data with a remote default.
+    todos: value.todos ?? fallback.todos,
   };
 }
 
@@ -117,6 +122,7 @@ function useDeviceData(
     },
     chores: visibleState.chores,
     completions: visibleState.completions,
+    todos: visibleState.todos,
     newsHeadlines,
     addChore: async (name, valueCents, category) => {
       updateState((current) => ({
@@ -169,6 +175,40 @@ function useDeviceData(
           const value = new Date(`${date}T00:00:00`);
           return value < start || value >= end;
         }),
+      }));
+    },
+    addTodo: async (title, assignee, priority, dueDate) => {
+      updateState((current) => ({
+        ...current,
+        todos: [...current.todos, {
+          id: crypto.randomUUID(),
+          title,
+          assignee,
+          priority,
+          dueDate: dueDate || undefined,
+          completed: false,
+          createdAt: Date.now(),
+        }],
+      }));
+    },
+    updateTodo: async (id, title, assignee, priority, dueDate) => {
+      updateState((current) => ({
+        ...current,
+        todos: current.todos.map((todo) => todo.id === id
+          ? { ...todo, title, assignee, priority, dueDate: dueDate || undefined }
+          : todo),
+      }));
+    },
+    toggleTodo: async (id) => {
+      updateState((current) => ({
+        ...current,
+        todos: current.todos.map((todo) => todo.id === id ? { ...todo, completed: !todo.completed } : todo),
+      }));
+    },
+    removeTodo: async (id) => {
+      updateState((current) => ({
+        ...current,
+        todos: current.todos.filter((todo) => todo.id !== id),
       }));
     },
     isReady: state !== null,

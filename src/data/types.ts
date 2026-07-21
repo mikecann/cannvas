@@ -25,6 +25,19 @@ export type Completion = {
   date: string;
 };
 
+export type TodoAssignee = "mum" | "dad" | "josh";
+export type TodoPriority = "low" | "medium" | "high";
+
+export type Todo = {
+  id: string;
+  title: string;
+  assignee: TodoAssignee;
+  priority: TodoPriority;
+  dueDate?: string;
+  completed: boolean;
+  createdAt: number;
+};
+
 export type NewsHeadline = {
   title: string;
   url: string;
@@ -36,12 +49,17 @@ export type CannvasData = {
   saveBoard: (date: string, strokes: Stroke[]) => Promise<void>;
   chores: Chore[];
   completions: Completion[];
+  todos: Todo[];
   newsHeadlines: NewsHeadline[];
   addChore: (name: string, valueCents: number, category: ChoreCategory) => Promise<void>;
   updateChore: (id: string, name: string, valueCents: number, category: ChoreCategory) => Promise<void>;
   removeChore: (id: string) => Promise<void>;
   toggleCompletion: (choreId: string, date: string) => Promise<void>;
   clearWeek: (weekStart: string) => Promise<void>;
+  addTodo: (title: string, assignee: TodoAssignee, priority: TodoPriority, dueDate?: string) => Promise<void>;
+  updateTodo: (id: string, title: string, assignee: TodoAssignee, priority: TodoPriority, dueDate?: string) => Promise<void>;
+  toggleTodo: (id: string) => Promise<void>;
+  removeTodo: (id: string) => Promise<void>;
   isReady: boolean;
   mode: "backup" | "local";
 };

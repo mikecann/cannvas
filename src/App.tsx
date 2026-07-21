@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckSquare2, LayoutDashboard, PencilLine } from "lucide-react";
+import { CheckSquare2, LayoutDashboard, ListTodo, PencilLine } from "lucide-react";
 import { ChoresApp } from "./apps/ChoresApp";
 import { DisplayApp } from "./apps/DisplayApp";
+import { TodosApp } from "./apps/TodosApp";
 import { WhiteboardApp } from "./apps/WhiteboardApp";
 import { useCannvasData } from "./data/DataProvider";
 
-type AppId = "whiteboard" | "chores" | "display";
+type AppId = "whiteboard" | "chores" | "todos" | "display";
 
 const apps = [
   { id: "whiteboard" as const, label: "Whiteboard", icon: PencilLine },
   { id: "chores" as const, label: "Joshua's chores", icon: CheckSquare2 },
+  { id: "todos" as const, label: "To-do's", icon: ListTodo },
   { id: "display" as const, label: "Home", icon: LayoutDashboard },
 ];
 
@@ -60,6 +62,7 @@ export function App() {
         {!isReady && <div className="loading-card">Opening Cannvas…</div>}
         {isReady && activeApp === "whiteboard" && <WhiteboardApp />}
         {isReady && activeApp === "chores" && <ChoresApp />}
+        {isReady && activeApp === "todos" && <TodosApp />}
         {isReady && activeApp === "display" && <DisplayApp />}
       </div>
 
