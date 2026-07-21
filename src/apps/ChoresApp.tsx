@@ -137,13 +137,12 @@ export function ChoresApp() {
         {chores.length === 0 && (
           <div className="empty-chores"><Sparkles /><h2>Ready for a new quest?</h2><p>Add Joshua's first chore below.</p></div>
         )}
+        <footer className="chores-actions app-control-palette">
+          <button className="button primary" onClick={openAdd}><Plus /> Add a chore</button>
+          <button className="button secondary pocket-money-info-button" onClick={() => setShowInfo(true)}><CircleHelp /> How pocket money works</button>
+          <button className="button quiet-danger" onClick={() => setShowClear(true)} disabled={weekCompletionCount === 0}><Trash2 /> Clear this week</button>
+        </footer>
       </div>
-
-      <footer className="chores-actions">
-        <button className="button primary" onClick={openAdd}><Plus /> Add a chore</button>
-        <button className="button secondary pocket-money-info-button" onClick={() => setShowInfo(true)}><CircleHelp /> How pocket money works</button>
-        <button className="button quiet-danger" onClick={() => setShowClear(true)} disabled={weekCompletionCount === 0}><Trash2 /> Clear this week</button>
-      </footer>
 
       {showAdd && (
         <div className="dialog-backdrop" role="presentation" onPointerDown={() => setShowAdd(false)}>

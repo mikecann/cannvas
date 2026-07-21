@@ -246,9 +246,8 @@ export function WhiteboardApp() {
           onPointerCancel={(event) => void finishDrawing(event.pointerId)}
         />
         {strokes.length === 0 && <div className="canvas-hint">Draw something for today</div>}
-      </div>
-
-      <div className="whiteboard-date-controls">
+        <div className="whiteboard-floating-controls">
+          <div className="whiteboard-date-controls app-control-palette">
         <button className="icon-button" aria-label="Previous day" onClick={() => setSelectedDate(dateKey(addDays(fromDateKey(selectedDate), -1)))}>
           <ChevronLeft />
         </button>
@@ -269,9 +268,9 @@ export function WhiteboardApp() {
           <strong>{fromDateKey(selectedDate).toLocaleDateString("en-AU")}</strong>
           <input aria-label="Choose date" type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
         </label>
-      </div>
+          </div>
 
-      <div className="drawing-tools">
+          <div className="drawing-tools app-control-palette">
         <div className="tool-menu-wrap">
           {toolsOpen && (
             <div className="whiteboard-tool-tray" role="menu" aria-label="Whiteboard tools">
@@ -313,6 +312,8 @@ export function WhiteboardApp() {
           <button className="tool-button" onClick={() => void undo()} disabled={strokes.length === 0}><RotateCcw /> Undo</button>
           <button className="tool-button" onClick={() => void redo()} disabled={redoStack.length === 0}><RotateCcw className="flip-horizontal" /> Redo</button>
           <button className="tool-button danger-text" onClick={() => setConfirmClear(true)} disabled={strokes.length === 0}><Trash2 /> Clear</button>
+        </div>
+          </div>
         </div>
       </div>
 

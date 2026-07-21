@@ -114,11 +114,10 @@ export function TodosApp() {
             </section>
           );
         })}
+        <footer className="todos-actions app-control-palette">
+          <button className="button primary" onClick={openAdd}><Plus /> Add a to-do</button>
+        </footer>
       </div>
-
-      <footer className="todos-actions">
-        <button className="button primary" onClick={openAdd}><Plus /> Add a to-do</button>
-      </footer>
 
       {editingId && (
         <div className="dialog-backdrop todo-dialog-backdrop" role="presentation" onPointerDown={() => setEditingId(null)}>
