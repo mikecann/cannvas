@@ -1,58 +1,38 @@
 #!/bin/sh
 set -u
 
-cec_device=/dev/cec0
-physical_address=1.0.0.0
+cec_client=/usr/bin/cec-client
+edid_path=/sys/class/drm/card1-HDMI-A-1/edid
 attempt=1
 
 log() {
   printf '%s %s\n' "$(/usr/bin/date --iso-8601=seconds)" "$*"
 }
 
-# HDMI remains "connected" while this TV is in standby, so it cannot be used as
-# proof that the panel woke. Register a fixed CEC address, repeat One Touch Play,
-# and stop only when the TV reports that its power is on.
-if [ ! -e "$cec_device" ]; then
-  log "CEC device $cec_device is unavailable"
+# HDMI remains "connected" while this TV is in standby, so it cannot prove that
+# the panel woke. libCEC can register a playback address before the TV exposes
+# its EDID, unlike separate cec-ctl invocations which transmit as unregistered.
+# A non-empty EDID is the reliable signal that this television is awake.
+if [ ! -x "$cec_client" ]; then
+  log "cec-client is unavailable; install the cec-utils package"
   exit 0
 fi
 
 while [ "$attempt" -le 12 ]; do
   log "CEC wake attempt $attempt of 12"
 
-  if /usr/bin/cec-ctl \
-    --device "$cec_device" \
-    --phys-addr "$physical_address" \
-    --playback \
-    --osd-name Cannvas \
-    >/dev/null 2>&1; then
-    log "Registered Cannvas as a CEC playback device at $physical_address"
+  if cec_output=$(printf 'on 0\nas\n' | "$cec_client" -s -d 8 2>&1); then
+    log "Sent IMAGE_VIEW_ON and ACTIVE_SOURCE through cec-client"
   else
-    log "Could not register the CEC playback device"
+    log "cec-client failed: $(printf '%s\n' "$cec_output" | /usr/bin/tail -n 1)"
   fi
 
-  /usr/bin/cec-ctl \
-    --device "$cec_device" \
-    --to 0 \
-    --image-view-on \
-    --no-reply \
-    >/dev/null 2>&1 || true
-
-  /usr/bin/cec-ctl \
-    --device "$cec_device" \
-    --active-source "phys-addr=$physical_address" \
-    --no-reply \
-    >/dev/null 2>&1 || true
-
-  power_status=$(/usr/bin/cec-ctl \
-    --device "$cec_device" \
-    --to 0 \
-    --give-device-power-status \
-    2>&1 || true)
-  log "$(printf '%s\n' "$power_status" | /usr/bin/tail -n 1)"
-
-  if printf '%s\n' "$power_status" | /usr/bin/grep -qi 'power status: on'; then
-    log "TV reports power on"
+  edid_bytes=0
+  if [ -r "$edid_path" ]; then
+    edid_bytes=$(/usr/bin/wc -c < "$edid_path")
+  fi
+  if [ "$edid_bytes" -gt 0 ]; then
+    log "TV EDID is available ($edid_bytes bytes); display is awake"
     exit 0
   fi
 
@@ -62,5 +42,5 @@ while [ "$attempt" -le 12 ]; do
   fi
 done
 
-log "TV did not report power on after 12 attempts"
+log "TV EDID remained unavailable after 12 CEC wake attempts"
 exit 0

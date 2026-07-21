@@ -62,6 +62,7 @@ on-screen keyboard.
 desktop startup so a CEC-enabled TV powers on and selects Cannvas. The TV's own
 HDMI-CEC setting must be enabled for it to respond. On the mirror, CEC uses
 `/dev/cec0` and the TV is connected to `HDMI-A-1` at physical address `1.0.0.0`.
+Install the required libCEC client with `sudo apt install cec-utils`.
 
 Every editable field uses the native `wvkbd` Wayland keyboard rather than an
 in-app keyboard. A global focus and touch handler asks the loopback-only
