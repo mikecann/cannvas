@@ -24,9 +24,13 @@ pnpm convex:dev
 pnpm dev
 ```
 
-If `VITE_CONVEX_URL` is missing, Cannvas uses browser local storage and labels
-the dock `Local`. This is useful for UI work, but the Pi release must show
-`Synced`.
+The mirror is local-first. Browser storage on the device is authoritative and
+every interaction updates it immediately. Convex receives a revisioned snapshot
+after a 500 ms debounce and acts only as backup/recovery storage; incoming
+Convex updates never reconcile over an existing local snapshot. The first run
+imports the previous Convex boards and chores before establishing local
+authority. If `VITE_CONVEX_URL` is missing, the dock simply labels the data
+`Local`; the mirror release shows `Device + backup`.
 
 ## Raspberry Pi kiosk
 
@@ -56,9 +60,11 @@ must pass native touch events through to Chromium, so `deploy/labwc-rc.xml`
 sets `mouseEmulation="no"`. Enabling Labwc mouse emulation translates all touch
 events to mouse events and collapses concurrent contacts into one pointer.
 
-`deploy/99-touch-calibration.rules` contains the mirror's fitted portrait
-libinput matrix. Install it under `/etc/udev/rules.d`, then restart the graphical
-session or reconnect the touch USB device so libinput reopens the frame.
+`deploy/99-touch-calibration.rules` explicitly keeps the IR frame at the
+identity matrix because Labwc already maps it through the HDMI output's 90°
+portrait transform. Install it under `/etc/udev/rules.d`, then restart the
+graphical session or reconnect the touch USB device so libinput reopens the
+frame.
 
 On the Pi, `sudo libinput debug-events` should show a separate `TOUCH_DOWN`
 event for each finger. `sudo evtest` can also confirm that the device exposes

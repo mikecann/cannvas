@@ -43,5 +43,5 @@ export type CannvasData = {
   toggleCompletion: (choreId: string, date: string) => Promise<void>;
   clearWeek: (weekStart: string) => Promise<void>;
   isReady: boolean;
-  mode: "convex" | "local";
+  mode: "backup" | "local";
 };

@@ -43,7 +43,7 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .dock-icon svg { width: 22px; }
 .data-status { position: absolute; right: 12px; top: 10px; display: flex; align-items: center; gap: 5px; font-size: .64rem; color: #8b877f; }
 .data-status > span { width: 6px; height: 6px; border-radius: 50%; background: #aaa; }
-.data-status.convex > span { background: #36ae7c; box-shadow: 0 0 0 3px rgba(54,174,124,.13); }
+.data-status.backup > span { background: #36ae7c; box-shadow: 0 0 0 3px rgba(54,174,124,.13); }
 
 .icon-button { width: 56px; height: 56px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid #dfd8cc; border-radius: 17px; background: var(--paper); cursor: pointer; }
 .icon-button:active { transform: scale(.96); }

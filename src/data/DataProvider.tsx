@@ -1,18 +1,25 @@
 import {
   createContext,
+  type Dispatch,
   type PropsWithChildren,
+  type SetStateAction,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { ConvexProvider, ConvexReactClient, useAction, useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
-import type { Id } from "../../convex/_generated/dataModel";
 import type { CannvasData, Chore, ChoreCategory, Completion, NewsHeadline, Stroke } from "./types";
 
 const DataContext = createContext<CannvasData | null>(null);
-const STORAGE_KEY = "cannvas-local-data-v1";
+const DEVICE_STORAGE_KEY = "cannvas-device-data-v2";
+const LEGACY_LOCAL_STORAGE_KEY = "cannvas-local-data-v1";
+const DEVICE_ID = import.meta.env.VITE_CANNVAS_DEVICE_ID
+  ?? (import.meta.env.PROD ? "mirror" : "development");
+const BACKUP_DEBOUNCE_MS = 500;
 const COLORS = ["#ff8066", "#ffbf47", "#5ec6a5", "#6ba7ff", "#a77bea", "#ff7eb3"];
 const PREVIEW_HEADLINES: NewsHeadline[] = [
   { title: "World headlines will update automatically", url: "https://www.bbc.com/news/world" },
@@ -26,48 +33,93 @@ type LocalState = {
   completions: Completion[];
 };
 
-const initialState: LocalState = {
-  boards: {},
-  chores: [
-    { id: "make-bed", name: "Make my bed", valueCents: 50, category: "standard", color: COLORS[0], position: 0 },
-    { id: "feed-pets", name: "Feed the pets", valueCents: 50, category: "standard", color: COLORS[2], position: 1 },
-    { id: "tidy-room", name: "Tidy my room", valueCents: 100, category: "standard", color: COLORS[3], position: 2 },
-  ],
-  completions: [],
+type DeviceState = LocalState & {
+  version: 2;
+  revision: number;
+  updatedAt: number;
 };
 
-function readLocalState(): LocalState {
+type ConvexBoard = { date: string; strokes: Stroke[]; updatedAt?: number };
+type ConvexChore = Omit<Chore, "category"> & { category?: ChoreCategory; _id: string };
+type DeviceBackup = { revision: number; state: unknown; updatedAt: number } | null;
+
+function createInitialLocalState(): LocalState {
+  return {
+    boards: {},
+    chores: [
+      { id: "make-bed", name: "Make my bed", valueCents: 50, category: "standard", color: COLORS[0], position: 0 },
+      { id: "feed-pets", name: "Feed the pets", valueCents: 50, category: "standard", color: COLORS[2], position: 1 },
+      { id: "tidy-room", name: "Tidy my room", valueCents: 100, category: "standard", color: COLORS[3], position: 2 },
+    ],
+    completions: [],
+  };
+}
+
+function toDeviceState(value: Partial<LocalState & Pick<DeviceState, "revision">>): DeviceState {
+  const fallback = createInitialLocalState();
+  return {
+    version: 2,
+    revision: Number.isFinite(value.revision) ? Math.max(0, Number(value.revision)) : 0,
+    updatedAt: Date.now(),
+    boards: value.boards ?? fallback.boards,
+    chores: (value.chores ?? fallback.chores).map((chore) => ({
+      ...chore,
+      category: chore.category ?? "standard",
+    })),
+    completions: value.completions ?? fallback.completions,
+  };
+}
+
+function readStoredState(key: string): DeviceState | null {
   try {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (!stored) return initialState;
-    const state = JSON.parse(stored) as LocalState;
-    // Local data predates categories, just like the production Convex rows.
-    return { ...state, chores: state.chores.map((chore) => ({ ...chore, category: chore.category ?? "standard" })) };
+    const stored = window.localStorage.getItem(key);
+    return stored ? toDeviceState(JSON.parse(stored) as Partial<DeviceState>) : null;
   } catch {
-    return initialState;
+    return null;
   }
 }
 
-function LocalDataProvider({ children }: PropsWithChildren) {
-  const [state, setState] = useState<LocalState>(readLocalState);
+function writeDeviceState(state: DeviceState) {
+  window.localStorage.setItem(DEVICE_STORAGE_KEY, JSON.stringify(state));
+}
 
-  useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
+function useDeviceData(
+  state: DeviceState | null,
+  setState: Dispatch<SetStateAction<DeviceState | null>>,
+  newsHeadlines: NewsHeadline[],
+  mode: CannvasData["mode"],
+): CannvasData {
+  const updateState = useCallback((update: (current: DeviceState) => LocalState) => {
+    setState((current) => {
+      if (!current) return current;
+      const next = update(current);
+      return {
+        ...next,
+        version: 2,
+        revision: current.revision + 1,
+        updatedAt: Date.now(),
+      };
+    });
+  }, [setState]);
 
-  const data = useMemo<CannvasData>(() => ({
-    boardDates: Object.entries(state.boards)
+  const visibleState = state ?? toDeviceState({});
+
+  return useMemo<CannvasData>(() => ({
+    boardDates: Object.entries(visibleState.boards)
       .filter(([, strokes]) => strokes.length > 0)
       .map(([date]) => date),
-    getBoard: (date) => state.boards[date] ?? [],
+    getBoard: (date) => visibleState.boards[date] ?? [],
     saveBoard: async (date, strokes) => {
-      setState((current) => ({ ...current, boards: { ...current.boards, [date]: strokes } }));
+      updateState((current) => ({
+        ...current,
+        boards: { ...current.boards, [date]: strokes },
+      }));
     },
-    chores: state.chores,
-    completions: state.completions,
-    newsHeadlines: PREVIEW_HEADLINES,
+    chores: visibleState.chores,
+    completions: visibleState.completions,
+    newsHeadlines,
     addChore: async (name, valueCents, category) => {
-      setState((current) => ({
+      updateState((current) => ({
         ...current,
         chores: [...current.chores, {
           id: crypto.randomUUID(),
@@ -80,20 +132,20 @@ function LocalDataProvider({ children }: PropsWithChildren) {
       }));
     },
     updateChore: async (id, name, valueCents, category) => {
-      setState((current) => ({
+      updateState((current) => ({
         ...current,
         chores: current.chores.map((chore) => chore.id === id ? { ...chore, name, valueCents, category } : chore),
       }));
     },
     removeChore: async (id) => {
-      setState((current) => ({
+      updateState((current) => ({
         ...current,
         chores: current.chores.filter((chore) => chore.id !== id),
         completions: current.completions.filter((completion) => completion.choreId !== id),
       }));
     },
     toggleCompletion: async (choreId, date) => {
-      setState((current) => {
+      updateState((current) => {
         const exists = current.completions.some(
           (completion) => completion.choreId === choreId && completion.date === date,
         );
@@ -111,7 +163,7 @@ function LocalDataProvider({ children }: PropsWithChildren) {
       const start = new Date(`${weekStart}T00:00:00`);
       const end = new Date(start);
       end.setDate(end.getDate() + 7);
-      setState((current) => ({
+      updateState((current) => ({
         ...current,
         completions: current.completions.filter(({ date }) => {
           const value = new Date(`${date}T00:00:00`);
@@ -119,29 +171,92 @@ function LocalDataProvider({ children }: PropsWithChildren) {
         }),
       }));
     },
-    isReady: true,
-    mode: "local",
-  }), [state]);
+    isReady: state !== null,
+    mode,
+  }), [mode, newsHeadlines, state, updateState, visibleState]);
+}
 
+function LocalDataProvider({ children }: PropsWithChildren) {
+  const [state, setState] = useState<DeviceState | null>(() =>
+    readStoredState(DEVICE_STORAGE_KEY)
+    ?? readStoredState(LEGACY_LOCAL_STORAGE_KEY)
+    ?? toDeviceState({}),
+  );
+
+  useEffect(() => {
+    if (state) writeDeviceState(state);
+  }, [state]);
+
+  const data = useDeviceData(state, setState, PREVIEW_HEADLINES, "local");
   return <DataContext.Provider value={data}>{children}</DataContext.Provider>;
 }
 
-type ConvexBoard = { date: string; strokes: Stroke[] };
-type ConvexChore = Omit<Chore, "category"> & { category?: ChoreCategory; _id: Id<"chores"> };
-
-function ConvexDataProvider({ children }: PropsWithChildren) {
-  const boards = useQuery(api.boards.list) as ConvexBoard[] | undefined;
-  const chores = useQuery(api.chores.list) as ConvexChore[] | undefined;
-  const completions = useQuery(api.chores.listCompletions) as Completion[] | undefined;
-  const seed = useMutation(api.chores.seed);
-  const saveBoardMutation = useMutation(api.boards.save);
-  const addChoreMutation = useMutation(api.chores.add);
-  const removeChoreMutation = useMutation(api.chores.remove);
-  const updateChoreMutation = useMutation(api.chores.update);
-  const toggleMutation = useMutation(api.chores.toggleCompletion);
-  const clearMutation = useMutation(api.chores.clearWeek);
+function LocalFirstBackupProvider({ children }: PropsWithChildren) {
+  // Once this key exists, it is the authority. Remote values below are used
+  // only for first-run recovery and are never reconciled over local actions.
+  const [state, setState] = useState<DeviceState | null>(() => readStoredState(DEVICE_STORAGE_KEY));
+  const backup = useQuery(api.deviceBackups.get, { deviceId: DEVICE_ID }) as DeviceBackup | undefined;
+  const legacyBoards = useQuery(api.boards.list) as ConvexBoard[] | undefined;
+  const legacyChores = useQuery(api.chores.list) as ConvexChore[] | undefined;
+  const legacyCompletions = useQuery(api.chores.listCompletions) as Completion[] | undefined;
+  const saveBackup = useMutation(api.deviceBackups.save);
   const loadWorldNews = useAction(api.news.world);
   const [newsHeadlines, setNewsHeadlines] = useState<NewsHeadline[]>([]);
+  const backupBaselineChecked = useRef(false);
+
+  useEffect(() => {
+    if (state || backup === undefined) return;
+
+    if (backup) {
+      const recovered = toDeviceState({ ...(backup.state as Partial<LocalState>), revision: backup.revision });
+      writeDeviceState(recovered);
+      setState(recovered);
+      return;
+    }
+
+    if (legacyBoards === undefined || legacyChores === undefined || legacyCompletions === undefined) return;
+
+    const recovered = toDeviceState({
+      revision: 0,
+      boards: Object.fromEntries(legacyBoards.map(({ date, strokes }) => [date, strokes])),
+      chores: legacyChores.length > 0
+        ? legacyChores.map(({ _id, ...chore }) => ({ ...chore, id: _id, category: chore.category ?? "standard" }))
+        : undefined,
+      completions: legacyCompletions,
+    });
+
+    // Persist recovery before exposing the app, so even a refresh during the
+    // first render cannot send us back to a remote-first state.
+    writeDeviceState(recovered);
+    setState(recovered);
+  }, [backup, legacyBoards, legacyChores, legacyCompletions, state]);
+
+  useEffect(() => {
+    if (backup === undefined || backupBaselineChecked.current) return;
+    backupBaselineChecked.current = true;
+
+    // Only the remote revision is considered. If a prior upload got further
+    // than local bookkeeping, move the local revision forward without ever
+    // importing the remote payload over device data.
+    if (state && backup && backup.revision >= state.revision) {
+      setState((current) => current && current.revision <= backup.revision
+        ? { ...current, revision: backup.revision + 1, updatedAt: Date.now() }
+        : current);
+    }
+  }, [backup, state]);
+
+  useEffect(() => {
+    if (!state || backup === undefined) return;
+    writeDeviceState(state);
+    const timer = window.setTimeout(() => {
+      void saveBackup({
+        deviceId: DEVICE_ID,
+        revision: state.revision,
+        state,
+      }).catch(() => undefined);
+    }, BACKUP_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [saveBackup, state]);
 
   useEffect(() => {
     let active = true;
@@ -158,37 +273,7 @@ function ConvexDataProvider({ children }: PropsWithChildren) {
     };
   }, [loadWorldNews]);
 
-  useEffect(() => {
-    if (chores?.length === 0) void seed();
-  }, [chores, seed]);
-
-  const data = useMemo<CannvasData>(() => ({
-    boardDates: (boards ?? []).filter((board) => board.strokes.length > 0).map((board) => board.date),
-    getBoard: (date) => boards?.find((board) => board.date === date)?.strokes ?? [],
-    saveBoard: async (date, strokes) => { await saveBoardMutation({ date, strokes }); },
-    chores: (chores ?? []).map(({ _id, ...chore }) => ({ ...chore, category: chore.category ?? "standard", id: _id })),
-    completions: completions ?? [],
-    newsHeadlines,
-    addChore: async (name, valueCents, category) => { await addChoreMutation({ name, valueCents, category }); },
-    updateChore: async (id, name, valueCents, category) => { await updateChoreMutation({ id: id as Id<"chores">, name, valueCents, category }); },
-    removeChore: async (id) => { await removeChoreMutation({ id: id as Id<"chores"> }); },
-    toggleCompletion: async (choreId, date) => { await toggleMutation({ choreId: choreId as Id<"chores">, date }); },
-    clearWeek: async (weekStart) => { await clearMutation({ weekStart }); },
-    isReady: boards !== undefined && chores !== undefined && completions !== undefined,
-    mode: "convex",
-  }), [
-    addChoreMutation,
-    boards,
-    chores,
-    clearMutation,
-    completions,
-    newsHeadlines,
-    updateChoreMutation,
-    removeChoreMutation,
-    saveBoardMutation,
-    toggleMutation,
-  ]);
-
+  const data = useDeviceData(state, setState, newsHeadlines, "backup");
   return <DataContext.Provider value={data}>{children}</DataContext.Provider>;
 }
 
@@ -199,7 +284,7 @@ export function DataProvider({ children }: PropsWithChildren) {
   if (!client) return <LocalDataProvider>{children}</LocalDataProvider>;
   return (
     <ConvexProvider client={client}>
-      <ConvexDataProvider>{children}</ConvexDataProvider>
+      <LocalFirstBackupProvider>{children}</LocalFirstBackupProvider>
     </ConvexProvider>
   );
 }

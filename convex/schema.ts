@@ -12,6 +12,12 @@ const stroke = v.object({
 });
 
 export default defineSchema({
+  deviceBackups: defineTable({
+    deviceId: v.string(),
+    revision: v.number(),
+    state: v.any(),
+    updatedAt: v.number(),
+  }).index("by_device_id", ["deviceId"]),
   boards: defineTable({
     date: v.string(),
     strokes: v.array(stroke),

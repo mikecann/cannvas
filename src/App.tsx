@@ -72,8 +72,8 @@ export function App() {
               <span>{label}</span>
             </button>
           ))}
-          <span className={`data-status ${mode}`} title={mode === "convex" ? "Synced with Convex" : "Stored on this screen"}>
-            <span /> {mode === "convex" ? "Synced" : "Local"}
+          <span className={`data-status ${mode}`} title={mode === "backup" ? "This screen is authoritative; Convex is backup only" : "Stored on this screen"}>
+            <span /> {mode === "backup" ? "Device + backup" : "Local"}
           </span>
         </nav>
       )}
