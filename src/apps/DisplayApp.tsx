@@ -29,6 +29,7 @@ async function crawlVideos(root = VIDEO_ROOT, depth = 0, visited = new Set<strin
 export function DisplayApp() {
   const { calendarEvents, calendarStatus, newsHeadlines } = useCannvasData();
   const [now, setNow] = useState(new Date());
+  const [calendarExpanded, setCalendarExpanded] = useState(false);
   const [weatherVersion, setWeatherVersion] = useState(Date.now());
   const [videos, setVideos] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem(VIDEO_CACHE_KEY) ?? "[]") as string[]; } catch { return []; }
@@ -69,6 +70,8 @@ export function DisplayApp() {
     }
     return result;
   }, [calendarEvents, todayKey]);
+  const hiddenUpcomingCount = Math.max(0, upcomingEvents.length - 4);
+  const visibleUpcomingEvents = calendarExpanded ? upcomingEvents : upcomingEvents.slice(0, 4);
 
   return (
     <section className="display-app">
@@ -85,7 +88,21 @@ export function DisplayApp() {
         <div className="display-time">{now.toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit", hour12: false })}</div>
       </div>
 
-      <aside className="calendar-home-widget" aria-label="Calendar for today and the next seven days">
+      <aside
+        className={`calendar-home-widget${calendarExpanded ? " expanded" : ""}${hiddenUpcomingCount > 0 ? " has-more" : ""}`}
+        aria-label={`Calendar for today and the next seven days. ${calendarExpanded ? "Tap to collapse" : "Tap to expand"}.`}
+        aria-expanded={calendarExpanded}
+        role="button"
+        tabIndex={0}
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={() => setCalendarExpanded((expanded) => !expanded)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setCalendarExpanded((expanded) => !expanded);
+          }
+        }}
+      >
         <header><CalendarDays /><div><strong>Calendar</strong><span>Next 7 days</span></div></header>
         <section>
           <h2>Today</h2>
@@ -99,7 +116,7 @@ export function DisplayApp() {
         <section>
           <h2>Upcoming</h2>
           <div className="calendar-home-list upcoming">
-            {upcomingEvents.slice(0, 5).map(({ event, date, key }) => (
+            {visibleUpcomingEvents.map(({ event, date, key }) => (
               <article key={key}>
                 <span className="calendar-home-day">{date.toLocaleDateString("en-AU", { weekday: "short", day: "numeric" })}</span>
                 <strong>{event.title}</strong>
@@ -108,6 +125,8 @@ export function DisplayApp() {
             ))}
             {calendarStatus === "ready" && upcomingEvents.length === 0 && <p className="calendar-home-empty">Nothing in the next 7 days</p>}
           </div>
+          {hiddenUpcomingCount > 0 && !calendarExpanded && <p className="calendar-home-expand-hint">Tap to show {hiddenUpcomingCount} more</p>}
+          {calendarExpanded && upcomingEvents.length > 4 && <p className="calendar-home-expand-hint">Tap to collapse</p>}
         </section>
         {calendarStatus !== "ready" && calendarEvents.length === 0 && (
           <p className="calendar-home-status">{calendarStatus === "not-configured" ? "Connect Google Calendar to see your schedule" : calendarStatus === "error" ? "Calendar is temporarily unavailable" : "Loading calendar…"}</p>
