@@ -1,0 +1,2 @@
+# Portrait calibration fitted on the mirror's Touch p403 IR frame.
+ATTRS{name}=="Touch p403 Touch Device,40-40P", ENV{LIBINPUT_CALIBRATION_MATRIX}="-0.000878 -1.010255 0.995925 1.000516 0.000956 0.000125"

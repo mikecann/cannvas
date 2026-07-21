@@ -51,9 +51,15 @@ Install the native keyboard package on a new mirror with `sudo apt install wvkbd
 
 ### Multi-touch check
 
-The whiteboard handles concurrent pointer contacts, and the kiosk launcher does
-not disable touch input. On the Pi, `sudo libinput debug-events` should show a
-separate `TOUCH_DOWN` event for each finger. If it reports only one contact,
-check the display's USB touch cable and driver; HDMI carries the picture but
-usually not touch input. `sudo evtest` can also confirm that the device exposes
+The whiteboard handles each Pointer Event ID as an independent stroke. Labwc
+must pass native touch events through to Chromium, so `deploy/labwc-rc.xml`
+sets `mouseEmulation="no"`. Enabling Labwc mouse emulation translates all touch
+events to mouse events and collapses concurrent contacts into one pointer.
+
+`deploy/99-touch-calibration.rules` contains the mirror's fitted portrait
+libinput matrix. Install it under `/etc/udev/rules.d`, then restart the graphical
+session or reconnect the touch USB device so libinput reopens the frame.
+
+On the Pi, `sudo libinput debug-events` should show a separate `TOUCH_DOWN`
+event for each finger. `sudo evtest` can also confirm that the device exposes
 `ABS_MT_SLOT` and `ABS_MT_TRACKING_ID`, which indicate multi-touch support.

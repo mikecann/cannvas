@@ -162,13 +162,11 @@ export function WhiteboardApp() {
   };
 
   const startDrawing = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (event.pointerType === "touch") return;
     event.currentTarget.setPointerCapture(event.pointerId);
     startContact(event.pointerId, pointFromClient(event.clientX, event.clientY));
   };
 
   const continueDrawing = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (event.pointerType === "touch") return;
     continueContact(event.pointerId, pointFromClient(event.clientX, event.clientY));
   };
 
@@ -199,37 +197,6 @@ export function WhiteboardApp() {
     setRedoStack([]);
     void saveBoard(selectedDate, next);
   };
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const startTouches = (event: TouchEvent) => {
-      event.preventDefault();
-      for (const touch of event.changedTouches) {
-        startContact(touch.identifier, pointFromClient(touch.clientX, touch.clientY));
-      }
-    };
-    const moveTouches = (event: TouchEvent) => {
-      event.preventDefault();
-      for (const touch of event.changedTouches) {
-        continueContact(touch.identifier, pointFromClient(touch.clientX, touch.clientY));
-      }
-    };
-    const finishTouches = (event: TouchEvent) => {
-      event.preventDefault();
-      for (const touch of event.changedTouches) void finishDrawing(touch.identifier);
-    };
-    canvas.addEventListener("touchstart", startTouches, { passive: false });
-    canvas.addEventListener("touchmove", moveTouches, { passive: false });
-    canvas.addEventListener("touchend", finishTouches, { passive: false });
-    canvas.addEventListener("touchcancel", finishTouches, { passive: false });
-    return () => {
-      canvas.removeEventListener("touchstart", startTouches);
-      canvas.removeEventListener("touchmove", moveTouches);
-      canvas.removeEventListener("touchend", finishTouches);
-      canvas.removeEventListener("touchcancel", finishTouches);
-    };
-  });
 
   const undo = async () => {
     const removed = strokes.at(-1);
