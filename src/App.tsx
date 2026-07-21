@@ -19,7 +19,7 @@ const apps = [
 const DEFAULT_IDLE_TIMEOUT = 5 * 60 * 1000;
 
 export function App() {
-  const { isReady, mode } = useCannvasData();
+  const { isReady } = useCannvasData();
   const [activeApp, setActiveApp] = useState<AppId>("whiteboard");
   const lastInteractiveApp = useRef<AppId>("whiteboard");
   const idleTimer = useRef<number | undefined>(undefined);
@@ -84,9 +84,6 @@ export function App() {
               <span>{label}</span>
             </button>
           ))}
-          <span className={`data-status ${mode}`} title={mode === "backup" ? "This screen is authoritative; Convex is backup only" : "Stored on this screen"}>
-            <span /> {mode === "backup" ? "Device + backup" : "Local"}
-          </span>
         </nav>
       )}
     </main>
