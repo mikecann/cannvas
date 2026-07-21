@@ -317,7 +317,11 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .calendar-home-list { display: grid; gap: 4px; }
 .calendar-home-list article { min-height: 34px; padding: 5px 8px; display: grid; grid-template-columns: 70px minmax(0, 1fr); align-items: center; gap: 7px; border-radius: 9px; background: rgba(255,255,255,.1); }
 .calendar-home-list article strong { overflow: hidden; font-size: .83rem; line-height: 1.15; white-space: nowrap; text-overflow: ellipsis; }
+.calendar-home-list article.passed { background: rgba(65,190,122,.16); }
+.calendar-home-list article.passed strong { color: rgba(255,255,255,.62); }
 .calendar-home-time, .calendar-home-day { color: rgba(255,255,255,.68); font-size: .67rem; font-weight: 800; }
+.calendar-home-time { display: flex; align-items: center; gap: 4px; }
+.calendar-home-time svg { width: 13px; height: 13px; flex: 0 0 auto; color: #58d68d; }
 .calendar-home-list.upcoming { position: relative; }
 .calendar-home-list.upcoming article { grid-template-columns: 58px minmax(0, 1fr) 68px; }
 .calendar-home-list article small { display: flex; align-items: center; justify-content: flex-end; gap: 3px; color: rgba(255,255,255,.58); font-size: .61rem; font-weight: 700; }

@@ -1,4 +1,4 @@
-import { CalendarDays, Clock3 } from "lucide-react";
+import { CalendarDays, CheckCircle2, Clock3 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useCannvasData } from "../data/DataProvider";
 import { addCalendarDays, calendarDateKey, calendarEventTime, eventsForDate } from "../lib/calendar";
@@ -120,9 +120,15 @@ export function DisplayApp() {
         <section>
           <h2>Today</h2>
           <div className="calendar-home-list">
-            {todayEvents.slice(0, 3).map((event) => (
-              <article key={event.id}><span className="calendar-home-time">{calendarEventTime(event)}</span><strong>{event.title}</strong></article>
-            ))}
+            {todayEvents.slice(0, 3).map((event) => {
+              const hasPassed = !event.allDay && new Date(event.end) <= now;
+              return (
+                <article className={hasPassed ? "passed" : undefined} key={event.id} aria-label={`${event.title}, ${calendarEventTime(event)}${hasPassed ? ", passed" : ""}`}>
+                  <span className="calendar-home-time">{hasPassed && <CheckCircle2 aria-hidden="true" />}{calendarEventTime(event)}</span>
+                  <strong>{event.title}</strong>
+                </article>
+              );
+            })}
             {calendarStatus === "ready" && todayEvents.length === 0 && <p className="calendar-home-empty">Nothing planned today</p>}
           </div>
         </section>
