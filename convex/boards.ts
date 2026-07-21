@@ -4,9 +4,11 @@ import { v } from "convex/values";
 const point = v.object({ x: v.number(), y: v.number() });
 const stroke = v.object({
   id: v.string(),
+  kind: v.optional(v.union(v.literal("stroke"), v.literal("sticker"))),
   color: v.string(),
   width: v.number(),
   points: v.array(point),
+  sticker: v.optional(v.string()),
 });
 
 export const list = query({

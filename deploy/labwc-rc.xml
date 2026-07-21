@@ -1,6 +1,8 @@
 <?xml version="1.0"?>
 <openbox_config xmlns="http://openbox.org/3.4/rc">
-  <touch deviceName="Touch p403 Touch Device,40-40P" mapToOutput="HDMI-A-1" mouseEmulation="yes"/>
+  <!-- Native touch events preserve every IR-frame contact for Chromium. Mouse
+       emulation collapses the frame to a single pointer and breaks multitouch. -->
+  <touch deviceName="Touch p403 Touch Device,40-40P" mapToOutput="HDMI-A-1" mouseEmulation="no"/>
 
   <!-- Keep Cannvas visually fullscreen without Labwc's fullscreen layer,
        otherwise that layer covers the on-screen keyboard. -->

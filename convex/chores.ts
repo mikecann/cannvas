@@ -9,11 +9,12 @@ export const list = query({
     const chores = await ctx.db.query("chores").withIndex("by_position").collect();
     return chores
       .filter((chore) => chore.active)
-      .map(({ _id, name, valueCents, color, position }) => ({
+      .map(({ _id, name, valueCents, category, color, position }) => ({
         _id,
         id: _id,
         name,
         valueCents,
+        category: category ?? "standard",
         color,
         position,
       }));
@@ -42,6 +43,7 @@ export const seed = mutation({
       await ctx.db.insert("chores", {
         name,
         valueCents,
+        category: "standard",
         color: COLORS[position],
         position,
         active: true,
@@ -51,15 +53,38 @@ export const seed = mutation({
 });
 
 export const add = mutation({
-  args: { name: v.string(), valueCents: v.number() },
+  args: {
+    name: v.string(),
+    valueCents: v.number(),
+    category: v.union(v.literal("standard"), v.literal("bonus")),
+  },
   handler: async (ctx, args) => {
     const active = (await ctx.db.query("chores").collect()).filter((chore) => chore.active);
     return await ctx.db.insert("chores", {
       name: args.name.trim(),
       valueCents: Math.max(0, Math.round(args.valueCents)),
+      category: args.category,
       color: COLORS[active.length % COLORS.length],
       position: active.length,
       active: true,
+    });
+  },
+});
+
+export const update = mutation({
+  args: {
+    id: v.id("chores"),
+    name: v.string(),
+    valueCents: v.number(),
+    category: v.union(v.literal("standard"), v.literal("bonus")),
+  },
+  handler: async (ctx, { id, name, valueCents, category }) => {
+    const trimmed = name.trim();
+    if (!trimmed) throw new Error("Chore name cannot be empty");
+    await ctx.db.patch(id, {
+      name: trimmed,
+      valueCents: Math.max(0, Math.round(valueCents)),
+      category,
     });
   },
 });

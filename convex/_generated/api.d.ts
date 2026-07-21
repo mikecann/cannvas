@@ -10,6 +10,8 @@
 
 import type * as boards from "../boards.js";
 import type * as chores from "../chores.js";
+import type * as deviceBackups from "../deviceBackups.js";
+import type * as news from "../news.js";
 
 import type {
   ApiFromModules,
@@ -20,6 +22,8 @@ import type {
 declare const fullApi: ApiFromModules<{
   boards: typeof boards;
   chores: typeof chores;
+  deviceBackups: typeof deviceBackups;
+  news: typeof news;
 }>;
 
 /**

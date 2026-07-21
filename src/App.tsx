@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckSquare2, LayoutDashboard, PencilLine } from "lucide-react";
+import { CheckSquare2, LayoutDashboard, ListTodo, PencilLine } from "lucide-react";
 import { ChoresApp } from "./apps/ChoresApp";
 import { DisplayApp } from "./apps/DisplayApp";
+import { TodosApp } from "./apps/TodosApp";
 import { WhiteboardApp } from "./apps/WhiteboardApp";
 import { useCannvasData } from "./data/DataProvider";
+import { installNativeKeyboard } from "./lib/nativeKeyboard";
 
-type AppId = "whiteboard" | "chores" | "display";
+type AppId = "whiteboard" | "chores" | "todos" | "display";
 
 const apps = [
   { id: "whiteboard" as const, label: "Whiteboard", icon: PencilLine },
   { id: "chores" as const, label: "Joshua's chores", icon: CheckSquare2 },
+  { id: "todos" as const, label: "To-do's", icon: ListTodo },
   { id: "display" as const, label: "Home", icon: LayoutDashboard },
 ];
 
@@ -28,6 +31,10 @@ export function App() {
       setActiveApp("display");
     }, idleTimeout);
   }, [idleTimeout]);
+
+  useEffect(() => {
+    return installNativeKeyboard();
+  }, []);
 
   useEffect(() => {
     const events: Array<keyof WindowEventMap> = ["pointerdown", "pointermove", "keydown"];
@@ -51,11 +58,16 @@ export function App() {
   };
 
   return (
-    <main className={`app-shell app-${activeApp}`} onPointerDown={wake}>
+    <main
+      className={`app-shell app-${activeApp}`}
+      onContextMenu={(event) => event.preventDefault()}
+      onPointerDown={wake}
+    >
       <div className="app-stage" aria-live="polite">
         {!isReady && <div className="loading-card">Opening Cannvas…</div>}
         {isReady && activeApp === "whiteboard" && <WhiteboardApp />}
         {isReady && activeApp === "chores" && <ChoresApp />}
+        {isReady && activeApp === "todos" && <TodosApp />}
         {isReady && activeApp === "display" && <DisplayApp />}
       </div>
 
@@ -72,8 +84,8 @@ export function App() {
               <span>{label}</span>
             </button>
           ))}
-          <span className={`data-status ${mode}`} title={mode === "convex" ? "Synced with Convex" : "Stored on this screen"}>
-            <span /> {mode === "convex" ? "Synced" : "Local"}
+          <span className={`data-status ${mode}`} title={mode === "backup" ? "This screen is authoritative; Convex is backup only" : "Stored on this screen"}>
+            <span /> {mode === "backup" ? "Device + backup" : "Local"}
           </span>
         </nav>
       )}

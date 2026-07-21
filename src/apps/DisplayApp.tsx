@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { useCannvasData } from "../data/DataProvider";
 
+// The mirror streams Joshua's videos directly from the Josh Photos share.
 const VIDEO_ROOT = "http://192.168.1.168:6113/Josh%20Photos/";
-const VIDEO_CACHE_KEY = "cannvas-video-list-v1";
+const VIDEO_CACHE_KEY = "cannvas-video-list-v2";
 const VIDEO_PATTERN = /<a href="([^"]+)"/g;
 const YR_METEOGRAM = "https://www.yr.no/en/content/2-2075265/meteogram.svg";
 
@@ -12,8 +14,10 @@ async function crawlVideos(root = VIDEO_ROOT, depth = 0, visited = new Set<strin
   if (!response.ok) throw new Error(`Video server returned ${response.status}`);
   const html = await response.text();
   const urls = [...html.matchAll(VIDEO_PATTERN)]
-    .map((match) => new URL(match[1], root).toString())
-    .filter((url) => !url.includes("../"));
+    .map((match) => match[1])
+    .filter((href) => href !== "../" && href !== "./../")
+    .map((href) => new URL(href, root).toString())
+    .filter((url) => url.startsWith(VIDEO_ROOT));
   const videos = urls.filter((url) => /\.(mp4|m4v|mov|webm)$/i.test(url));
   const folders = urls.filter((url) => url.endsWith("/") && url !== root);
   const nested = await Promise.all(folders.map((folder) => crawlVideos(folder, depth + 1, visited)));
@@ -21,6 +25,7 @@ async function crawlVideos(root = VIDEO_ROOT, depth = 0, visited = new Set<strin
 }
 
 export function DisplayApp() {
+  const { newsHeadlines } = useCannvasData();
   const [now, setNow] = useState(new Date());
   const [weatherVersion, setWeatherVersion] = useState(Date.now());
   const [videos, setVideos] = useState<string[]>(() => {
@@ -49,12 +54,6 @@ export function DisplayApp() {
   }, []);
 
   const currentVideo = videos[videoIndex % Math.max(1, videos.length)];
-  const videoCaption = useMemo(() => {
-    if (!currentVideo) return "Family moments";
-    const parts = decodeURIComponent(currentVideo).split("/");
-    return parts.slice(-3, -1).filter(Boolean).join(" · ") || "Family moments";
-  }, [currentVideo]);
-
   return (
     <section className="display-app">
       <div className="display-media">
@@ -63,24 +62,28 @@ export function DisplayApp() {
         ) : (
           <div className="display-gradient"><span>C</span></div>
         )}
-        <div className="media-shade" />
       </div>
 
       <div className="display-content">
         <p className="display-date">{now.toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" })}</p>
         <div className="display-time">{now.toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit", hour12: false })}</div>
-        <p className="media-caption">{videoCaption}</p>
       </div>
 
-      <aside className="weather-panel yr-weather-panel">
-        <div className="yr-weather-heading">
-          <strong>Busselton weather</strong>
-          <span>Yr</span>
-        </div>
-        <div className="yr-weather-frame">
-          <img src={`${YR_METEOGRAM}?bust=${weatherVersion}`} alt="Busselton weather forecast from Yr" />
-        </div>
-      </aside>
+      <div className="display-widgets">
+        <aside className="weather-panel yr-weather-panel">
+          <div className="yr-weather-frame">
+            <img src={`${YR_METEOGRAM}?bust=${weatherVersion}`} alt="Busselton weather forecast from Yr" />
+          </div>
+        </aside>
+        <aside className="weather-panel news-panel">
+          <div className="news-header"><span>BBC News</span></div>
+          <div className="news-headlines">
+            {(newsHeadlines.length > 0 ? newsHeadlines : [{ title: "Loading latest headlines…", url: "" }]).slice(0, 3).map((headline) => (
+              <p key={headline.title}>{headline.title}</p>
+            ))}
+          </div>
+        </aside>
+      </div>
 
       <div className="wake-hint">Tap anywhere to return</div>
     </section>

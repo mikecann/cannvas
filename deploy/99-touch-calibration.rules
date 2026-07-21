@@ -1,0 +1,3 @@
+# Labwc maps the IR frame to the already-rotated HDMI output. Applying another
+# 90-degree calibration here double-rotates native touch coordinates.
+ATTRS{name}=="Touch p403 Touch Device,40-40P", ENV{LIBINPUT_CALIBRATION_MATRIX}="1 0 0 0 1 0"
