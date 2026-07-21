@@ -31,12 +31,12 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 
 .app-dock {
   position: absolute; z-index: 30; left: 50%; bottom: 18px; transform: translateX(-50%);
-  height: 90px; min-width: min(94vw, 720px); padding: 10px 16px;
-  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: max-content; max-width: calc(100vw - 36px); height: 86px; padding: 8px 10px;
+  display: flex; align-items: center; justify-content: center; gap: 4px;
   border: 1px solid rgba(255,255,255,.75); border-radius: 28px;
   background: rgba(255, 253, 248, .9); backdrop-filter: blur(24px); box-shadow: 0 14px 36px rgba(54,45,34,.18);
 }
-.dock-item { position: relative; min-width: 132px; height: 70px; padding: 6px 12px; display: flex; flex-direction: column; gap: 3px; align-items: center; justify-content: center; border: 0; border-radius: 19px; background: transparent; font-size: .77rem; font-weight: 700; cursor: pointer; }
+.dock-item { position: relative; min-width: 116px; height: 68px; padding: 6px 8px; display: flex; flex-direction: column; gap: 3px; align-items: center; justify-content: center; border: 0; border-radius: 19px; background: transparent; font-size: .77rem; font-weight: 700; cursor: pointer; }
 .dock-item.active { color: white; background: var(--ink); }
 .dock-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 12px; background: #ebe4d7; color: var(--ink); }
 .dock-item.active .dock-icon { background: var(--orange); color: white; }
@@ -292,8 +292,8 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 }
 
 @media (max-width: 800px) {
-  .app-dock { min-width: calc(100vw - 24px); bottom: 12px; }
-  .dock-item { min-width: 105px; }
+  .app-dock { max-width: calc(100vw - 24px); bottom: 12px; }
+  .dock-item { min-width: 96px; }
   .whiteboard-header { align-items: flex-start; }
   .whiteboard-date-controls { flex-wrap: wrap; justify-content: center; }
   .whiteboard-date-controls .date-picker { margin-left: 0; }
