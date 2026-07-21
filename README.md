@@ -45,11 +45,12 @@ desktop startup so a CEC-enabled TV powers on and selects Cannvas. The TV's own
 HDMI-CEC setting must be enabled for it to respond. On the mirror, CEC uses
 `/dev/cec0` and the TV is connected to `HDMI-A-1` at physical address `1.0.0.0`.
 
-Chore text fields use the native `wvkbd` Wayland keyboard rather than an in-app
-keyboard. `deploy/cannvas-keyboard` runs a loopback-only show/hide controller and
-starts a 620-pixel-high keyboard with large keys. Labwc starts the controller
-before Chromium, while the user autostart override in `deploy/squeekboard.desktop`
-disables the much smaller Squeekboard panel.
+Every editable field uses the native `wvkbd` Wayland keyboard rather than an
+in-app keyboard. A global focus and touch handler asks the loopback-only
+`deploy/cannvas-keyboard` controller to show the 620-pixel-high keyboard with
+large keys. Labwc starts the controller before Chromium, while the user
+autostart override in `deploy/squeekboard.desktop` disables the much smaller
+Squeekboard panel.
 
 Install the native keyboard package on a new mirror with `sudo apt install wvkbd`.
 

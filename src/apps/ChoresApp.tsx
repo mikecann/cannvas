@@ -1,21 +1,10 @@
 import { Check, ChevronLeft, ChevronRight, CircleHelp, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { ChoreCategoryPicker } from "../components/ChoreCategoryPicker";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { useCannvasData } from "../data/DataProvider";
 import type { ChoreCategory } from "../data/types";
 import { addDays, dateKey, fromDateKey, money, startOfWeek } from "../lib/dates";
-
-const KEYBOARD_CONTROL_URL = "http://127.0.0.1:4174";
-
-function setNativeKeyboardVisible(visible: boolean) {
-  // The mirror runs a loopback-only wvkbd controller. Local development does
-  // not, so a failed request is expected and safe to ignore away from the Pi.
-  void fetch(`${KEYBOARD_CONTROL_URL}/${visible ? "show" : "hide"}`, {
-    mode: "no-cors",
-    cache: "no-store",
-  }).catch(() => undefined);
-}
 
 export function ChoresApp() {
   const { chores, completions, addChore, updateChore, removeChore, toggleCompletion, clearWeek } = useCannvasData();
@@ -46,15 +35,6 @@ export function ChoresApp() {
   const standardPossible = standardChores.length * 7;
   const weekCompletionCount = completions.filter((completion) => weekDates.has(completion.date)).length;
   const isThisWeek = dateKey(weekStart) === dateKey(startOfWeek(new Date()));
-  const editorOpen = showAdd || choreToEdit !== null;
-
-  useEffect(() => {
-    setNativeKeyboardVisible(editorOpen);
-    return () => {
-      if (editorOpen) setNativeKeyboardVisible(false);
-    };
-  }, [editorOpen]);
-
   const submitChore = async (event: React.FormEvent) => {
     event.preventDefault();
     const valueCents = Math.round(Number(value) * 100);

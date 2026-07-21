@@ -33,6 +33,12 @@ def ensure_keyboard() -> subprocess.Popen[bytes]:
 
 
 class KeyboardHandler(BaseHTTPRequestHandler):
+    def end_headers(self) -> None:
+        # The kiosk app and controller use neighbouring loopback ports, so the
+        # browser treats this as a cross-origin request.
+        self.send_header("Access-Control-Allow-Origin", "*")
+        super().end_headers()
+
     def do_GET(self) -> None:
         if self.path == "/health":
             self.send_response(204)

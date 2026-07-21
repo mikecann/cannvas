@@ -1,10 +1,9 @@
 import { CalendarDays, Check, Pencil, Plus, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { useCannvasData } from "../data/DataProvider";
 import type { Todo, TodoAssignee, TodoPriority } from "../data/types";
 
-const KEYBOARD_CONTROL_URL = "http://127.0.0.1:4174";
 const PEOPLE: Array<{ id: TodoAssignee; name: string; avatar: string }> = [
   { id: "mum", name: "Mum", avatar: "/avatars/mum.png" },
   { id: "josh", name: "Josh", avatar: "/avatars/josh.png" },
@@ -12,13 +11,6 @@ const PEOPLE: Array<{ id: TodoAssignee; name: string; avatar: string }> = [
 ];
 const PRIORITIES: TodoPriority[] = ["low", "medium", "high"];
 const PRIORITY_ORDER: Record<TodoPriority, number> = { high: 0, medium: 1, low: 2 };
-
-function setNativeKeyboardVisible(visible: boolean) {
-  void fetch(`${KEYBOARD_CONTROL_URL}/${visible ? "show" : "hide"}`, {
-    mode: "no-cors",
-    cache: "no-store",
-  }).catch(() => undefined);
-}
 
 function friendlyDate(date: string) {
   const value = new Date(`${date}T00:00:00`);
@@ -50,13 +42,6 @@ export function TodosApp() {
   const groupedTodos = useMemo(() => Object.fromEntries(
     PEOPLE.map(({ id }) => [id, todos.filter((todo) => todo.assignee === id).sort(sortTodos)]),
   ) as Record<TodoAssignee, Todo[]>, [todos]);
-
-  useEffect(() => {
-    setNativeKeyboardVisible(editingId !== null);
-    return () => {
-      if (editingId !== null) setNativeKeyboardVisible(false);
-    };
-  }, [editingId]);
 
   const openAdd = () => {
     setTitle("");

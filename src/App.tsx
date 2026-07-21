@@ -5,6 +5,7 @@ import { DisplayApp } from "./apps/DisplayApp";
 import { TodosApp } from "./apps/TodosApp";
 import { WhiteboardApp } from "./apps/WhiteboardApp";
 import { useCannvasData } from "./data/DataProvider";
+import { installNativeKeyboard } from "./lib/nativeKeyboard";
 
 type AppId = "whiteboard" | "chores" | "todos" | "display";
 
@@ -30,6 +31,10 @@ export function App() {
       setActiveApp("display");
     }, idleTimeout);
   }, [idleTimeout]);
+
+  useEffect(() => {
+    return installNativeKeyboard();
+  }, []);
 
   useEffect(() => {
     const events: Array<keyof WindowEventMap> = ["pointerdown", "pointermove", "keydown"];
