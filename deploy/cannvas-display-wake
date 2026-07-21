@@ -2,42 +2,65 @@
 set -u
 
 cec_device=/dev/cec0
-connector_status=/sys/class/drm/card1-HDMI-A-1/status
 physical_address=1.0.0.0
 attempt=1
 
-# The TV can still be asleep when Labwc starts. Register Cannvas as a playback
-# device, then repeat One Touch Play long enough for a slow television to wake.
-# Failures are deliberately non-fatal because the kiosk can still start after
-# someone turns the TV on manually.
+log() {
+  printf '%s %s\n' "$(/usr/bin/date --iso-8601=seconds)" "$*"
+}
+
+# HDMI remains "connected" while this TV is in standby, so it cannot be used as
+# proof that the panel woke. Register a fixed CEC address, repeat One Touch Play,
+# and stop only when the TV reports that its power is on.
+if [ ! -e "$cec_device" ]; then
+  log "CEC device $cec_device is unavailable"
+  exit 0
+fi
+
 while [ "$attempt" -le 12 ]; do
-  if [ -e "$cec_device" ]; then
-    /usr/bin/cec-ctl \
-      --device "$cec_device" \
-      --playback \
-      --osd-name Cannvas \
-      >/dev/null 2>&1 || true
+  log "CEC wake attempt $attempt of 12"
 
-    /usr/bin/cec-ctl \
-      --device "$cec_device" \
-      --to 0 \
-      --image-view-on \
-      --no-reply \
-      >/dev/null 2>&1 || true
-
-    /usr/bin/cec-ctl \
-      --device "$cec_device" \
-      --active-source "phys-addr=$physical_address" \
-      --no-reply \
-      >/dev/null 2>&1 || true
+  if /usr/bin/cec-ctl \
+    --device "$cec_device" \
+    --phys-addr "$physical_address" \
+    --playback \
+    --osd-name Cannvas \
+    >/dev/null 2>&1; then
+    log "Registered Cannvas as a CEC playback device at $physical_address"
+  else
+    log "Could not register the CEC playback device"
   fi
 
-  if [ -r "$connector_status" ] && [ "$(/usr/bin/cat "$connector_status")" = connected ]; then
+  /usr/bin/cec-ctl \
+    --device "$cec_device" \
+    --to 0 \
+    --image-view-on \
+    --no-reply \
+    >/dev/null 2>&1 || true
+
+  /usr/bin/cec-ctl \
+    --device "$cec_device" \
+    --active-source "phys-addr=$physical_address" \
+    --no-reply \
+    >/dev/null 2>&1 || true
+
+  power_status=$(/usr/bin/cec-ctl \
+    --device "$cec_device" \
+    --to 0 \
+    --give-device-power-status \
+    2>&1 || true)
+  log "$(printf '%s\n' "$power_status" | /usr/bin/tail -n 1)"
+
+  if printf '%s\n' "$power_status" | /usr/bin/grep -qi 'power status: on'; then
+    log "TV reports power on"
     exit 0
   fi
 
   attempt=$((attempt + 1))
-  sleep 5
+  if [ "$attempt" -le 12 ]; then
+    sleep 5
+  fi
 done
 
+log "TV did not report power on after 12 attempts"
 exit 0
