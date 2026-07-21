@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
+import { CalendarDays, Clock3 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { useCannvasData } from "../data/DataProvider";
+import { addCalendarDays, calendarDateKey, calendarEventTime, eventsForDate } from "../lib/calendar";
 
 // The mirror streams Joshua's videos directly from the Josh Photos share.
 const VIDEO_ROOT = "http://192.168.1.168:6113/Josh%20Photos/";
@@ -25,7 +27,7 @@ async function crawlVideos(root = VIDEO_ROOT, depth = 0, visited = new Set<strin
 }
 
 export function DisplayApp() {
-  const { newsHeadlines } = useCannvasData();
+  const { calendarEvents, calendarStatus, newsHeadlines } = useCannvasData();
   const [now, setNow] = useState(new Date());
   const [weatherVersion, setWeatherVersion] = useState(Date.now());
   const [videos, setVideos] = useState<string[]>(() => {
@@ -54,6 +56,20 @@ export function DisplayApp() {
   }, []);
 
   const currentVideo = videos[videoIndex % Math.max(1, videos.length)];
+  const todayKey = calendarDateKey(now);
+  const todayEvents = useMemo(() => eventsForDate(calendarEvents, todayKey), [calendarEvents, todayKey]);
+  const upcomingEvents = useMemo(() => {
+    const result = [];
+    for (let offset = 1; offset <= 7; offset += 1) {
+      const date = addCalendarDays(now, offset);
+      const key = calendarDateKey(date);
+      for (const event of eventsForDate(calendarEvents, key)) {
+        result.push({ event, date, key: `${key}:${event.id}` });
+      }
+    }
+    return result;
+  }, [calendarEvents, todayKey]);
+
   return (
     <section className="display-app">
       <div className="display-media">
@@ -68,6 +84,35 @@ export function DisplayApp() {
         <p className="display-date">{now.toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" })}</p>
         <div className="display-time">{now.toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit", hour12: false })}</div>
       </div>
+
+      <aside className="calendar-home-widget" aria-label="Calendar for today and the next seven days">
+        <header><CalendarDays /><div><strong>Calendar</strong><span>Next 7 days</span></div></header>
+        <section>
+          <h2>Today</h2>
+          <div className="calendar-home-list">
+            {todayEvents.slice(0, 3).map((event) => (
+              <article key={event.id}><span className="calendar-home-time">{calendarEventTime(event)}</span><strong>{event.title}</strong></article>
+            ))}
+            {calendarStatus === "ready" && todayEvents.length === 0 && <p className="calendar-home-empty">Nothing planned today</p>}
+          </div>
+        </section>
+        <section>
+          <h2>Upcoming</h2>
+          <div className="calendar-home-list upcoming">
+            {upcomingEvents.slice(0, 5).map(({ event, date, key }) => (
+              <article key={key}>
+                <span className="calendar-home-day">{date.toLocaleDateString("en-AU", { weekday: "short", day: "numeric" })}</span>
+                <strong>{event.title}</strong>
+                <small><Clock3 /> {calendarEventTime(event)}</small>
+              </article>
+            ))}
+            {calendarStatus === "ready" && upcomingEvents.length === 0 && <p className="calendar-home-empty">Nothing in the next 7 days</p>}
+          </div>
+        </section>
+        {calendarStatus !== "ready" && calendarEvents.length === 0 && (
+          <p className="calendar-home-status">{calendarStatus === "not-configured" ? "Connect Google Calendar to see your schedule" : calendarStatus === "error" ? "Calendar is temporarily unavailable" : "Loading calendar…"}</p>
+        )}
+      </aside>
 
       <div className="display-widgets">
         <aside className="weather-panel yr-weather-panel">

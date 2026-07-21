@@ -9,8 +9,10 @@ digital whiteboard, chores and pocket money, news, weather, and more.
 
 - Daily vector whiteboards with date history and Convex persistence
 - Joshua's weekly chore tracker and pocket-money totals
+- Family to-do lists grouped by Mum, Dad, and Josh
+- A monthly calendar sourced only from the primary personal Google Calendar
 - An idle home display using the original Mike's Smarter Mirror family-video
-  library and Yr Busselton meteogram
+  library, Yr Busselton meteogram, BBC headlines, and a seven-day calendar brief
 
 The interface is designed for the Pi's 1080x1920 portrait touchscreen. It
 returns to the home display after five minutes without pointer or keyboard
@@ -29,8 +31,22 @@ every interaction updates it immediately. Convex receives a revisioned snapshot
 after a 500 ms debounce and acts only as backup/recovery storage; incoming
 Convex updates never reconcile over an existing local snapshot. The first run
 imports the previous Convex boards and chores before establishing local
-authority. If `VITE_CONVEX_URL` is missing, the dock simply labels the data
-`Local`; the mirror release shows `Device + backup`.
+authority.
+
+### Google Calendar
+
+Cannvas reads the primary calendar through its private iCal feed, so subscribed
+and external calendars are never queried. Add these values before building a
+calendar-enabled mirror release:
+
+```sh
+pnpm exec convex env set GOOGLE_CALENDAR_ICAL_URL '<primary secret iCal address>'
+pnpm exec convex env set CALENDAR_ACCESS_TOKEN '<long random token>'
+```
+
+Set the same token as `VITE_CALENDAR_ACCESS_TOKEN` in the build environment.
+The browser never receives the private iCal address. Declined and cancelled
+events are omitted, and the home screen shows today plus the next seven days.
 
 ## Raspberry Pi kiosk
 

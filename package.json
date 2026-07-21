@@ -15,11 +15,13 @@
     "@vitejs/plugin-react": "latest",
     "convex": "latest",
     "lucide-react": "latest",
+    "node-ical": "^0.27.0",
     "react": "latest",
     "react-dom": "latest",
     "vite": "latest"
   },
   "devDependencies": {
+    "@types/node": "^26.1.1",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "typescript": "latest"

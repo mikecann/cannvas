@@ -10,13 +10,16 @@ importers:
     dependencies:
       '@vitejs/plugin-react':
         specifier: latest
-        version: 6.0.3(vite@8.1.5(esbuild@0.27.0))
+        version: 6.0.3(vite@8.1.5(@types/node@26.1.1)(esbuild@0.27.0))
       convex:
         specifier: latest
         version: 1.42.3(react@19.2.7)
       lucide-react:
         specifier: latest
         version: 1.25.0(react@19.2.7)
+      node-ical:
+        specifier: ^0.27.0
+        version: 0.27.0
       react:
         specifier: latest
         version: 19.2.7
@@ -25,8 +28,11 @@ importers:
         version: 19.2.7(react@19.2.7)
       vite:
         specifier: latest
-        version: 8.1.5(esbuild@0.27.0)
+        version: 8.1.5(@types/node@26.1.1)(esbuild@0.27.0)
     devDependencies:
+      '@types/node':
+        specifier: ^26.1.1
+        version: 26.1.1
       '@types/react':
         specifier: latest
         version: 19.2.17
@@ -314,6 +320,9 @@ packages:
   '@tybys/wasm-util@0.10.3':
     resolution: {integrity: sha512-F3fo1MYrRJYL3zER0OUOmkutjr1Vp23m7OsSgp7nq4SP6OqX6C/56XFIPAl5bt3zaBRjmW7SGz3u/6LwFpYcOg==}
 
+  '@types/node@26.1.1':
+    resolution: {integrity: sha512-nxAkRSVkN1Y0JC1W8ky/fTfkGsMmcrRsbx+3XoZE+rMOX71kLYTV7fLXpqud1GpbpP5TuffXFqfX7fH2GgZREw==}
+
   '@types/react-dom@19.2.3':
     resolution: {integrity: sha512-jp2L/eY6fn+KgVVQAOqYItbF0VY/YApe5Mz2F0aykSO8gx31bYCZyvSeYxCHKvzHG5eZjc+zyaS5BrBWya2+kQ==}
     peerDependencies:
@@ -584,6 +593,10 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
+  node-ical@0.27.0:
+    resolution: {integrity: sha512-WYXDfh5cm4BnJNB1ZC5pSkMXUyBFjE31ni96HqOIImt80kVIa+gcHzWAxB5CUX4W0vg1Dv0Vy8EvGPEf3lwFXg==}
+    engines: {node: '>=22'}
+
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
 
@@ -614,12 +627,25 @@ packages:
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
 
+  rrule-temporal@2.0.0:
+    resolution: {integrity: sha512-gKYHKNXiQ7G6eiv+y2FKF5AaXp7LTBhG2HM+tHqh3FufRD7vGMpmjaVjjJqN42UfDQjVBGS0aTS1NKcIEtDo+A==}
+    engines: {node: '>=20'}
+
   scheduler@0.27.0:
     resolution: {integrity: sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q==}
 
   source-map-js@1.2.1:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
     engines: {node: '>=0.10.0'}
+
+  temporal-polyfill@0.3.2:
+    resolution: {integrity: sha512-TzHthD/heRK947GNiSu3Y5gSPpeUDH34+LESnfsq8bqpFhsB79HFBX8+Z834IVX68P3EUyRPZK5bL/1fh437Eg==}
+
+  temporal-spec@0.3.1:
+    resolution: {integrity: sha512-B4TUhezh9knfSIMwt7RVggApDRJZo73uZdj8AacL2mZ8RP5KtLianh2MXxL06GN9ESYiIsiuoLQhgVfwe55Yhw==}
+
+  temporal-spec@1.0.0:
+    resolution: {integrity: sha512-00Ahj1e1ifaERTMOIIGpOCdOo9IEk2m6GGSMedsn9a2SIsGLdOTbmME1Htv6IM82b6VHrzSUTIVc7YHy6hdhFQ==}
 
   tinyglobby@0.2.17:
     resolution: {integrity: sha512-wXR/dYpcqKmfWpEdZjiKJOwCNFndD0DMnrW/cYjVGttEkBfVgcLFHoNrlj47mjOVic9yyNu65alsgF4NQyTa2g==}
@@ -632,6 +658,9 @@ packages:
     resolution: {integrity: sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==}
     engines: {node: '>=16.20.0'}
     hasBin: true
+
+  undici-types@8.3.0:
+    resolution: {integrity: sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==}
 
   vite@8.1.5:
     resolution: {integrity: sha512-7ULLwsCdYx/nRyrpiEwvqb5TFHrMVZyBt+rg/OAXT7rgj/z+DtTDyKFeLAdDkubDVDKD8jOsndmy7m55XcfUsw==}
@@ -849,6 +878,10 @@ snapshots:
       tslib: 2.8.1
     optional: true
 
+  '@types/node@26.1.1':
+    dependencies:
+      undici-types: 8.3.0
+
   '@types/react-dom@19.2.3(@types/react@19.2.17)':
     dependencies:
       '@types/react': 19.2.17
@@ -917,10 +950,10 @@ snapshots:
   '@typescript/typescript-win32-x64@7.0.2':
     optional: true
 
-  '@vitejs/plugin-react@6.0.3(vite@8.1.5(esbuild@0.27.0))':
+  '@vitejs/plugin-react@6.0.3(vite@8.1.5(@types/node@26.1.1)(esbuild@0.27.0))':
     dependencies:
       '@rolldown/pluginutils': 1.0.1
-      vite: 8.1.5(esbuild@0.27.0)
+      vite: 8.1.5(@types/node@26.1.1)(esbuild@0.27.0)
 
   convex@1.42.3(react@19.2.7):
     dependencies:
@@ -1028,6 +1061,11 @@ snapshots:
 
   nanoid@3.3.16: {}
 
+  node-ical@0.27.0:
+    dependencies:
+      rrule-temporal: 2.0.0
+      temporal-polyfill: 0.3.2
+
   picocolors@1.1.1: {}
 
   picomatch@4.0.5: {}
@@ -1068,9 +1106,21 @@ snapshots:
       '@rolldown/binding-win32-arm64-msvc': 1.1.5
       '@rolldown/binding-win32-x64-msvc': 1.1.5
 
+  rrule-temporal@2.0.0:
+    dependencies:
+      temporal-spec: 1.0.0
+
   scheduler@0.27.0: {}
 
   source-map-js@1.2.1: {}
+
+  temporal-polyfill@0.3.2:
+    dependencies:
+      temporal-spec: 0.3.1
+
+  temporal-spec@0.3.1: {}
+
+  temporal-spec@1.0.0: {}
 
   tinyglobby@0.2.17:
     dependencies:
@@ -1103,7 +1153,9 @@ snapshots:
       '@typescript/typescript-win32-arm64': 7.0.2
       '@typescript/typescript-win32-x64': 7.0.2
 
-  vite@8.1.5(esbuild@0.27.0):
+  undici-types@8.3.0: {}
+
+  vite@8.1.5(@types/node@26.1.1)(esbuild@0.27.0):
     dependencies:
       lightningcss: 1.32.0
       picomatch: 4.0.5
@@ -1111,6 +1163,7 @@ snapshots:
       rolldown: 1.1.5
       tinyglobby: 0.2.17
     optionalDependencies:
+      '@types/node': 26.1.1
       esbuild: 0.27.0
       fsevents: 2.3.3
 

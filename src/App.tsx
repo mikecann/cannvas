@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckSquare2, LayoutDashboard, ListTodo, PencilLine } from "lucide-react";
+import { CalendarDays, CheckSquare2, LayoutDashboard, ListTodo, PencilLine } from "lucide-react";
+import { CalendarApp } from "./apps/CalendarApp";
 import { ChoresApp } from "./apps/ChoresApp";
 import { DisplayApp } from "./apps/DisplayApp";
 import { TodosApp } from "./apps/TodosApp";
@@ -7,12 +8,13 @@ import { WhiteboardApp } from "./apps/WhiteboardApp";
 import { useCannvasData } from "./data/DataProvider";
 import { installNativeKeyboard } from "./lib/nativeKeyboard";
 
-type AppId = "whiteboard" | "chores" | "todos" | "display";
+type AppId = "whiteboard" | "chores" | "todos" | "calendar" | "display";
 
 const apps = [
   { id: "whiteboard" as const, label: "Whiteboard", icon: PencilLine },
   { id: "chores" as const, label: "Joshua's chores", icon: CheckSquare2 },
   { id: "todos" as const, label: "To-do's", icon: ListTodo },
+  { id: "calendar" as const, label: "Calendar", icon: CalendarDays },
   { id: "display" as const, label: "Home", icon: LayoutDashboard },
 ];
 
@@ -68,6 +70,7 @@ export function App() {
         {isReady && activeApp === "whiteboard" && <WhiteboardApp />}
         {isReady && activeApp === "chores" && <ChoresApp />}
         {isReady && activeApp === "todos" && <TodosApp />}
+        {isReady && activeApp === "calendar" && <CalendarApp />}
         {isReady && activeApp === "display" && <DisplayApp />}
       </div>
 
