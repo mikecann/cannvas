@@ -51,7 +51,11 @@ export function App() {
   };
 
   return (
-    <main className={`app-shell app-${activeApp}`} onPointerDown={wake}>
+    <main
+      className={`app-shell app-${activeApp}`}
+      onContextMenu={(event) => event.preventDefault()}
+      onPointerDown={wake}
+    >
       <div className="app-stage" aria-live="polite">
         {!isReady && <div className="loading-card">Opening Cannvas…</div>}
         {isReady && activeApp === "whiteboard" && <WhiteboardApp />}
