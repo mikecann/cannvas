@@ -74,7 +74,7 @@ export function App() {
         {isReady && activeApp === "todos" && <TodosApp />}
         {isReady && activeApp === "calendar" && <CalendarApp />}
         {isReady && activeApp === "home-automation" && <HomeAutomationApp />}
-        {isReady && activeApp === "display" && <DisplayApp />}
+        {isReady && activeApp === "display" && <DisplayApp onOpenCalendar={() => openApp("calendar")} />}
       </div>
 
       {activeApp !== "display" && (

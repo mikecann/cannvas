@@ -26,10 +26,9 @@ async function crawlVideos(root = VIDEO_ROOT, depth = 0, visited = new Set<strin
   return [...videos, ...nested.flat()];
 }
 
-export function DisplayApp() {
+export function DisplayApp({ onOpenCalendar }: { onOpenCalendar: () => void }) {
   const { calendarEvents, calendarStatus, newsHeadlines } = useCannvasData();
   const [now, setNow] = useState(new Date());
-  const [calendarExpanded, setCalendarExpanded] = useState(false);
   const [calendarCanExpand, setCalendarCanExpand] = useState(false);
   const calendarWidgetRef = useRef<HTMLElement>(null);
   const [weatherVersion, setWeatherVersion] = useState(Date.now());
@@ -74,7 +73,6 @@ export function DisplayApp() {
   }, [calendarEvents, todayKey]);
 
   useEffect(() => {
-    if (calendarExpanded) return;
     const widget = calendarWidgetRef.current;
     if (!widget) return;
 
@@ -83,7 +81,7 @@ export function DisplayApp() {
     const observer = new ResizeObserver(updateOverflow);
     observer.observe(widget);
     return () => observer.disconnect();
-  }, [calendarExpanded, calendarStatus, todayEvents.length, upcomingEvents.length]);
+  }, [calendarStatus, todayEvents.length, upcomingEvents.length]);
 
   return (
     <section className="display-app">
@@ -102,17 +100,16 @@ export function DisplayApp() {
 
       <aside
         ref={calendarWidgetRef}
-        className={`calendar-home-widget${calendarExpanded ? " expanded" : ""}${calendarCanExpand ? " has-more" : ""}`}
-        aria-label={`Calendar for today and the next seven days. ${calendarExpanded ? "Tap to collapse" : "Tap to expand"}.`}
-        aria-expanded={calendarExpanded}
+        className={`calendar-home-widget${calendarCanExpand ? " has-more" : ""}`}
+        aria-label="Open the calendar app"
         role="button"
         tabIndex={0}
         onPointerDown={(event) => event.stopPropagation()}
-        onClick={() => setCalendarExpanded((expanded) => !expanded)}
+        onClick={onOpenCalendar}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
-            setCalendarExpanded((expanded) => !expanded);
+            onOpenCalendar();
           }
         }}
       >
