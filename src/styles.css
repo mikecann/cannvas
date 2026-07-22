@@ -312,15 +312,15 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .calendar-home-widget section:first-child { margin-top: 0; }
 .calendar-home-widget h2 { margin: 0 0 2px; padding-bottom: 2px; border-bottom: 1px solid rgba(255,211,111,.58); color: #ffd36f; font-size: .65rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
 .calendar-home-list { display: grid; gap: 0; }
-.calendar-home-list article { min-height: 27px; padding: 1px 0; display: grid; grid-template-columns: 70px minmax(0, 1fr); align-items: center; gap: 7px; }
-.calendar-home-list article strong { overflow: hidden; font-size: .9rem; line-height: 1.05; white-space: nowrap; text-overflow: ellipsis; }
+.calendar-home-list article { min-height: 29px; padding: 1px 0; display: grid; grid-template-columns: 76px minmax(0, 1fr); align-items: center; gap: 7px; }
+.calendar-home-list article strong { overflow: hidden; font-size: 1rem; line-height: 1.05; white-space: nowrap; text-overflow: ellipsis; }
 .calendar-home-list article.passed strong { color: rgba(255,255,255,.62); }
-.calendar-home-time, .calendar-home-day { color: rgba(255,255,255,.8); font-size: .72rem; font-weight: 800; }
+.calendar-home-time, .calendar-home-day { color: rgba(255,255,255,.8); font-size: .8rem; font-weight: 800; }
 .calendar-home-time { display: flex; align-items: center; gap: 4px; }
 .calendar-home-time svg { width: 13px; height: 13px; flex: 0 0 auto; color: #58d68d; }
 .calendar-home-list.upcoming { position: relative; }
-.calendar-home-list.upcoming article { grid-template-columns: 58px minmax(0, 1fr) 68px; }
-.calendar-home-list article small { display: flex; align-items: center; justify-content: flex-end; gap: 3px; color: rgba(255,255,255,.72); font-size: .67rem; font-weight: 700; }
+.calendar-home-list.upcoming article { grid-template-columns: 64px minmax(0, 1fr) 72px; }
+.calendar-home-list article small { display: flex; align-items: center; justify-content: flex-end; gap: 3px; color: rgba(255,255,255,.72); font-size: .75rem; font-weight: 700; }
 .calendar-home-list article small svg { width: 11px; height: 11px; }
 .calendar-home-empty, .calendar-home-status { margin: 0; padding: 4px 0; color: rgba(255,255,255,.72); font-size: .73rem; font-weight: 700; }
 .calendar-home-status { margin-top: 12px; }
