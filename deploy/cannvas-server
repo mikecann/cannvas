@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import re
 import ssl
+from threading import Lock
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
@@ -29,6 +30,9 @@ ALLOWED_ACTIONS = {
     "turn_on": {"light", "switch", "fan", "input_boolean"},
     "turn_off": {"light", "switch", "fan", "input_boolean"},
 }
+_UNIFI_LOCK = Lock()
+_UNIFI_OPENER: Any = None
+_UNIFI_SIGNATURE: tuple[str, str, str] | None = None
 
 
 def load_config() -> dict[str, str] | None:
@@ -79,18 +83,8 @@ def home_assistant_request(config: dict[str, str], path: str, payload: dict[str,
         return json.loads(raw) if raw else None
 
 
-def unifi_status(config: dict[str, str]) -> dict[str, Any]:
-    parsed = urlparse(config["url"])
-    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
-        raise ValueError("Invalid UniFi controller address")
-
-    # The local UniFi console uses its own certificate. Credentials and all
-    # requests stay on the LAN, and the account is restricted to Network view-only.
-    context = ssl.create_default_context()
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE
-    cookies = CookieJar()
-    opener = build_opener(HTTPCookieProcessor(cookies), HTTPSHandler(context=context))
+def unifi_login(config: dict[str, str], context: ssl.SSLContext) -> Any:
+    opener = build_opener(HTTPCookieProcessor(CookieJar()), HTTPSHandler(context=context))
     login = Request(
         f"{config['url']}/api/auth/login",
         data=json.dumps({
@@ -103,12 +97,42 @@ def unifi_status(config: dict[str, str]) -> dict[str, Any]:
     )
     with opener.open(login, timeout=8) as response:
         response.read()
+    return opener
 
+
+def unifi_status(config: dict[str, str]) -> dict[str, Any]:
+    global _UNIFI_OPENER, _UNIFI_SIGNATURE
+    parsed = urlparse(config["url"])
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("Invalid UniFi controller address")
+
+    # The local UniFi console uses its own certificate. Credentials and all
+    # requests stay on the LAN, and the account is restricted to Network view-only.
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    signature = (config["url"], config["username"], config["password"])
     site = re.sub(r"[^a-zA-Z0-9_-]", "", config["site"])
-    with opener.open(f"{config['url']}/proxy/network/api/s/{site}/stat/sta", timeout=8) as response:
-        clients = json.loads(response.read()).get("data", [])
-    with opener.open(f"{config['url']}/proxy/network/api/s/{site}/stat/health", timeout=8) as response:
-        health = json.loads(response.read()).get("data", [])
+    with _UNIFI_LOCK:
+        if _UNIFI_OPENER is None or _UNIFI_SIGNATURE != signature:
+            _UNIFI_OPENER = unifi_login(config, context)
+            _UNIFI_SIGNATURE = signature
+
+        try:
+            with _UNIFI_OPENER.open(f"{config['url']}/proxy/network/api/s/{site}/stat/sta", timeout=8) as response:
+                clients = json.loads(response.read()).get("data", [])
+            with _UNIFI_OPENER.open(f"{config['url']}/proxy/network/api/s/{site}/stat/health", timeout=8) as response:
+                health = json.loads(response.read()).get("data", [])
+        except HTTPError as error:
+            if error.code not in {401, 403}:
+                raise
+            # UniFi sessions expire. Re-authenticate once, then let any second
+            # failure surface as an offline state to the dashboard.
+            _UNIFI_OPENER = unifi_login(config, context)
+            with _UNIFI_OPENER.open(f"{config['url']}/proxy/network/api/s/{site}/stat/sta", timeout=8) as response:
+                clients = json.loads(response.read()).get("data", [])
+            with _UNIFI_OPENER.open(f"{config['url']}/proxy/network/api/s/{site}/stat/health", timeout=8) as response:
+                health = json.loads(response.read()).get("data", [])
 
     wan = next((row for row in health if row.get("subsystem") == "wan"), {})
     public_clients = []
@@ -192,6 +216,17 @@ class CannvasHandler(SimpleHTTPRequestHandler):
             self.send_json(500, {"error": "Home Assistant request failed"})
 
     def do_GET(self) -> None:
+        if self.path == "/api/unifi/status":
+            config = load_unifi_config()
+            if not config:
+                self.send_json(200, {"configured": False})
+                return
+            try:
+                self.send_json(200, unifi_status(config))
+            except Exception:
+                self.send_json(200, {"configured": True, "connected": False})
+            return
+
         if self.path == "/api/home-assistant/status":
             config = load_config()
             if not config:

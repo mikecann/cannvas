@@ -281,11 +281,27 @@ export function HomeAutomationApp() {
     }
   }, []);
 
+  const refreshNetwork = useCallback(async () => {
+    try {
+      const response = await fetch("/api/unifi/status", { cache: "no-store" });
+      const network = await response.json() as NetworkStatus;
+      if (!response.ok) return;
+      setStatus((current) => current ? { ...current, network } : current);
+    } catch {
+      // Keep the last good reading during a brief controller or Wi-Fi blip.
+    }
+  }, []);
+
   useEffect(() => {
     void refresh();
     const timer = window.setInterval(() => void refresh(), 15_000);
     return () => window.clearInterval(timer);
   }, [refresh]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => void refreshNetwork(), 1_000);
+    return () => window.clearInterval(timer);
+  }, [refreshNetwork]);
 
   const entities = status?.entities ?? [];
   const people = useMemo(() => entities.filter((entity) => entity.domain === "person"), [entities]);
