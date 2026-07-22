@@ -3,11 +3,28 @@ set -eu
 
 app_url=http://127.0.0.1:4173
 connector_status=/sys/class/drm/card1-HDMI-A-1/status
+display_output=HDMI-A-1
 
 # Labwc creates a temporary headless output when it starts before the TV. If
 # Chromium launches on that output, it can stay invisible after HDMI connects.
 # Wait for the real portrait display so the kiosk lands on HDMI-A-1.
 while [ -r "$connector_status" ] && [ "$(/usr/bin/cat "$connector_status")" != connected ]; do
+  sleep 1
+done
+
+# CEC wake changes the output from a landscape fallback mode to the TV's real
+# EDID. Apply the physical portrait transform before Chromium chooses its window
+# geometry, otherwise the 1080x1920 app remains centred on a 1920x1080 desktop.
+transform_attempt=1
+while [ "$transform_attempt" -le 10 ]; do
+  if /usr/bin/wlr-randr \
+    --output "$display_output" \
+    --mode 1920x1080@60Hz \
+    --transform 90 \
+    >/tmp/cannvas-display-transform.log 2>&1; then
+    break
+  fi
+  transform_attempt=$((transform_attempt + 1))
   sleep 1
 done
 

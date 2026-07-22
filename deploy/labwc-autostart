@@ -1,6 +1,8 @@
 # Cannvas owns the fullscreen touchscreen session on this Pi.
 LABWC_PID=$(/usr/bin/pgrep -o labwc) /usr/bin/labwc -r
 /usr/bin/sleep 1
-/usr/local/bin/cannvas-display-wake >/tmp/cannvas-display-wake.log 2>&1 &
+# The TV exposes its real 1080p mode only after CEC wakes it. Keep this in the
+# foreground so the kiosk cannot size itself against the landscape fallback.
+/usr/local/bin/cannvas-display-wake >/tmp/cannvas-display-wake.log 2>&1
 /usr/local/bin/cannvas-keyboard &
 /usr/local/bin/cannvas-kiosk &
