@@ -310,7 +310,7 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .calendar-home-widget.has-more:not(.expanded) { -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 34px), transparent 100%); mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 34px), transparent 100%); }
 .calendar-home-widget section { margin-top: 3px; }
 .calendar-home-widget section:first-child { margin-top: 0; }
-.calendar-home-widget h2 { margin: 0 0 1px; color: rgba(255,255,255,.76); font-size: .65rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.calendar-home-widget h2 { margin: 0 0 2px; padding-bottom: 2px; border-bottom: 1px solid rgba(255,211,111,.58); color: #ffd36f; font-size: .65rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
 .calendar-home-list { display: grid; gap: 0; }
 .calendar-home-list article { min-height: 27px; padding: 1px 0; display: grid; grid-template-columns: 70px minmax(0, 1fr); align-items: center; gap: 7px; }
 .calendar-home-list article strong { overflow: hidden; font-size: .9rem; line-height: 1.05; white-space: nowrap; text-overflow: ellipsis; }
