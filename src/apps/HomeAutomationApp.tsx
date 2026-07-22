@@ -1,6 +1,7 @@
 import {
   Activity,
   Battery,
+  Check,
   CheckCircle2,
   DoorOpen,
   Fan,
@@ -277,7 +278,7 @@ export function HomeAutomationApp() {
               <div className="home-section-title"><div><span>Tap to control</span><h2>Devices</h2></div><strong>{controls.filter(isOn).length} active</strong></div>
               <div className="home-filter-row" role="group" aria-label="Filter home controls">
                 {FILTERS.map((option) => <button className={filter === option.id ? "active" : ""} key={option.id} onClick={() => setFilter(option.id)}>{option.label}</button>)}
-                <label className="home-unavailable-filter"><input type="checkbox" checked={showUnavailable} onChange={(event) => setShowUnavailable(event.target.checked)} /><span>Show unavailable</span></label>
+                <button className="home-unavailable-filter" onClick={() => setShowUnavailable((current) => !current)} aria-pressed={showUnavailable}><span className="home-unavailable-checkbox">{showUnavailable && <Check />}</span><span>Show unavailable</span></button>
               </div>
               <div className="home-device-grid">
                 {controls.map((entity) => (
