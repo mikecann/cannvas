@@ -8,15 +8,17 @@ Type=simple
 User=pi
 Group=pi
 WorkingDirectory=/opt/cannvas/current
-ExecStart=/usr/bin/python3 -m http.server 4173 --bind 127.0.0.1 --directory /opt/cannvas/current
+ExecStart=/opt/cannvas/current/cannvas-server
 Restart=on-failure
 RestartSec=2
+StateDirectory=cannvas
 
-# The static app only needs to read its release directory and open a local port.
+# The app only writes its private Home Assistant configuration directory.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
+ReadWritePaths=/var/lib/cannvas
 
 [Install]
 WantedBy=multi-user.target

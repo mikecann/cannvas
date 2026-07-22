@@ -48,10 +48,24 @@ Set the same token as `VITE_CALENDAR_ACCESS_TOKEN` in the build environment.
 The browser never receives the private iCal address. Declined and cancelled
 events are omitted, and the home screen shows today plus the next seven days.
 
+## Home Assistant
+
+The Home controls app connects to the Home Assistant instance reachable from
+the mirror. Open Home Assistant, go to the user profile, create a Long-Lived
+Access Token, then enter it through **Home controls → Connect** on Cannvas.
+
+`deploy/cannvas-server` stores the connection in
+`/var/lib/cannvas/home-assistant.json` with mode `0600`. The server binds only
+to loopback and proxies the small set of state and control APIs Cannvas needs,
+so the Home Assistant token is never compiled into or returned to the browser.
+The app discovers Person entities, common controls, climate entities, and
+useful household sensors automatically.
+
 ## Raspberry Pi kiosk
 
 Production assets live under versioned `/opt/cannvas/releases` directories.
-`cannvas-web.service` serves the active release on localhost, and Labwc starts
+`cannvas-web.service` runs the static server and Home Assistant proxy from the
+active release on localhost, and Labwc starts
 Chromium as a borderless screen-sized Wayland app after the service is reachable
 and the real HDMI display is connected. This prevents Chromium from opening on
 Labwc's temporary headless output when the TV is still asleep. Cannvas avoids

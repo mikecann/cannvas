@@ -1,0 +1,189 @@
+#!/usr/bin/python3
+"""Serve Cannvas and proxy its local Home Assistant connection.
+
+The browser only talks to this loopback server. Home Assistant's long-lived
+token stays in a mode-0600 file on the mirror instead of being compiled into
+the public JavaScript bundle.
+"""
+
+from __future__ import annotations
+
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+import json
+import os
+from pathlib import Path
+import re
+from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
+
+
+CONFIG_PATH = Path(os.environ.get("CANNVAS_HOME_ASSISTANT_CONFIG", "/var/lib/cannvas/home-assistant.json"))
+DEFAULT_URL = "http://homeassistant.local:8123"
+ENTITY_ID = re.compile(r"^[a-z_]+\.[a-z0-9_]+$")
+ALLOWED_ACTIONS = {
+    "turn_on": {"light", "switch", "fan", "input_boolean"},
+    "turn_off": {"light", "switch", "fan", "input_boolean"},
+}
+
+
+def load_config() -> dict[str, str] | None:
+    try:
+        value = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    url = str(value.get("url", "")).rstrip("/")
+    token = str(value.get("token", ""))
+    return {"url": url, "token": token} if url and token else None
+
+
+def validate_url(value: str) -> str:
+    url = value.strip().rstrip("/")
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("Enter a valid Home Assistant http or https address")
+    return url
+
+
+def home_assistant_request(config: dict[str, str], path: str, payload: dict[str, Any] | None = None) -> Any:
+    body = json.dumps(payload).encode("utf-8") if payload is not None else None
+    request = Request(
+        f"{config['url']}{path}",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {config['token']}",
+            "Content-Type": "application/json",
+        },
+        method="POST" if body is not None else "GET",
+    )
+    with urlopen(request, timeout=8) as response:
+        raw = response.read()
+        return json.loads(raw) if raw else None
+
+
+def public_entity(entity: dict[str, Any]) -> dict[str, Any]:
+    entity_id = str(entity.get("entity_id", ""))
+    attributes = entity.get("attributes") if isinstance(entity.get("attributes"), dict) else {}
+    return {
+        "entityId": entity_id,
+        "domain": entity_id.partition(".")[0],
+        "name": attributes.get("friendly_name") or entity_id.partition(".")[2].replace("_", " ").title(),
+        "state": str(entity.get("state", "unknown")),
+        "lastChanged": entity.get("last_changed"),
+        "attributes": {
+            key: attributes[key]
+            for key in (
+                "device_class",
+                "unit_of_measurement",
+                "brightness",
+                "temperature",
+                "current_temperature",
+                "hvac_action",
+            )
+            if key in attributes
+        },
+    }
+
+
+class CannvasHandler(SimpleHTTPRequestHandler):
+    def send_json(self, status: int, value: Any) -> None:
+        body = json.dumps(value).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def read_json(self) -> dict[str, Any]:
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError as error:
+            raise ValueError("Invalid request length") from error
+        if length <= 0 or length > 64_000:
+            raise ValueError("Invalid request body")
+        value = json.loads(self.rfile.read(length))
+        if not isinstance(value, dict):
+            raise ValueError("Expected a JSON object")
+        return value
+
+    def home_assistant_error(self, error: Exception) -> None:
+        if isinstance(error, HTTPError) and error.code in {401, 403}:
+            self.send_json(401, {"error": "Home Assistant rejected the access token"})
+        elif isinstance(error, (HTTPError, URLError, TimeoutError)):
+            self.send_json(502, {"error": "Home Assistant is unavailable"})
+        else:
+            self.send_json(500, {"error": "Home Assistant request failed"})
+
+    def do_GET(self) -> None:
+        if self.path == "/api/home-assistant/status":
+            config = load_config()
+            if not config:
+                self.send_json(200, {"configured": False, "defaultUrl": DEFAULT_URL})
+                return
+            try:
+                ha_config = home_assistant_request(config, "/api/config")
+                states = home_assistant_request(config, "/api/states")
+                self.send_json(200, {
+                    "configured": True,
+                    "connected": True,
+                    "locationName": ha_config.get("location_name", "Home"),
+                    "version": ha_config.get("version"),
+                    "url": config["url"],
+                    "entities": [public_entity(entity) for entity in states if isinstance(entity, dict)],
+                })
+            except Exception as error:  # The response deliberately avoids leaking network or token details.
+                self.home_assistant_error(error)
+            return
+        super().do_GET()
+
+    def do_POST(self) -> None:
+        if self.path == "/api/home-assistant/config":
+            try:
+                body = self.read_json()
+                config = {"url": validate_url(str(body.get("url", ""))), "token": str(body.get("token", "")).strip()}
+                if len(config["token"]) < 20:
+                    raise ValueError("Enter a valid long-lived access token")
+                # Validate before replacing the last working configuration.
+                home_assistant_request(config, "/api/")
+                CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+                temporary = CONFIG_PATH.with_suffix(".new")
+                temporary.write_text(json.dumps(config), encoding="utf-8")
+                os.chmod(temporary, 0o600)
+                temporary.replace(CONFIG_PATH)
+                self.send_json(200, {"configured": True})
+            except ValueError as error:
+                self.send_json(400, {"error": str(error)})
+            except Exception as error:
+                self.home_assistant_error(error)
+            return
+
+        if self.path == "/api/home-assistant/action":
+            config = load_config()
+            if not config:
+                self.send_json(409, {"error": "Home Assistant is not connected"})
+                return
+            try:
+                body = self.read_json()
+                entity_id = str(body.get("entityId", ""))
+                action = str(body.get("action", ""))
+                domain = entity_id.partition(".")[0]
+                if not ENTITY_ID.fullmatch(entity_id) or action not in ALLOWED_ACTIONS or domain not in ALLOWED_ACTIONS[action]:
+                    raise ValueError("That Home Assistant action is not allowed")
+                result = home_assistant_request(config, f"/api/services/{domain}/{action}", {"entity_id": entity_id})
+                self.send_json(200, {"ok": True, "states": [public_entity(entity) for entity in result or []]})
+            except ValueError as error:
+                self.send_json(400, {"error": str(error)})
+            except Exception as error:
+                self.home_assistant_error(error)
+            return
+
+        self.send_error(404)
+
+    def log_message(self, format: str, *args: object) -> None:
+        print(f"cannvas server: {format % args}", flush=True)
+
+
+if __name__ == "__main__":
+    ThreadingHTTPServer(("127.0.0.1", 4173), CannvasHandler).serve_forever()
