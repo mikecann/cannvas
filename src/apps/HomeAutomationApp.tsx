@@ -4,14 +4,17 @@ import {
   Check,
   CheckCircle2,
   DoorOpen,
+  Download,
   Fan,
   House,
   Lightbulb,
   Lock,
+  Network,
   Power,
   RefreshCw,
   Settings,
   Thermometer,
+  Upload,
   UserRound,
   Wifi,
   WifiOff,
@@ -49,6 +52,27 @@ type HomeAssistantStatus = {
   version?: string;
   url?: string;
   entities?: HomeAssistantEntity[];
+  network?: NetworkStatus;
+};
+
+type NetworkClient = {
+  name: string;
+  ip?: string;
+  network: string;
+  isWired: boolean;
+  signal?: number;
+  satisfaction?: number;
+  downloadBps: number;
+  uploadBps: number;
+};
+
+type NetworkStatus = {
+  configured: boolean;
+  connected?: boolean;
+  online?: number;
+  downloadBps?: number;
+  uploadBps?: number;
+  clients?: NetworkClient[];
 };
 
 type HomeAssistantAction = "turn_on" | "turn_off";
@@ -207,6 +231,13 @@ function matchesFilter(entity: HomeAssistantEntity, filter: ControlFilter) {
   return ["switch", "fan", "input_boolean"].includes(entity.domain);
 }
 
+function formatRate(bytesPerSecond = 0) {
+  const bitsPerSecond = Math.max(0, bytesPerSecond) * 8;
+  if (bitsPerSecond >= 1_000_000) return `${(bitsPerSecond / 1_000_000).toFixed(bitsPerSecond >= 10_000_000 ? 0 : 1)} Mbps`;
+  if (bitsPerSecond >= 1_000) return `${(bitsPerSecond / 1_000).toFixed(bitsPerSecond >= 100_000 ? 0 : 1)} Kbps`;
+  return `${Math.round(bitsPerSecond)} bps`;
+}
+
 export function HomeAutomationApp() {
   const [status, setStatus] = useState<HomeAssistantStatus | null>(null);
   const [error, setError] = useState("");
@@ -253,6 +284,9 @@ export function HomeAutomationApp() {
     .filter((entity) => entity.domain === "climate" || entity.domain === "weather" || entity.domain === "lock" || entity.domain === "cover" || (entity.domain === "sensor" || entity.domain === "binary_sensor") && USEFUL_SENSOR_CLASSES.has(entity.attributes.device_class ?? ""))
     .filter((entity) => !["unavailable", "unknown"].includes(entity.state.toLowerCase()))
     .slice(0, 12), [entities]);
+  const networkClients = useMemo(() => [...(status?.network?.clients ?? [])]
+    .sort((left, right) => right.downloadBps + right.uploadBps - left.downloadBps - left.uploadBps)
+    .slice(0, 8), [status?.network?.clients]);
 
   const runAction = async (entity: HomeAssistantEntity) => {
     if (pending.has(entity.entityId) || ["unavailable", "unknown"].includes(entity.state.toLowerCase())) return;
@@ -356,6 +390,34 @@ export function HomeAutomationApp() {
               <div className="home-section-title"><div><span>Live location</span><h2>Where we are</h2></div></div>
               <HomeLocationMap people={people} />
             </section>
+
+            {status.network?.configured && (
+              <section className="home-network-section">
+                <div className="home-section-title">
+                  <div><span>UniFi network</span><h2>Connected now</h2></div>
+                  <strong>{status.network.connected ? `${status.network.online ?? 0} online` : "Offline"}</strong>
+                </div>
+                {status.network.connected ? (
+                  <>
+                    <div className="home-network-summary">
+                      <article><span><Network /></span><div><strong>{status.network.online ?? 0}</strong><small>Devices online</small></div></article>
+                      <article><span className="download"><Download /></span><div><strong>{formatRate(status.network.downloadBps)}</strong><small>Internet download</small></div></article>
+                      <article><span className="upload"><Upload /></span><div><strong>{formatRate(status.network.uploadBps)}</strong><small>Internet upload</small></div></article>
+                    </div>
+                    <div className="home-network-clients">
+                      {networkClients.map((client) => (
+                        <article key={`${client.name}-${client.ip ?? client.network}`}>
+                          <span className="home-network-client-icon"><Wifi /></span>
+                          <div className="home-network-client-name"><strong>{client.name}</strong><small>{client.ip ?? "No IP"} · {client.isWired ? "Wired" : client.network}</small></div>
+                          <div className="home-network-rate download"><Download /><strong>{formatRate(client.downloadBps)}</strong></div>
+                          <div className="home-network-rate upload"><Upload /><strong>{formatRate(client.uploadBps)}</strong></div>
+                        </article>
+                      ))}
+                    </div>
+                  </>
+                ) : <p className="home-section-empty">UniFi is connected to Home Assistant, but the controller is not responding right now.</p>}
+              </section>
+            )}
 
             <section className="home-control-section">
               <div className="home-section-title"><div><span>Tap to control</span><h2>Devices</h2></div><strong>{controls.filter(isOn).length} active</strong></div>

@@ -245,7 +245,7 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .home-connection-card strong { margin-bottom: 2px; color: white; font: 700 1.35rem "Fraunces", serif; }
 .home-automation-board { min-height: 0; margin-top: 18px; padding-bottom: 94px; position: relative; flex: 1; overflow: hidden; border: 1px solid #ded7cb; border-radius: 28px; background: rgba(255,253,248,.86); box-shadow: var(--shadow); }
 .home-dashboard-scroll { height: 100%; padding: 22px 22px 115px; display: flex; flex-direction: column; overflow-y: auto; }
-.home-presence-section, .home-location-section, .home-control-section, .home-sensor-section { margin-bottom: 26px; }
+.home-presence-section, .home-location-section, .home-network-section, .home-control-section, .home-sensor-section { margin-bottom: 26px; }
 .home-control-section { margin-top: auto; padding-top: 26px; }
 .home-section-title { margin-bottom: 12px; display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
 .home-section-title > div { display: flex; align-items: baseline; gap: 10px; }
@@ -273,6 +273,26 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .home-location-label { padding: 7px 11px; border: 0; border-radius: 11px; color: white; background: var(--ink); box-shadow: 0 4px 12px rgba(0,0,0,.18); font-size: .72rem; font-weight: 900; }
 .home-location-label::before { border-right-color: var(--ink); }
 .home-location-map .leaflet-control-attribution { padding: 2px 6px; color: #676b66; background: rgba(255,255,255,.8); font-size: 8px; }
+.home-network-summary { margin-bottom: 10px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.home-network-summary article { min-height: 78px; padding: 12px 14px; display: flex; align-items: center; gap: 11px; border: 1px solid #dce4df; border-radius: 18px; background: #f4f8f6; }
+.home-network-summary article > span { width: 40px; height: 40px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 13px; color: #3478d4; background: #e3edfb; }
+.home-network-summary article > span.download { color: #197b64; background: #ddf2eb; }
+.home-network-summary article > span.upload { color: #8b5cc7; background: #ede5f7; }
+.home-network-summary svg { width: 21px; }
+.home-network-summary div { min-width: 0; display: flex; flex-direction: column; }
+.home-network-summary strong { overflow: hidden; font-size: 1rem; text-overflow: ellipsis; white-space: nowrap; }
+.home-network-summary small { margin-top: 2px; color: var(--muted); font-size: .66rem; font-weight: 700; }
+.home-network-clients { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.home-network-clients article { min-height: 68px; padding: 10px 12px; display: grid; grid-template-columns: 39px minmax(0, 1fr) 76px 76px; align-items: center; gap: 9px; border: 1px solid #e4ddd2; border-radius: 16px; background: white; }
+.home-network-client-icon { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 12px; color: var(--green); background: #e2f2ed; }
+.home-network-client-icon svg { width: 20px; }
+.home-network-client-name { min-width: 0; display: flex; flex-direction: column; }
+.home-network-client-name strong { overflow: hidden; font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
+.home-network-client-name small { margin-top: 2px; overflow: hidden; color: var(--muted); font-size: .59rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.home-network-rate { min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 4px; color: #197b64; }
+.home-network-rate.upload { color: #8b5cc7; }
+.home-network-rate svg { width: 14px; flex: 0 0 auto; }
+.home-network-rate strong { overflow: hidden; font-size: .66rem; text-overflow: ellipsis; white-space: nowrap; }
 .home-filter-row { margin-bottom: 13px; padding: 6px; display: flex; gap: 6px; overflow-x: auto; border-radius: 17px; background: #eee9df; }
 .home-filter-row button { min-height: 45px; padding: 0 17px; flex: 0 0 auto; border: 0; border-radius: 12px; color: #6e6b65; background: transparent; font-size: .75rem; font-weight: 800; }
 .home-filter-row button.active { color: white; background: var(--ink); box-shadow: 0 4px 12px rgba(37,40,44,.16); }

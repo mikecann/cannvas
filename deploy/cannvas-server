@@ -9,17 +9,20 @@ the public JavaScript bundle.
 from __future__ import annotations
 
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.cookiejar import CookieJar
 import json
 import os
 from pathlib import Path
 import re
+import ssl
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPSHandler, HTTPCookieProcessor, Request, build_opener, urlopen
 
 
 CONFIG_PATH = Path(os.environ.get("CANNVAS_HOME_ASSISTANT_CONFIG", "/var/lib/cannvas/home-assistant.json"))
+UNIFI_CONFIG_PATH = Path(os.environ.get("CANNVAS_UNIFI_CONFIG", "/var/lib/cannvas/unifi.json"))
 DEFAULT_URL = "http://homeassistant.local:8123"
 ENTITY_ID = re.compile(r"^[a-z_]+\.[a-z0-9_]+$")
 ALLOWED_ACTIONS = {
@@ -36,6 +39,20 @@ def load_config() -> dict[str, str] | None:
     url = str(value.get("url", "")).rstrip("/")
     token = str(value.get("token", ""))
     return {"url": url, "token": token} if url and token else None
+
+
+def load_unifi_config() -> dict[str, str] | None:
+    try:
+        value = json.loads(UNIFI_CONFIG_PATH.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    config = {
+        "url": str(value.get("url", "")).rstrip("/"),
+        "username": str(value.get("username", "")),
+        "password": str(value.get("password", "")),
+        "site": str(value.get("site", "default")),
+    }
+    return config if all(config.values()) else None
 
 
 def validate_url(value: str) -> str:
@@ -60,6 +77,61 @@ def home_assistant_request(config: dict[str, str], path: str, payload: dict[str,
     with urlopen(request, timeout=8) as response:
         raw = response.read()
         return json.loads(raw) if raw else None
+
+
+def unifi_status(config: dict[str, str]) -> dict[str, Any]:
+    parsed = urlparse(config["url"])
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("Invalid UniFi controller address")
+
+    # The local UniFi console uses its own certificate. Credentials and all
+    # requests stay on the LAN, and the account is restricted to Network view-only.
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    cookies = CookieJar()
+    opener = build_opener(HTTPCookieProcessor(cookies), HTTPSHandler(context=context))
+    login = Request(
+        f"{config['url']}/api/auth/login",
+        data=json.dumps({
+            "username": config["username"],
+            "password": config["password"],
+            "remember": True,
+        }).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with opener.open(login, timeout=8) as response:
+        response.read()
+
+    site = re.sub(r"[^a-zA-Z0-9_-]", "", config["site"])
+    with opener.open(f"{config['url']}/proxy/network/api/s/{site}/stat/sta", timeout=8) as response:
+        clients = json.loads(response.read()).get("data", [])
+    with opener.open(f"{config['url']}/proxy/network/api/s/{site}/stat/health", timeout=8) as response:
+        health = json.loads(response.read()).get("data", [])
+
+    wan = next((row for row in health if row.get("subsystem") == "wan"), {})
+    public_clients = []
+    for client in clients:
+        name = client.get("name") or client.get("hostname") or client.get("ip") or "Unknown device"
+        public_clients.append({
+            "name": str(name),
+            "ip": client.get("ip"),
+            "network": client.get("essid") or client.get("network") or "Wired",
+            "isWired": bool(client.get("is_wired")),
+            "signal": client.get("signal"),
+            "satisfaction": client.get("satisfaction"),
+            "downloadBps": float(client.get("rx_bytes-r") or 0),
+            "uploadBps": float(client.get("tx_bytes-r") or 0),
+        })
+    return {
+        "configured": True,
+        "connected": True,
+        "online": len(public_clients),
+        "downloadBps": float(wan.get("rx_bytes-r") or 0),
+        "uploadBps": float(wan.get("tx_bytes-r") or 0),
+        "clients": public_clients,
+    }
 
 
 def public_entity(entity: dict[str, Any]) -> dict[str, Any]:
@@ -128,6 +200,11 @@ class CannvasHandler(SimpleHTTPRequestHandler):
             try:
                 ha_config = home_assistant_request(config, "/api/config")
                 states = home_assistant_request(config, "/api/states")
+                network_config = load_unifi_config()
+                try:
+                    network = unifi_status(network_config) if network_config else {"configured": False}
+                except Exception:
+                    network = {"configured": True, "connected": False}
                 self.send_json(200, {
                     "configured": True,
                     "connected": True,
@@ -135,6 +212,7 @@ class CannvasHandler(SimpleHTTPRequestHandler):
                     "version": ha_config.get("version"),
                     "url": config["url"],
                     "entities": [public_entity(entity) for entity in states if isinstance(entity, dict)],
+                    "network": network,
                 })
             except Exception as error:  # The response deliberately avoids leaking network or token details.
                 self.home_assistant_error(error)
