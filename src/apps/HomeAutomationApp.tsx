@@ -121,6 +121,19 @@ function HomeLocationMap({ people }: { people: HomeAssistantEntity[] }) {
       longitude: Number(person.attributes.longitude),
     }))
     .filter(({ latitude, longitude }) => Number.isFinite(latitude) && Number.isFinite(longitude));
+  const locationGroups = Array.from(locations.reduce((groups, location) => {
+    // Trackers at home normally report identical coordinates. Group anything
+    // within roughly ten metres so one family member cannot hide another.
+    const key = `${location.latitude.toFixed(4)},${location.longitude.toFixed(4)}`;
+    const group = groups.get(key) ?? [];
+    group.push(location);
+    groups.set(key, group);
+    return groups;
+  }, new Map<string, typeof locations>()).values()).map((group) => ({
+    locations: group,
+    latitude: group.reduce((sum, location) => sum + location.latitude, 0) / group.length,
+    longitude: group.reduce((sum, location) => sum + location.longitude, 0) / group.length,
+  }));
   const locationKey = JSON.stringify(locations.map(({ person, latitude, longitude }) => [person.entityId, latitude, longitude]));
 
   useEffect(() => {
@@ -142,22 +155,28 @@ function HomeLocationMap({ people }: { people: HomeAssistantEntity[] }) {
     }).addTo(map);
 
     const bounds = L.latLngBounds([]);
-    locations.forEach(({ person, latitude, longitude }) => {
-      const member = familyMemberFor(person);
-      const avatar = member?.avatar ?? "/avatars/dad.png";
+    locationGroups.forEach(({ locations: groupedLocations, latitude, longitude }) => {
+      const avatars = groupedLocations.map(({ person }) => familyMemberFor(person)?.avatar ?? "/avatars/dad.png");
+      const grouped = groupedLocations.length > 1;
+      const iconWidth = grouped ? 94 : 58;
       const marker = L.marker([latitude, longitude], {
         icon: L.divIcon({
-          className: "home-location-marker",
-          html: `<span><img src="${avatar}" alt=""><i></i></span>`,
-          iconSize: [58, 66],
-          iconAnchor: [29, 62],
+          className: `home-location-marker${grouped ? " is-group" : ""}`,
+          html: `<span>${avatars.map((avatar) => `<b><img src="${avatar}" alt=""><i></i></b>`).join("")}</span>`,
+          iconSize: [iconWidth, 66],
+          iconAnchor: [iconWidth / 2, 62],
         }),
       }).addTo(map);
-      marker.bindTooltip(person.name, { permanent: true, direction: "right", offset: [18, -31], className: "home-location-label" });
+      marker.bindTooltip(groupedLocations.map(({ person }) => person.name).join(" & "), {
+        permanent: true,
+        direction: "right",
+        offset: [grouped ? 34 : 18, -31],
+        className: "home-location-label",
+      });
       bounds.extend([latitude, longitude]);
     });
 
-    if (locations.length === 1) map.setView(bounds.getCenter(), 15);
+    if (locationGroups.length === 1) map.setView(bounds.getCenter(), 15);
     else map.fitBounds(bounds.pad(.35), { maxZoom: 15 });
     window.setTimeout(() => map.invalidateSize(), 0);
     return () => {
