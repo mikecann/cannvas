@@ -1,4 +1,4 @@
-import { CalendarDays, CheckCircle2, Clock3 } from "lucide-react";
+import { CheckCircle2, Clock3 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useCannvasData } from "../data/DataProvider";
 import { addCalendarDays, calendarDateKey, calendarEventTime, eventsForDate } from "../lib/calendar";
@@ -116,7 +116,7 @@ export function DisplayApp() {
           }
         }}
       >
-        <header><CalendarDays /><div><strong>Calendar</strong><span>Next 7 days</span></div></header>
+        <header><strong>Calendar</strong></header>
         <section>
           <h2>Today</h2>
           <div className="calendar-home-list">
