@@ -116,7 +116,6 @@ export function DisplayApp() {
           }
         }}
       >
-        <header><strong>Calendar</strong></header>
         <section>
           <h2>Today</h2>
           <div className="calendar-home-list">
@@ -144,8 +143,6 @@ export function DisplayApp() {
             ))}
             {calendarStatus === "ready" && upcomingEvents.length === 0 && <p className="calendar-home-empty">Nothing in the next 7 days</p>}
           </div>
-          {calendarCanExpand && !calendarExpanded && <p className="calendar-home-expand-hint">Tap to show more</p>}
-          {calendarCanExpand && calendarExpanded && <p className="calendar-home-expand-hint">Tap to collapse</p>}
         </section>
         {calendarStatus !== "ready" && calendarEvents.length === 0 && (
           <p className="calendar-home-status">{calendarStatus === "not-configured" ? "Connect Google Calendar to see your schedule" : calendarStatus === "error" ? "Calendar is temporarily unavailable" : "Loading calendar…"}</p>
