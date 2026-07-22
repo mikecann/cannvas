@@ -265,6 +265,8 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .home-filter-row { margin-bottom: 13px; padding: 6px; display: flex; gap: 6px; overflow-x: auto; border-radius: 17px; background: #eee9df; }
 .home-filter-row button { min-height: 45px; padding: 0 17px; flex: 0 0 auto; border: 0; border-radius: 12px; color: #6e6b65; background: transparent; font-size: .75rem; font-weight: 800; }
 .home-filter-row button.active { color: white; background: var(--ink); box-shadow: 0 4px 12px rgba(37,40,44,.16); }
+.home-unavailable-filter { min-height: 45px; margin-left: auto; padding: 0 13px; display: flex; align-items: center; gap: 8px; flex: 0 0 auto; border-radius: 12px; color: #6e6b65; background: rgba(255,253,248,.72); font-size: .75rem; font-weight: 800; }
+.home-unavailable-filter input { width: 22px; height: 22px; margin: 0; accent-color: var(--green); }
 .home-device-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 11px; }
 .home-device-card { min-height: 96px; padding: 13px; display: grid; grid-template-columns: 49px minmax(0, 1fr) 38px; align-items: center; gap: 10px; border: 1px solid #e2dbd0; border-radius: 20px; text-align: left; background: white; box-shadow: 0 5px 14px rgba(57,48,37,.05); }
 .home-device-card:active { transform: scale(.98); }

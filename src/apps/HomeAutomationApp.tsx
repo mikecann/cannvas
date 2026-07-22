@@ -74,9 +74,10 @@ const FILTERS: Array<{ id: ControlFilter; label: string }> = [
 ];
 
 function isOn(entity: HomeAssistantEntity) {
-  if (entity.domain === "lock") return entity.state === "locked";
-  if (entity.domain === "cover") return ["open", "opening"].includes(entity.state);
-  return entity.state === "on";
+  const state = entity.state.toLowerCase();
+  if (entity.domain === "lock") return state === "locked";
+  if (entity.domain === "cover") return ["open", "opening"].includes(state);
+  return state === "on";
 }
 
 function controlAction(entity: HomeAssistantEntity): HomeAssistantAction {
@@ -84,9 +85,10 @@ function controlAction(entity: HomeAssistantEntity): HomeAssistantAction {
 }
 
 function stateLabel(entity: HomeAssistantEntity) {
-  if (["unavailable", "unknown"].includes(entity.state)) return "Unavailable";
-  if (entity.domain === "person") return entity.state === "home" ? "Home" : "Away";
-  if (entity.domain === "lock") return entity.state === "locked" ? "Locked" : "Unlocked";
+  const state = entity.state.toLowerCase();
+  if (["unavailable", "unknown"].includes(state)) return "Unavailable";
+  if (entity.domain === "person") return state === "home" ? "Home" : state === "not_home" ? "Away" : entity.state;
+  if (entity.domain === "lock") return state === "locked" ? "Locked" : "Unlocked";
   if (entity.domain === "cover") return entity.state.charAt(0).toUpperCase() + entity.state.slice(1);
   if (["light", "switch", "fan", "input_boolean"].includes(entity.domain)) return isOn(entity) ? "On" : "Off";
   if (entity.domain === "climate") {
@@ -94,11 +96,19 @@ function stateLabel(entity: HomeAssistantEntity) {
     return temperature === undefined ? entity.state : `${temperature}° · ${entity.state}`;
   }
   if (entity.domain === "binary_sensor") {
-    const active = entity.state === "on";
+    const active = state === "on";
     const deviceClass = entity.attributes.device_class;
     if (["door", "garage_door", "window", "opening"].includes(deviceClass ?? "")) return active ? "Open" : "Closed";
     if (["motion", "occupancy", "presence"].includes(deviceClass ?? "")) return active ? "Detected" : "Clear";
     return active ? "On" : "Off";
+  }
+  const numericState = Number(entity.state);
+  if (Number.isFinite(numericState)) {
+    const maximumFractionDigits = ["battery", "humidity"].includes(entity.attributes.device_class ?? "")
+      ? 0
+      : entity.attributes.device_class === "energy" ? 2 : 1;
+    const formatted = new Intl.NumberFormat("en-AU", { maximumFractionDigits }).format(numericState);
+    return `${formatted}${entity.attributes.unit_of_measurement ? ` ${entity.attributes.unit_of_measurement}` : ""}`;
   }
   return `${entity.state}${entity.attributes.unit_of_measurement ? ` ${entity.attributes.unit_of_measurement}` : ""}`;
 }
@@ -125,6 +135,7 @@ export function HomeAutomationApp() {
   const [status, setStatus] = useState<HomeAssistantStatus | null>(null);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState<ControlFilter>("all");
+  const [showUnavailable, setShowUnavailable] = useState(false);
   const [pending, setPending] = useState<Set<string>>(() => new Set());
   const [showSettings, setShowSettings] = useState(false);
   const [url, setUrl] = useState("http://homeassistant.local:8123");
@@ -152,18 +163,19 @@ export function HomeAutomationApp() {
 
   const entities = status?.entities ?? [];
   const people = useMemo(() => entities.filter((entity) => entity.domain === "person"), [entities]);
-  const peopleHome = people.filter((person) => person.state === "home").length;
+  const peopleHome = people.filter((person) => person.state.toLowerCase() === "home").length;
   const controls = useMemo(() => entities
     .filter((entity) => CONTROL_DOMAINS.has(entity.domain))
+    .filter((entity) => showUnavailable || !["unavailable", "unknown"].includes(entity.state.toLowerCase()))
     .filter((entity) => matchesFilter(entity, filter))
-    .sort((left, right) => Number(isOn(right)) - Number(isOn(left)) || left.name.localeCompare(right.name)), [entities, filter]);
+    .sort((left, right) => Number(isOn(right)) - Number(isOn(left)) || left.name.localeCompare(right.name)), [entities, filter, showUnavailable]);
   const sensors = useMemo(() => entities
     .filter((entity) => entity.domain === "climate" || entity.domain === "weather" || entity.domain === "lock" || entity.domain === "cover" || (entity.domain === "sensor" || entity.domain === "binary_sensor") && USEFUL_SENSOR_CLASSES.has(entity.attributes.device_class ?? ""))
-    .filter((entity) => !["unavailable", "unknown"].includes(entity.state))
+    .filter((entity) => !["unavailable", "unknown"].includes(entity.state.toLowerCase()))
     .slice(0, 12), [entities]);
 
   const runAction = async (entity: HomeAssistantEntity) => {
-    if (pending.has(entity.entityId) || ["unavailable", "unknown"].includes(entity.state)) return;
+    if (pending.has(entity.entityId) || ["unavailable", "unknown"].includes(entity.state.toLowerCase())) return;
     const action = controlAction(entity);
     setPending((current) => new Set(current).add(entity.entityId));
     setStatus((current) => current ? {
@@ -251,10 +263,10 @@ export function HomeAutomationApp() {
               <div className="home-section-title"><div><span>At home now</span><h2>Our family</h2></div><strong>{peopleHome} home</strong></div>
               <div className="home-presence-grid">
                 {people.map((person) => (
-                  <article className={person.state === "home" ? "home-person-card is-home" : "home-person-card"} key={person.entityId}>
+                  <article className={person.state.toLowerCase() === "home" ? "home-person-card is-home" : "home-person-card"} key={person.entityId}>
                     <span className="home-person-avatar">{person.name.charAt(0).toUpperCase()}</span>
                     <div><strong>{person.name}</strong><small>{stateLabel(person)}</small></div>
-                    {person.state === "home" ? <CheckCircle2 /> : <House />}
+                    {person.state.toLowerCase() === "home" ? <CheckCircle2 /> : <House />}
                   </article>
                 ))}
                 {people.length === 0 && <p className="home-section-empty">Add Person entities in Home Assistant to see who is home.</p>}
@@ -265,6 +277,7 @@ export function HomeAutomationApp() {
               <div className="home-section-title"><div><span>Tap to control</span><h2>Devices</h2></div><strong>{controls.filter(isOn).length} active</strong></div>
               <div className="home-filter-row" role="group" aria-label="Filter home controls">
                 {FILTERS.map((option) => <button className={filter === option.id ? "active" : ""} key={option.id} onClick={() => setFilter(option.id)}>{option.label}</button>)}
+                <label className="home-unavailable-filter"><input type="checkbox" checked={showUnavailable} onChange={(event) => setShowUnavailable(event.target.checked)} /><span>Show unavailable</span></label>
               </div>
               <div className="home-device-grid">
                 {controls.map((entity) => (
@@ -272,7 +285,7 @@ export function HomeAutomationApp() {
                     className={`home-device-card ${isOn(entity) ? "is-on" : ""}`}
                     key={entity.entityId}
                     onClick={() => void runAction(entity)}
-                    disabled={pending.has(entity.entityId) || ["unavailable", "unknown"].includes(entity.state)}
+                    disabled={pending.has(entity.entityId) || ["unavailable", "unknown"].includes(entity.state.toLowerCase())}
                     aria-pressed={isOn(entity)}
                   >
                     <span className="home-device-icon"><EntityIcon entity={entity} /></span>
