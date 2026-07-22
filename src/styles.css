@@ -245,23 +245,34 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .home-connection-card strong { margin-bottom: 2px; color: white; font: 700 1.35rem "Fraunces", serif; }
 .home-automation-board { min-height: 0; margin-top: 18px; padding-bottom: 94px; position: relative; flex: 1; overflow: hidden; border: 1px solid #ded7cb; border-radius: 28px; background: rgba(255,253,248,.86); box-shadow: var(--shadow); }
 .home-dashboard-scroll { height: 100%; padding: 22px 22px 115px; display: flex; flex-direction: column; overflow-y: auto; }
-.home-presence-section, .home-control-section, .home-sensor-section { margin-bottom: 26px; }
+.home-presence-section, .home-location-section, .home-control-section, .home-sensor-section { margin-bottom: 26px; }
 .home-control-section { margin-top: auto; padding-top: 26px; }
 .home-section-title { margin-bottom: 12px; display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
 .home-section-title > div { display: flex; align-items: baseline; gap: 10px; }
 .home-section-title span { color: var(--green); font-size: .7rem; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
 .home-section-title h2 { margin: 0; font: 700 1.55rem "Fraunces", serif; }
 .home-section-title > strong { padding: 5px 10px; border-radius: 999px; color: #326d5f; background: #dff2ec; font-size: .7rem; }
-.home-presence-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.home-presence-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .home-person-card { min-height: 82px; padding: 12px 14px; display: grid; grid-template-columns: 50px minmax(0, 1fr) 25px; align-items: center; gap: 10px; border: 1px solid #e2dbd0; border-radius: 20px; background: #f3efe8; }
 .home-person-card.is-home { border-color: #a9d8c9; background: #edf8f4; box-shadow: inset 0 0 0 1px rgba(22,139,112,.08); }
-.home-person-avatar { width: 48px; height: 48px; display: grid; place-items: center; border: 4px solid white; border-radius: 50%; color: white; background: #8e948f; box-shadow: 0 4px 12px rgba(56,47,36,.12); font: 800 1.2rem "Fraunces", serif; }
-.home-person-card.is-home .home-person-avatar { background: var(--green); }
+.home-person-avatar { width: 48px; height: 48px; display: block; border: 4px solid white; border-radius: 50%; object-fit: cover; background: #8e948f; box-shadow: 0 4px 12px rgba(56,47,36,.12); }
+.home-person-card.needs-setup { border-style: dashed; }
 .home-person-card div { min-width: 0; display: flex; flex-direction: column; }
 .home-person-card strong { overflow: hidden; font-size: .95rem; text-overflow: ellipsis; white-space: nowrap; }
 .home-person-card small { margin-top: 3px; color: var(--muted); font-size: .72rem; font-weight: 700; }
 .home-person-card > svg { width: 22px; color: #a8a39b; }
 .home-person-card.is-home > svg { color: var(--green); }
+.home-location-map, .home-location-empty { height: 270px; overflow: hidden; border: 1px solid #d8d2c7; border-radius: 22px; background: #e9eee7; box-shadow: inset 0 0 0 1px rgba(255,255,255,.6); }
+.home-location-map { z-index: 0; }
+.home-location-empty { display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--muted); font-weight: 700; }
+.home-location-empty svg { width: 25px; color: var(--green); }
+.home-location-marker { background: transparent; border: 0; }
+.home-location-marker > span { width: 58px; height: 58px; display: block; position: relative; border: 4px solid white; border-radius: 50%; background: white; box-shadow: 0 5px 16px rgba(25,32,35,.3); }
+.home-location-marker img { width: 100%; height: 100%; display: block; border-radius: 50%; object-fit: cover; }
+.home-location-marker i { width: 13px; height: 13px; position: absolute; right: 0; bottom: 0; border: 3px solid white; border-radius: 50%; background: var(--green); }
+.home-location-label { padding: 7px 11px; border: 0; border-radius: 11px; color: white; background: var(--ink); box-shadow: 0 4px 12px rgba(0,0,0,.18); font-size: .72rem; font-weight: 900; }
+.home-location-label::before { border-right-color: var(--ink); }
+.home-location-map .leaflet-control-attribution { padding: 2px 6px; color: #676b66; background: rgba(255,255,255,.8); font-size: 8px; }
 .home-filter-row { margin-bottom: 13px; padding: 6px; display: flex; gap: 6px; overflow-x: auto; border-radius: 17px; background: #eee9df; }
 .home-filter-row button { min-height: 45px; padding: 0 17px; flex: 0 0 auto; border: 0; border-radius: 12px; color: #6e6b65; background: transparent; font-size: .75rem; font-weight: 800; }
 .home-filter-row button.active { color: white; background: var(--ink); box-shadow: 0 4px 12px rgba(37,40,44,.16); }

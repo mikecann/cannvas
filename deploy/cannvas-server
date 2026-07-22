@@ -80,6 +80,9 @@ def public_entity(entity: dict[str, Any]) -> dict[str, Any]:
                 "temperature",
                 "current_temperature",
                 "hvac_action",
+                "latitude",
+                "longitude",
+                "gps_accuracy",
             )
             if key in attributes
         },

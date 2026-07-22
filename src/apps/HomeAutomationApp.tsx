@@ -16,6 +16,8 @@ import {
   Wifi,
   WifiOff,
 } from "lucide-react";
+import * as L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type HomeAssistantAttributes = {
@@ -25,6 +27,9 @@ type HomeAssistantAttributes = {
   temperature?: number;
   current_temperature?: number;
   hvac_action?: string;
+  latitude?: number;
+  longitude?: number;
+  gps_accuracy?: number;
 };
 
 type HomeAssistantEntity = {
@@ -73,6 +78,76 @@ const FILTERS: Array<{ id: ControlFilter; label: string }> = [
   { id: "lights", label: "Lights" },
   { id: "switches", label: "Switches" },
 ];
+
+const FAMILY = [
+  { id: "mike", name: "Mike", avatar: "/avatars/dad.png", matches: ["mike", "cann"] },
+  { id: "kelsie", name: "Kelsie", avatar: "/avatars/mum.png", matches: ["kelsie", "kels"] },
+] as const;
+
+function familyMemberFor(person: HomeAssistantEntity) {
+  const haystack = `${person.entityId} ${person.name}`.toLowerCase();
+  return FAMILY.find((member) => member.matches.some((match) => haystack.includes(match)));
+}
+
+function HomeLocationMap({ people }: { people: HomeAssistantEntity[] }) {
+  const locations = people
+    .map((person) => ({
+      person,
+      latitude: Number(person.attributes.latitude),
+      longitude: Number(person.attributes.longitude),
+    }))
+    .filter(({ latitude, longitude }) => Number.isFinite(latitude) && Number.isFinite(longitude));
+  const locationKey = JSON.stringify(locations.map(({ person, latitude, longitude }) => [person.entityId, latitude, longitude]));
+
+  useEffect(() => {
+    if (locations.length === 0) return;
+    const container = document.querySelector<HTMLElement>("#home-location-map");
+    if (!container) return;
+
+    // Leaflet stores its instance on the element, so remove an old map before
+    // rebuilding it with the latest Home Assistant coordinates.
+    if ((container as HTMLElement & { _leaflet_id?: number })._leaflet_id) {
+      (container as HTMLElement & { _leaflet_id?: number })._leaflet_id = undefined;
+      container.replaceChildren();
+    }
+
+    const map = L.map(container, { zoomControl: false, scrollWheelZoom: false, attributionControl: true });
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors",
+      maxZoom: 19,
+    }).addTo(map);
+
+    const bounds = L.latLngBounds([]);
+    locations.forEach(({ person, latitude, longitude }) => {
+      const member = familyMemberFor(person);
+      const avatar = member?.avatar ?? "/avatars/dad.png";
+      const marker = L.marker([latitude, longitude], {
+        icon: L.divIcon({
+          className: "home-location-marker",
+          html: `<span><img src="${avatar}" alt=""><i></i></span>`,
+          iconSize: [58, 66],
+          iconAnchor: [29, 62],
+        }),
+      }).addTo(map);
+      marker.bindTooltip(person.name, { permanent: true, direction: "right", offset: [18, -31], className: "home-location-label" });
+      bounds.extend([latitude, longitude]);
+    });
+
+    if (locations.length === 1) map.setView(bounds.getCenter(), 15);
+    else map.fitBounds(bounds.pad(.35), { maxZoom: 15 });
+    window.setTimeout(() => map.invalidateSize(), 0);
+    return () => {
+      map.remove();
+    };
+    // The serialized key changes only when a person's coordinates change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locationKey]);
+
+  if (locations.length === 0) {
+    return <div className="home-location-empty"><House /> Location will appear when a person tracker reports GPS coordinates.</div>;
+  }
+  return <div id="home-location-map" className="home-location-map" aria-label="Map showing family locations" />;
+}
 
 function isOn(entity: HomeAssistantEntity) {
   const state = entity.state.toLowerCase();
@@ -164,6 +239,10 @@ export function HomeAutomationApp() {
 
   const entities = status?.entities ?? [];
   const people = useMemo(() => entities.filter((entity) => entity.domain === "person"), [entities]);
+  const family = useMemo(() => FAMILY.map((member) => ({
+    ...member,
+    person: people.find((person) => member.matches.some((match) => `${person.entityId} ${person.name}`.toLowerCase().includes(match))),
+  })), [people]);
   const peopleHome = people.filter((person) => person.state.toLowerCase() === "home").length;
   const controls = useMemo(() => entities
     .filter((entity) => CONTROL_DOMAINS.has(entity.domain))
@@ -242,7 +321,7 @@ export function HomeAutomationApp() {
         </div>
         <div className={`home-connection-card ${connected ? "connected" : ""}`}>
           {connected ? <Wifi /> : <WifiOff />}
-          <span><strong>{connected ? status.locationName ?? "Home" : configured ? "Offline" : "Not connected"}</strong>{connected ? `${peopleHome} of ${people.length} people home` : "Home Assistant"}</span>
+          <span><strong>{connected ? status.locationName ?? "Home" : configured ? "Offline" : "Not connected"}</strong>{connected ? `${peopleHome} tracked ${peopleHome === 1 ? "person" : "people"} home` : "Home Assistant"}</span>
         </div>
       </header>
 
@@ -263,15 +342,19 @@ export function HomeAutomationApp() {
             <section className="home-presence-section">
               <div className="home-section-title"><div><span>At home now</span><h2>Our family</h2></div><strong>{peopleHome} home</strong></div>
               <div className="home-presence-grid">
-                {people.map((person) => (
-                  <article className={person.state.toLowerCase() === "home" ? "home-person-card is-home" : "home-person-card"} key={person.entityId}>
-                    <span className="home-person-avatar">{person.name.charAt(0).toUpperCase()}</span>
-                    <div><strong>{person.name}</strong><small>{stateLabel(person)}</small></div>
-                    {person.state.toLowerCase() === "home" ? <CheckCircle2 /> : <House />}
+                {family.map(({ id, name, avatar, person }) => (
+                  <article className={person?.state.toLowerCase() === "home" ? "home-person-card is-home" : `home-person-card${person ? "" : " needs-setup"}`} key={id}>
+                    <img className="home-person-avatar" src={avatar} alt={`${name}'s face`} />
+                    <div><strong>{name}</strong><small>{person ? stateLabel(person) : "Wi-Fi setup needed"}</small></div>
+                    {person?.state.toLowerCase() === "home" ? <CheckCircle2 /> : person ? <House /> : <WifiOff />}
                   </article>
                 ))}
-                {people.length === 0 && <p className="home-section-empty">Add Person entities in Home Assistant to see who is home.</p>}
               </div>
+            </section>
+
+            <section className="home-location-section">
+              <div className="home-section-title"><div><span>Live location</span><h2>Where we are</h2></div></div>
+              <HomeLocationMap people={people} />
             </section>
 
             <section className="home-control-section">
