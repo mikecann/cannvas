@@ -7,10 +7,9 @@ import type { ChoreCategory } from "../data/types";
 import { addDays, dateKey, fromDateKey, money, startOfWeek } from "../lib/dates";
 
 export function ChoresApp() {
-  const { chores, completions, addChore, updateChore, removeChore, toggleCompletion, clearWeek } = useCannvasData();
+  const { chores, completions, addChore, updateChore, removeChore, toggleCompletion } = useCannvasData();
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [showAdd, setShowAdd] = useState(false);
-  const [showClear, setShowClear] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [choreToRemove, setChoreToRemove] = useState<string | null>(null);
   const [choreToEdit, setChoreToEdit] = useState<string | null>(null);
@@ -33,7 +32,6 @@ export function ChoresApp() {
   const possible = bonusChores.reduce((total, chore) => total + chore.valueCents * 7, 0);
   const standardDone = completions.filter((completion) => weekDates.has(completion.date) && standardChores.some((chore) => chore.id === completion.choreId)).length;
   const standardPossible = standardChores.length * 7;
-  const weekCompletionCount = completions.filter((completion) => weekDates.has(completion.date)).length;
   const isThisWeek = dateKey(weekStart) === dateKey(startOfWeek(new Date()));
   const submitChore = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -140,7 +138,6 @@ export function ChoresApp() {
         <footer className="chores-actions app-control-palette">
           <button className="button primary" onClick={openAdd}><Plus /> Add a chore</button>
           <button className="button secondary pocket-money-info-button" onClick={() => setShowInfo(true)}><CircleHelp /> How pocket money works</button>
-          <button className="button quiet-danger" onClick={() => setShowClear(true)} disabled={weekCompletionCount === 0}><Trash2 /> Clear this week</button>
         </footer>
       </div>
 
@@ -191,10 +188,6 @@ export function ChoresApp() {
           </section>
         </div>
       )}
-
-      <ConfirmDialog open={showClear} title="Clear this week's checks?" confirmLabel="Clear the week" onCancel={() => setShowClear(false)} onConfirm={() => { void clearWeek(dateKey(weekStart)); setShowClear(false); }}>
-        This removes every tick for this week. The chore list will stay ready for next week.
-      </ConfirmDialog>
 
       <ConfirmDialog open={choreToRemove !== null} title="Remove this chore?" confirmLabel="Remove chore" onCancel={() => setChoreToRemove(null)} onConfirm={() => { if (choreToRemove) void removeChore(choreToRemove); setChoreToRemove(null); }}>
         This removes the chore from Joshua's board. Existing weekly totals may change.
