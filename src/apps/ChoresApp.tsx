@@ -1,4 +1,4 @@
-import { Check, ChevronLeft, ChevronRight, CircleHelp, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, CircleDollarSign, CircleHelp, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { ChoreCategoryPicker } from "../components/ChoreCategoryPicker";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -17,6 +17,8 @@ export function ChoresApp() {
   const [value, setValue] = useState("0.50");
   const [category, setCategory] = useState<ChoreCategory>("standard");
   const days = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
+  const sunday = days[6];
+  const isInterestPayday = addDays(sunday, 7).getMonth() !== sunday.getMonth();
   const completionKeys = useMemo(
     () => new Set(completions.map(({ choreId, date }) => `${choreId}:${date}`)),
     [completions],
@@ -84,6 +86,20 @@ export function ChoresApp() {
           <small className="standard-summary">Standard checks {standardDone}/{standardPossible}</small>
         </div>
       </header>
+
+      {isInterestPayday && (
+        <div className="interest-payday-banner" role="status">
+          <div className="interest-payday-icon"><CircleDollarSign /></div>
+          <div>
+            <strong>Interest payday!</strong>
+            <span>Sunday {sunday.toLocaleDateString("en-AU", { day: "numeric", month: "long" })} is the last Sunday of the month.</span>
+          </div>
+          <div className="interest-payday-rate">
+            <strong>10%</strong>
+            <span>Dad Bank bonus into Grow</span>
+          </div>
+        </div>
+      )}
 
       <div className="week-toolbar">
         <button className="icon-button" aria-label="Previous week" onClick={() => setWeekStart(addDays(weekStart, -7))}><ChevronLeft /></button>
