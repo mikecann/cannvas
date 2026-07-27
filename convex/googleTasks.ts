@@ -130,7 +130,7 @@ export const setupPersonalList = internalAction({
     for (const todoId of new Set([...todoIds, ...wrongListTodoIds])) {
       await ctx.scheduler.runAfter(0, internal.googleTasks.pushTodo, { todoId });
     }
-    await ctx.scheduler.runAfter(0, internal.googleTasks.poll, {});
+    await ctx.scheduler.runAfter(0, internal.googleTasks.poll, { fullSync: true });
     return null;
   },
 });
@@ -149,37 +149,15 @@ export const pushTodo = internalAction({
       const targetListId = await findPersonalList(ctx, connection, accessToken);
 
       if (todo.assignee !== "dad") {
-        // Only Dad tasks belong in Google Tasks. If a task was moved away from
-        // Dad after being linked in Personal, remove that linked Google copy.
-        if (todo.googleTaskId && todo.googleTaskListId === targetListId) {
-          try {
-            await googleRequest<void>(
-              accessToken,
-              `/lists/${encodeURIComponent(targetListId)}/tasks/${encodeURIComponent(todo.googleTaskId)}`,
-              { method: "DELETE" },
-            );
-          } catch (error) {
-            if (!(error instanceof Error) || !error.message.includes("Google Tasks 404")) throw error;
-          }
-          await ctx.runMutation(internal.todos.clearGoogleLink, { todoId: todo.id });
-          return null;
-        }
+        // Reassignment is not deletion. Keep the Google task and its link so a
+        // later Personal poll does not import a duplicate Dad task.
         await ctx.runMutation(internal.todos.markSynced, { todoId: todo.id });
         return null;
       }
 
       if (todo.deletedAt !== undefined) {
-        if (todo.googleTaskId && todo.googleTaskListId) {
-          try {
-            await googleRequest<void>(
-              accessToken,
-              `/lists/${encodeURIComponent(todo.googleTaskListId)}/tasks/${encodeURIComponent(todo.googleTaskId)}`,
-              { method: "DELETE" },
-            );
-          } catch (error) {
-            if (!(error instanceof Error) || !error.message.includes("Google Tasks 404")) throw error;
-          }
-        }
+        // Cannvas removals stay local. Completing a task is the supported way
+        // to make its completed state flow to Personal.
         await ctx.runMutation(internal.todos.markSynced, { todoId: todo.id });
         return null;
       }
@@ -187,15 +165,7 @@ export const pushTodo = internalAction({
       let googleTaskId = todo.googleTaskId;
       let googleTaskListId = todo.googleTaskListId;
       if (googleTaskId && googleTaskListId && googleTaskListId !== targetListId) {
-        try {
-          await googleRequest<void>(
-            accessToken,
-            `/lists/${encodeURIComponent(googleTaskListId)}/tasks/${encodeURIComponent(googleTaskId)}`,
-            { method: "DELETE" },
-          );
-        } catch (error) {
-          if (!(error instanceof Error) || !error.message.includes("Google Tasks 404")) throw error;
-        }
+        // Link the Dad task into Personal without deleting the old Google copy.
         googleTaskId = undefined;
         googleTaskListId = undefined;
       }
@@ -206,17 +176,27 @@ export const pushTodo = internalAction({
         due: todo.dueDate ? `${todo.dueDate}T00:00:00.000Z` : null,
         completed: todo.completed ? new Date().toISOString() : null,
       };
-      const saved = googleTaskId && googleTaskListId
-        ? await googleRequest<GoogleTask>(
+      let saved: GoogleTask | undefined;
+      if (googleTaskId && googleTaskListId) {
+        try {
+          saved = await googleRequest<GoogleTask>(
             accessToken,
             `/lists/${encodeURIComponent(googleTaskListId)}/tasks/${encodeURIComponent(googleTaskId)}`,
             { method: "PATCH", body: JSON.stringify(body) },
-          )
-        : await googleRequest<GoogleTask>(
-            accessToken,
-            `/lists/${encodeURIComponent(targetListId)}/tasks`,
-            { method: "POST", body: JSON.stringify(body) },
           );
+        } catch (error) {
+          // A Google-side deletion never removes the Cannvas record. If Mike
+          // later edits it in Cannvas, recreate the Personal copy instead.
+          if (!(error instanceof Error) || !error.message.includes("Google Tasks 404")) throw error;
+        }
+      }
+      if (!saved) {
+        saved = await googleRequest<GoogleTask>(
+          accessToken,
+          `/lists/${encodeURIComponent(targetListId)}/tasks`,
+          { method: "POST", body: JSON.stringify(body) },
+        );
+      }
 
       await ctx.runMutation(internal.todos.markSynced, {
         todoId: todo.id,
@@ -235,9 +215,9 @@ export const pushTodo = internalAction({
 });
 
 export const poll = internalAction({
-  args: {},
+  args: { fullSync: v.optional(v.boolean()) },
   returns: v.null(),
-  handler: async (ctx) => {
+  handler: async (ctx, args) => {
     const connection = await ctx.runQuery(internal.googleTasksStore.getConnection, {});
     if (!connection) return null;
     const startedAt = Date.now();
@@ -250,7 +230,7 @@ export const poll = internalAction({
     for (const todoId of new Set([...todoIds, ...wrongListTodoIds])) {
       await ctx.scheduler.runAfter(0, internal.googleTasks.pushTodo, { todoId });
     }
-    const updatedMin = connection.lastPolledAt
+    const updatedMin = !args.fullSync && connection.lastPolledAt
       ? new Date(connection.lastPolledAt - 5 * 60_000).toISOString()
       : undefined;
 

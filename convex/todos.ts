@@ -299,23 +299,6 @@ export const markSynced = internalMutation({
   },
 });
 
-export const clearGoogleLink = internalMutation({
-  args: { todoId: v.id("todos") },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    if (await ctx.db.get(args.todoId)) {
-      await ctx.db.patch(args.todoId, {
-        googleTaskId: undefined,
-        googleTaskListId: undefined,
-        googleUpdatedAt: undefined,
-        syncState: "synced",
-        syncError: undefined,
-      });
-    }
-    return null;
-  },
-});
-
 export const markSyncError = internalMutation({
   args: {
     todoId: v.id("todos"),
@@ -354,7 +337,17 @@ export const upsertFromGoogle = internalMutation({
       .unique();
     const googleUpdated = Date.parse(args.googleUpdatedAt);
 
+    // Google deletion is deliberately not a sync operation. Keep linked
+    // Cannvas data intact, and ignore deleted Personal tasks that were never
+    // linked in the first place.
+    if (args.deleted) return existing?._id ?? null;
+
     if (existing) {
+      // A local removal or reassignment stays local. Keeping the link prevents
+      // the still-existing Personal task from being imported as a duplicate.
+      if (existing.deletedAt !== undefined || existing.assignee !== "dad") {
+        return existing._id;
+      }
       // A local edit that has not reached Google wins this poll cycle.
       if (existing.syncState === "pending") return existing._id;
       if (existing.googleUpdatedAt && Date.parse(existing.googleUpdatedAt) >= googleUpdated) {
@@ -365,7 +358,6 @@ export const upsertFromGoogle = internalMutation({
         assignee: args.assignee,
         dueDate: cleanDueDate(args.dueDate),
         completed: args.completed,
-        deletedAt: args.deleted ? Date.now() : undefined,
         updatedAt: Number.isFinite(googleUpdated) ? googleUpdated : Date.now(),
         googleUpdatedAt: args.googleUpdatedAt,
         syncState: "synced",
@@ -374,8 +366,21 @@ export const upsertFromGoogle = internalMutation({
       return existing._id;
     }
 
-    // Personal may contain many unrelated tasks. Only tasks that Cannvas
-    // previously linked are allowed to flow back into the family display.
-    return null;
+    // Historical completed tasks stay in Google. New or existing active
+    // Personal tasks become Dad tasks with medium priority.
+    if (args.completed) return null;
+    return await ctx.db.insert("todos", {
+      title: cleanTitle(args.title),
+      assignee: "dad",
+      priority: "medium",
+      dueDate: cleanDueDate(args.dueDate),
+      completed: false,
+      createdAt: Number.isFinite(googleUpdated) ? googleUpdated : Date.now(),
+      updatedAt: Number.isFinite(googleUpdated) ? googleUpdated : Date.now(),
+      googleTaskId: args.googleTaskId,
+      googleTaskListId: args.googleTaskListId,
+      googleUpdatedAt: args.googleUpdatedAt,
+      syncState: "synced",
+    });
   },
 });
