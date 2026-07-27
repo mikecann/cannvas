@@ -189,6 +189,10 @@ export const pushTodo = internalAction({
           // later edits it in Cannvas, recreate the Personal copy instead.
           if (!(error instanceof Error) || !error.message.includes("Google Tasks 404")) throw error;
         }
+        // Google may accept a PATCH for a tombstoned task while leaving it
+        // hidden. Treat that response like a missing task and create a fresh
+        // visible Personal copy below.
+        if (saved?.deleted) saved = undefined;
       }
       if (!saved) {
         saved = await googleRequest<GoogleTask>(
