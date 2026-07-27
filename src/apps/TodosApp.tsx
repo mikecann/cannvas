@@ -41,9 +41,9 @@ export function TodosApp() {
     PEOPLE.map(({ id }) => [id, todos.filter((todo) => todo.assignee === id).sort(sortTodos)]),
   ) as Record<TodoAssignee, Todo[]>, [todos]);
 
-  const openAdd = () => {
+  const openAdd = (selectedAssignee: TodoAssignee = "josh") => {
     setTitle("");
-    setAssignee("josh");
+    setAssignee(selectedAssignee);
     setPriority("medium");
     setDueDate("");
     setEditingId("new");
@@ -86,7 +86,8 @@ export function TodosApp() {
             <section className={`todo-person-column person-${person.id}`} key={person.id}>
               <header className="todo-person-header">
                 <img src={person.avatar} alt={person.name} />
-                <div><h2>{person.name}</h2><span>{personTodos.filter((todo) => !todo.completed).length} to do</span></div>
+                <div className="todo-person-copy"><h2>{person.name}</h2><span>{personTodos.filter((todo) => !todo.completed).length} to do</span></div>
+                <button className="todo-person-add" onClick={() => openAdd(person.id)} aria-label={`Add a to-do for ${person.name}`}><Plus /></button>
               </header>
               <div className="todo-list">
                 {personTodos.map((todo) => (
@@ -112,7 +113,7 @@ export function TodosApp() {
           );
         })}
         <footer className="todos-actions app-control-palette">
-          <button className="button primary" onClick={openAdd}><Plus /> Add a to-do</button>
+          <button className="button primary" onClick={() => openAdd()}><Plus /> Add a to-do</button>
         </footer>
       </div>
 
