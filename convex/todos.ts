@@ -263,6 +263,20 @@ export const listNeedingSync = internalQuery({
   },
 });
 
+export const listDadOutsideGoogleList = internalQuery({
+  args: { googleTaskListId: v.string() },
+  returns: v.array(v.id("todos")),
+  handler: async (ctx, args) => {
+    const active = await ctx.db
+      .query("todos")
+      .withIndex("by_deleted_at_and_created_at", (q) => q.eq("deletedAt", undefined))
+      .take(500);
+    return active
+      .filter((row) => row.assignee === "dad" && row.googleTaskListId !== args.googleTaskListId)
+      .map((row) => row._id);
+  },
+});
+
 export const markSynced = internalMutation({
   args: {
     todoId: v.id("todos"),
@@ -281,6 +295,23 @@ export const markSynced = internalMutation({
       syncState: "synced",
       syncError: undefined,
     });
+    return null;
+  },
+});
+
+export const clearGoogleLink = internalMutation({
+  args: { todoId: v.id("todos") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    if (await ctx.db.get(args.todoId)) {
+      await ctx.db.patch(args.todoId, {
+        googleTaskId: undefined,
+        googleTaskListId: undefined,
+        googleUpdatedAt: undefined,
+        syncState: "synced",
+        syncError: undefined,
+      });
+    }
     return null;
   },
 });
@@ -343,19 +374,8 @@ export const upsertFromGoogle = internalMutation({
       return existing._id;
     }
 
-    if (args.deleted) return null;
-    return await ctx.db.insert("todos", {
-      title: cleanTitle(args.title),
-      assignee: args.assignee,
-      priority: "medium",
-      dueDate: cleanDueDate(args.dueDate),
-      completed: args.completed,
-      createdAt: Number.isFinite(googleUpdated) ? googleUpdated : Date.now(),
-      updatedAt: Number.isFinite(googleUpdated) ? googleUpdated : Date.now(),
-      googleTaskId: args.googleTaskId,
-      googleTaskListId: args.googleTaskListId,
-      googleUpdatedAt: args.googleUpdatedAt,
-      syncState: "synced",
-    });
+    // Personal may contain many unrelated tasks. Only tasks that Cannvas
+    // previously linked are allowed to flow back into the family display.
+    return null;
   },
 });

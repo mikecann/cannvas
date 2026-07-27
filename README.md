@@ -37,10 +37,12 @@ legacy IDs without replacing or duplicating them.
 
 ### Google Tasks
 
-Cannvas synchronizes three Google task lists named `Cannvas - Mum`,
-`Cannvas - Dad`, and `Cannvas - Josh`. Local changes are sent immediately and a
-two-minute Convex cron imports Google-side edits, completions, and deletions.
-Google's API exposes due dates but not due times or Cannvas priority.
+Cannvas synchronizes Dad's to-do's with the existing Google task list named
+`Personal`. It never creates a list and never imports unrelated Personal tasks.
+Local changes are sent immediately, while a two-minute Convex cron brings
+Google-side edits, completions, and deletions back to their linked Cannvas
+tasks. Mum and Josh to-do's stay in Cannvas only. Google's API exposes due dates
+but not due times or Cannvas priority.
 
 Configure a Google OAuth web client whose redirect URI is:
 

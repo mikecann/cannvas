@@ -5,20 +5,13 @@ import { internalAction } from "./_generated/server";
 
 const GOOGLE_API_BASE = "https://tasks.googleapis.com/tasks/v1";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
-const LIST_TITLES = {
-  mum: "Cannvas - Mum",
-  dad: "Cannvas - Dad",
-  josh: "Cannvas - Josh",
-} as const;
+const PERSONAL_LIST_TITLE = "Personal";
 
-type Assignee = keyof typeof LIST_TITLES;
 type Connection = {
   refreshToken: string;
   accessToken?: string;
   accessTokenExpiresAt?: number;
-  mumListId?: string;
   dadListId?: string;
-  joshListId?: string;
   lastPolledAt?: number;
 };
 type GoogleTaskList = { id: string; title: string };
@@ -90,62 +83,51 @@ async function getAccessToken(ctx: ActionCtx, connection?: Connection) {
   return token.access_token;
 }
 
-async function ensureLists(ctx: ActionCtx, connection: Connection, accessToken: string) {
-  if (connection.mumListId && connection.dadListId && connection.joshListId) {
-    return {
-      mum: connection.mumListId,
-      dad: connection.dadListId,
-      josh: connection.joshListId,
-    };
-  }
-
+async function findPersonalList(ctx: ActionCtx, connection: Connection, accessToken: string) {
   const firstPage = await googleRequest<{ items?: GoogleTaskList[]; nextPageToken?: string }>(
     accessToken,
-    "/users/@me/lists?maxResults=100",
+    "/users/@me/lists?maxResults=1000",
   );
   const lists = [...(firstPage.items ?? [])];
   let pageToken = firstPage.nextPageToken;
   while (pageToken) {
     const page = await googleRequest<{ items?: GoogleTaskList[]; nextPageToken?: string }>(
       accessToken,
-      `/users/@me/lists?maxResults=100&pageToken=${encodeURIComponent(pageToken)}`,
+      `/users/@me/lists?maxResults=1000&pageToken=${encodeURIComponent(pageToken)}`,
     );
     lists.push(...(page.items ?? []));
     pageToken = page.nextPageToken;
   }
 
-  const ids = {} as Record<Assignee, string>;
-  for (const person of Object.keys(LIST_TITLES) as Assignee[]) {
-    const existing = lists.find((list) => list.title === LIST_TITLES[person]);
-    if (existing) {
-      ids[person] = existing.id;
-      continue;
-    }
-    const created = await googleRequest<GoogleTaskList>(
-      accessToken,
-      "/users/@me/lists",
-      { method: "POST", body: JSON.stringify({ title: LIST_TITLES[person] }) },
-    );
-    ids[person] = created.id;
+  const personal = lists.find(
+    (list) => list.title.trim().toLocaleLowerCase() === PERSONAL_LIST_TITLE.toLocaleLowerCase(),
+  );
+  if (!personal) {
+    throw new Error(`Google Tasks list "${PERSONAL_LIST_TITLE}" was not found`);
   }
-  await ctx.runMutation(internal.googleTasksStore.saveListIds, {
-    mumListId: ids.mum,
-    dadListId: ids.dad,
-    joshListId: ids.josh,
-  });
-  return ids;
+
+  // Always resolve by title so an older cached "Cannvas - Dad" ID is replaced.
+  if (connection.dadListId !== personal.id) {
+    await ctx.runMutation(internal.googleTasksStore.savePersonalListId, {
+      dadListId: personal.id,
+    });
+  }
+  return personal.id;
 }
 
-export const setupLists = internalAction({
+export const setupPersonalList = internalAction({
   args: {},
   returns: v.null(),
   handler: async (ctx) => {
     const connection = await ctx.runQuery(internal.googleTasksStore.getConnection, {});
     if (!connection) return null;
     const accessToken = await getAccessToken(ctx, connection);
-    await ensureLists(ctx, connection, accessToken);
+    const personalListId = await findPersonalList(ctx, connection, accessToken);
     const todoIds = await ctx.runQuery(internal.todos.listNeedingSync, {});
-    for (const todoId of todoIds) {
+    const wrongListTodoIds = await ctx.runQuery(internal.todos.listDadOutsideGoogleList, {
+      googleTaskListId: personalListId,
+    });
+    for (const todoId of new Set([...todoIds, ...wrongListTodoIds])) {
       await ctx.scheduler.runAfter(0, internal.googleTasks.pushTodo, { todoId });
     }
     await ctx.scheduler.runAfter(0, internal.googleTasks.poll, {});
@@ -164,8 +146,27 @@ export const pushTodo = internalAction({
 
     try {
       const accessToken = await getAccessToken(ctx, connection);
-      const listIds = await ensureLists(ctx, connection, accessToken);
-      const targetListId = listIds[todo.assignee];
+      const targetListId = await findPersonalList(ctx, connection, accessToken);
+
+      if (todo.assignee !== "dad") {
+        // Only Dad tasks belong in Google Tasks. If a task was moved away from
+        // Dad after being linked in Personal, remove that linked Google copy.
+        if (todo.googleTaskId && todo.googleTaskListId === targetListId) {
+          try {
+            await googleRequest<void>(
+              accessToken,
+              `/lists/${encodeURIComponent(targetListId)}/tasks/${encodeURIComponent(todo.googleTaskId)}`,
+              { method: "DELETE" },
+            );
+          } catch (error) {
+            if (!(error instanceof Error) || !error.message.includes("Google Tasks 404")) throw error;
+          }
+          await ctx.runMutation(internal.todos.clearGoogleLink, { todoId: todo.id });
+          return null;
+        }
+        await ctx.runMutation(internal.todos.markSynced, { todoId: todo.id });
+        return null;
+      }
 
       if (todo.deletedAt !== undefined) {
         if (todo.googleTaskId && todo.googleTaskListId) {
@@ -186,11 +187,15 @@ export const pushTodo = internalAction({
       let googleTaskId = todo.googleTaskId;
       let googleTaskListId = todo.googleTaskListId;
       if (googleTaskId && googleTaskListId && googleTaskListId !== targetListId) {
-        await googleRequest<void>(
-          accessToken,
-          `/lists/${encodeURIComponent(googleTaskListId)}/tasks/${encodeURIComponent(googleTaskId)}`,
-          { method: "DELETE" },
-        );
+        try {
+          await googleRequest<void>(
+            accessToken,
+            `/lists/${encodeURIComponent(googleTaskListId)}/tasks/${encodeURIComponent(googleTaskId)}`,
+            { method: "DELETE" },
+          );
+        } catch (error) {
+          if (!(error instanceof Error) || !error.message.includes("Google Tasks 404")) throw error;
+        }
         googleTaskId = undefined;
         googleTaskListId = undefined;
       }
@@ -237,50 +242,51 @@ export const poll = internalAction({
     if (!connection) return null;
     const startedAt = Date.now();
     const accessToken = await getAccessToken(ctx, connection);
-    const listIds = await ensureLists(ctx, connection, accessToken);
+    const personalListId = await findPersonalList(ctx, connection, accessToken);
     const todoIds = await ctx.runQuery(internal.todos.listNeedingSync, {});
-    for (const todoId of todoIds) {
+    const wrongListTodoIds = await ctx.runQuery(internal.todos.listDadOutsideGoogleList, {
+      googleTaskListId: personalListId,
+    });
+    for (const todoId of new Set([...todoIds, ...wrongListTodoIds])) {
       await ctx.scheduler.runAfter(0, internal.googleTasks.pushTodo, { todoId });
     }
     const updatedMin = connection.lastPolledAt
       ? new Date(connection.lastPolledAt - 5 * 60_000).toISOString()
       : undefined;
 
-    for (const assignee of Object.keys(listIds) as Assignee[]) {
-      let pageToken: string | undefined;
-      let pageCount = 0;
-      do {
-        const query = new URLSearchParams({
-          maxResults: "100",
-          showCompleted: "true",
-          showHidden: "true",
-          showDeleted: "true",
+    let pageToken: string | undefined;
+    let pageCount = 0;
+    do {
+      const query = new URLSearchParams({
+        maxResults: "100",
+        showCompleted: "true",
+        showHidden: "true",
+        showDeleted: "true",
+      });
+      if (updatedMin) query.set("updatedMin", updatedMin);
+      if (pageToken) query.set("pageToken", pageToken);
+      const page = await googleRequest<{ items?: GoogleTask[]; nextPageToken?: string }>(
+        accessToken,
+        `/lists/${encodeURIComponent(personalListId)}/tasks?${query.toString()}`,
+      );
+      for (const task of page.items ?? []) {
+        await ctx.runMutation(internal.todos.upsertFromGoogle, {
+          googleTaskId: task.id,
+          googleTaskListId: personalListId,
+          title: task.title?.trim() || "Untitled task",
+          assignee: "dad",
+          dueDate: task.due?.slice(0, 10),
+          completed: task.status === "completed",
+          deleted: task.deleted === true,
+          googleUpdatedAt: task.updated ?? new Date().toISOString(),
         });
-        if (updatedMin) query.set("updatedMin", updatedMin);
-        if (pageToken) query.set("pageToken", pageToken);
-        const page = await googleRequest<{ items?: GoogleTask[]; nextPageToken?: string }>(
-          accessToken,
-          `/lists/${encodeURIComponent(listIds[assignee])}/tasks?${query.toString()}`,
-        );
-        for (const task of page.items ?? []) {
-          await ctx.runMutation(internal.todos.upsertFromGoogle, {
-            googleTaskId: task.id,
-            googleTaskListId: listIds[assignee],
-            title: task.title?.trim() || "Untitled task",
-            assignee,
-            dueDate: task.due?.slice(0, 10),
-            completed: task.status === "completed",
-            deleted: task.deleted === true,
-            googleUpdatedAt: task.updated ?? new Date().toISOString(),
-          });
-        }
-        pageToken = page.nextPageToken;
-        pageCount += 1;
-        if (pageCount >= 10 && pageToken) {
-          throw new Error("Google Tasks sync exceeded 1,000 tasks in one list");
-        }
-      } while (pageToken);
-    }
+      }
+      pageToken = page.nextPageToken;
+      pageCount += 1;
+      if (pageCount >= 10 && pageToken) {
+        throw new Error("Google Tasks sync exceeded 1,000 tasks in Personal");
+      }
+    } while (pageToken);
 
     await ctx.runMutation(internal.googleTasksStore.saveLastPolledAt, { lastPolledAt: startedAt });
     return null;

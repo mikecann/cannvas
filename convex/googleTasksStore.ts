@@ -5,9 +5,7 @@ const connection = v.object({
   refreshToken: v.string(),
   accessToken: v.optional(v.string()),
   accessTokenExpiresAt: v.optional(v.number()),
-  mumListId: v.optional(v.string()),
   dadListId: v.optional(v.string()),
-  joshListId: v.optional(v.string()),
   lastPolledAt: v.optional(v.number()),
 });
 
@@ -24,9 +22,7 @@ export const getConnection = internalQuery({
       refreshToken: row.refreshToken,
       accessToken: row.accessToken,
       accessTokenExpiresAt: row.accessTokenExpiresAt,
-      mumListId: row.mumListId,
       dadListId: row.dadListId,
-      joshListId: row.joshListId,
       lastPolledAt: row.lastPolledAt,
     };
   },
@@ -88,12 +84,10 @@ export const saveAccessToken = internalMutation({
   },
 });
 
-export const saveListIds = internalMutation({
-  args: {
-    mumListId: v.string(),
-    dadListId: v.string(),
-    joshListId: v.string(),
-  },
+export const savePersonalListId = internalMutation({
+  // dadListId is retained in storage to avoid a schema migration. It now
+  // identifies the existing Google Tasks "Personal" list.
+  args: { dadListId: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -101,7 +95,10 @@ export const saveListIds = internalMutation({
       .withIndex("by_key", (q) => q.eq("key", "primary"))
       .unique();
     if (!existing) throw new Error("Google Tasks is not connected");
-    await ctx.db.patch(existing._id, { ...args, updatedAt: Date.now() });
+    await ctx.db.patch(existing._id, {
+      dadListId: args.dadListId,
+      updatedAt: Date.now(),
+    });
     return null;
   },
 });

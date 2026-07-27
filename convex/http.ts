@@ -98,7 +98,7 @@ http.route({
       accessToken: token.access_token,
       accessTokenExpiresAt: Date.now() + token.expires_in * 1000,
     });
-    await ctx.scheduler.runAfter(0, internal.googleTasks.setupLists, {});
+    await ctx.scheduler.runAfter(0, internal.googleTasks.setupPersonalList, {});
     return new Response(
       "Google Tasks is connected to Cannvas. You can close this tab.",
       { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } },
