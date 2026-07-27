@@ -10,6 +10,9 @@ const stroke = v.object({
   points: v.array(point),
   sticker: v.optional(v.string()),
 });
+const todoAssignee = v.union(v.literal("mum"), v.literal("dad"), v.literal("josh"));
+const todoPriority = v.union(v.literal("low"), v.literal("medium"), v.literal("high"));
+const todoSyncState = v.union(v.literal("pending"), v.literal("synced"), v.literal("error"));
 
 export default defineSchema({
   deviceBackups: defineTable({
@@ -39,4 +42,39 @@ export default defineSchema({
   })
     .index("by_chore_date", ["choreId", "date"])
     .index("by_date", ["date"]),
+  todos: defineTable({
+    title: v.string(),
+    assignee: todoAssignee,
+    priority: todoPriority,
+    dueDate: v.optional(v.string()),
+    completed: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    deletedAt: v.optional(v.number()),
+    legacyId: v.optional(v.string()),
+    googleTaskId: v.optional(v.string()),
+    googleTaskListId: v.optional(v.string()),
+    googleUpdatedAt: v.optional(v.string()),
+    syncState: v.optional(todoSyncState),
+    syncError: v.optional(v.string()),
+  })
+    .index("by_deleted_at_and_created_at", ["deletedAt", "createdAt"])
+    .index("by_legacy_id", ["legacyId"])
+    .index("by_sync_state", ["syncState"])
+    .index("by_google_task_list_id_and_google_task_id", ["googleTaskListId", "googleTaskId"]),
+  googleTasksConnections: defineTable({
+    key: v.string(),
+    refreshToken: v.string(),
+    accessToken: v.optional(v.string()),
+    accessTokenExpiresAt: v.optional(v.number()),
+    mumListId: v.optional(v.string()),
+    dadListId: v.optional(v.string()),
+    joshListId: v.optional(v.string()),
+    lastPolledAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
+  googleTasksOAuthStates: defineTable({
+    state: v.string(),
+    expiresAt: v.number(),
+  }).index("by_state", ["state"]),
 });

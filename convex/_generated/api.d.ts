@@ -11,8 +11,13 @@
 import type * as boards from "../boards.js";
 import type * as calendar from "../calendar.js";
 import type * as chores from "../chores.js";
+import type * as crons from "../crons.js";
 import type * as deviceBackups from "../deviceBackups.js";
+import type * as googleTasks from "../googleTasks.js";
+import type * as googleTasksStore from "../googleTasksStore.js";
+import type * as http from "../http.js";
 import type * as news from "../news.js";
+import type * as todos from "../todos.js";
 
 import type {
   ApiFromModules,
@@ -24,8 +29,13 @@ declare const fullApi: ApiFromModules<{
   boards: typeof boards;
   calendar: typeof calendar;
   chores: typeof chores;
+  crons: typeof crons;
   deviceBackups: typeof deviceBackups;
+  googleTasks: typeof googleTasks;
+  googleTasksStore: typeof googleTasksStore;
+  http: typeof http;
   news: typeof news;
+  todos: typeof todos;
 }>;
 
 /**

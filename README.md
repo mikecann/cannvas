@@ -26,12 +26,53 @@ pnpm convex:dev
 pnpm dev
 ```
 
-The mirror is local-first. Browser storage on the device is authoritative and
-every interaction updates it immediately. Convex receives a revisioned snapshot
-after a 500 ms debounce and acts only as backup/recovery storage; incoming
-Convex updates never reconcile over an existing local snapshot. The first run
-imports the previous Convex boards and chores before establishing local
-authority.
+The mirror is local-first for whiteboards, chores, and device settings. Browser
+storage on the device is authoritative for those domains, and Convex receives a
+revisioned backup snapshot after a 500 ms debounce.
+
+To-do's are canonical Convex records so they can synchronize with Google Tasks
+and accept quick capture from Apple Shortcuts. On the first run after this
+migration, to-do's from the existing device snapshot are imported by their
+legacy IDs without replacing or duplicating them.
+
+### Google Tasks
+
+Cannvas synchronizes three Google task lists named `Cannvas - Mum`,
+`Cannvas - Dad`, and `Cannvas - Josh`. Local changes are sent immediately and a
+two-minute Convex cron imports Google-side edits, completions, and deletions.
+Google's API exposes due dates but not due times or Cannvas priority.
+
+Configure a Google OAuth web client whose redirect URI is:
+
+```text
+https://<deployment>.convex.site/google-tasks/callback
+```
+
+Then configure the Convex deployment:
+
+```sh
+pnpm exec convex env set GOOGLE_TASKS_CLIENT_ID '<oauth client id>'
+pnpm exec convex env set GOOGLE_TASKS_CLIENT_SECRET '<oauth client secret>'
+pnpm exec convex env set GOOGLE_TASKS_REDIRECT_URI 'https://<deployment>.convex.site/google-tasks/callback'
+pnpm exec convex env set GOOGLE_TASKS_SETUP_TOKEN '<long random token>'
+pnpm exec convex env set CANNVAS_QUICK_ADD_TOKEN '<different long random token>'
+pnpm exec convex env set CANNVAS_TODO_ACCESS_TOKEN '<third long random token>'
+```
+
+Open the one-time connection URL in a signed-in browser:
+
+```text
+https://<deployment>.convex.site/google-tasks/connect?setupToken=<setup token>
+```
+
+The Apple Shortcut sends `POST /quick-add-todo` with the quick-add token as a
+Bearer token and a JSON body. Omitted assignee and priority default to `dad` and
+`medium`.
+
+Set the same `CANNVAS_TODO_ACCESS_TOKEN` value as
+`VITE_CANNVAS_TODO_ACCESS_TOKEN` when building the mirror. It authorizes the
+private kiosk client to read and edit canonical to-do's without exposing the
+broader Google OAuth credentials.
 
 ### Google Calendar
 

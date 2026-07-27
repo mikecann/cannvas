@@ -12,6 +12,7 @@ import {
 } from "react";
 import { ConvexProvider, ConvexReactClient, useAction, useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
 import type { CalendarEvent, CalendarStatus, CannvasData, Chore, ChoreCategory, Completion, NewsHeadline, Stroke, Todo } from "./types";
 
 const DataContext = createContext<CannvasData | null>(null);
@@ -19,6 +20,7 @@ const DEVICE_STORAGE_KEY = "cannvas-device-data-v2";
 const LEGACY_LOCAL_STORAGE_KEY = "cannvas-local-data-v1";
 const DEVICE_ID = import.meta.env.VITE_CANNVAS_DEVICE_ID
   ?? (import.meta.env.PROD ? "mirror" : "development");
+const TODO_ACCESS_TOKEN = import.meta.env.VITE_CANNVAS_TODO_ACCESS_TOKEN ?? "";
 const BACKUP_DEBOUNCE_MS = 500;
 const CALENDAR_CACHE_KEY = "cannvas-calendar-cache-v1";
 const COLORS = ["#ff8066", "#ffbf47", "#5ec6a5", "#6ba7ff", "#a77bea", "#ff7eb3"];
@@ -68,6 +70,10 @@ type DeviceState = LocalState & {
 type ConvexBoard = { date: string; strokes: Stroke[]; updatedAt?: number };
 type ConvexChore = Omit<Chore, "category"> & { category?: ChoreCategory; _id: string };
 type DeviceBackup = { revision: number; state: unknown; updatedAt: number } | null;
+type TodoData = Pick<
+  CannvasData,
+  "todos" | "addTodo" | "updateTodo" | "toggleTodo" | "removeTodo" | "isReady"
+>;
 
 function createInitialLocalState(): LocalState {
   return {
@@ -121,6 +127,7 @@ function useDeviceData(
   calendarStatus: CalendarStatus,
   loadCalendarRange: (start: string, end: string) => Promise<void>,
   mode: CannvasData["mode"],
+  todoData?: TodoData,
 ): CannvasData {
   const updateState = useCallback((update: (current: DeviceState) => LocalState) => {
     setState((current) => {
@@ -150,7 +157,7 @@ function useDeviceData(
     },
     chores: visibleState.chores,
     completions: visibleState.completions,
-    todos: visibleState.todos,
+    todos: todoData?.todos ?? visibleState.todos,
     newsHeadlines,
     calendarEvents,
     calendarStatus,
@@ -208,7 +215,7 @@ function useDeviceData(
         }),
       }));
     },
-    addTodo: async (title, assignee, priority, dueDate) => {
+    addTodo: todoData?.addTodo ?? (async (title, assignee, priority, dueDate) => {
       updateState((current) => ({
         ...current,
         todos: [...current.todos, {
@@ -221,30 +228,30 @@ function useDeviceData(
           createdAt: Date.now(),
         }],
       }));
-    },
-    updateTodo: async (id, title, assignee, priority, dueDate) => {
+    }),
+    updateTodo: todoData?.updateTodo ?? (async (id, title, assignee, priority, dueDate) => {
       updateState((current) => ({
         ...current,
         todos: current.todos.map((todo) => todo.id === id
           ? { ...todo, title, assignee, priority, dueDate: dueDate || undefined }
           : todo),
       }));
-    },
-    toggleTodo: async (id) => {
+    }),
+    toggleTodo: todoData?.toggleTodo ?? (async (id) => {
       updateState((current) => ({
         ...current,
         todos: current.todos.map((todo) => todo.id === id ? { ...todo, completed: !todo.completed } : todo),
       }));
-    },
-    removeTodo: async (id) => {
+    }),
+    removeTodo: todoData?.removeTodo ?? (async (id) => {
       updateState((current) => ({
         ...current,
         todos: current.todos.filter((todo) => todo.id !== id),
       }));
-    },
-    isReady: state !== null,
+    }),
+    isReady: state !== null && (todoData?.isReady ?? true),
     mode,
-  }), [calendarEvents, calendarStatus, loadCalendarRange, mode, newsHeadlines, state, updateState, visibleState]);
+  }), [calendarEvents, calendarStatus, loadCalendarRange, mode, newsHeadlines, state, todoData, updateState, visibleState]);
 }
 
 function LocalDataProvider({ children }: PropsWithChildren) {
@@ -275,10 +282,20 @@ function LocalFirstBackupProvider({ children }: PropsWithChildren) {
   const saveBackup = useMutation(api.deviceBackups.save);
   const loadWorldNews = useAction(api.news.world);
   const loadPrimaryCalendar = useAction(api.calendar.events);
+  const canonicalTodos = useQuery(
+    api.todos.list,
+    TODO_ACCESS_TOKEN ? { accessToken: TODO_ACCESS_TOKEN } : "skip",
+  );
+  const createCanonicalTodo = useMutation(api.todos.create);
+  const updateCanonicalTodo = useMutation(api.todos.update);
+  const toggleCanonicalTodo = useMutation(api.todos.toggle);
+  const removeCanonicalTodo = useMutation(api.todos.remove);
+  const importCanonicalTodos = useMutation(api.todos.importLegacy);
   const [newsHeadlines, setNewsHeadlines] = useState<NewsHeadline[]>([]);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>(readCalendarCache);
   const [calendarStatus, setCalendarStatus] = useState<CalendarStatus>(() => readCalendarCache().length > 0 ? "ready" : "loading");
   const backupBaselineChecked = useRef(false);
+  const legacyTodoImportStarted = useRef(false);
 
   const loadCalendarRange = useCallback(async (requestedStart: string, requestedEnd: string) => {
     const today = new Date();
@@ -378,6 +395,16 @@ function LocalFirstBackupProvider({ children }: PropsWithChildren) {
   }, [loadWorldNews]);
 
   useEffect(() => {
+    if (!TODO_ACCESS_TOKEN || !state || canonicalTodos === undefined || legacyTodoImportStarted.current) return;
+    legacyTodoImportStarted.current = true;
+    void importCanonicalTodos({ accessToken: TODO_ACCESS_TOKEN, todos: state.todos }).catch(() => {
+      // A transient deployment or network failure should be retried on the
+      // next render. The mutation itself is idempotent by legacy to-do ID.
+      legacyTodoImportStarted.current = false;
+    });
+  }, [canonicalTodos, importCanonicalTodos, state]);
+
+  useEffect(() => {
     const refresh = () => {
       const start = new Date();
       start.setHours(0, 0, 0, 0);
@@ -390,7 +417,51 @@ function LocalFirstBackupProvider({ children }: PropsWithChildren) {
     return () => window.clearInterval(timer);
   }, [loadCalendarRange]);
 
-  const data = useDeviceData(state, setState, newsHeadlines, calendarEvents, calendarStatus, loadCalendarRange, "backup");
+  const todoData = useMemo<TodoData | undefined>(() => TODO_ACCESS_TOKEN ? ({
+    todos: canonicalTodos?.map((todo) => ({ ...todo, id: todo.id })) ?? [],
+    addTodo: async (title, assignee, priority, dueDate) => {
+      await createCanonicalTodo({
+        accessToken: TODO_ACCESS_TOKEN,
+        title,
+        assignee,
+        priority,
+        dueDate,
+      });
+    },
+    updateTodo: async (id, title, assignee, priority, dueDate) => {
+      await updateCanonicalTodo({
+        accessToken: TODO_ACCESS_TOKEN,
+        id: id as Id<"todos">,
+        title,
+        assignee,
+        priority,
+        dueDate,
+      });
+    },
+    toggleTodo: async (id) => {
+      await toggleCanonicalTodo({ accessToken: TODO_ACCESS_TOKEN, id: id as Id<"todos"> });
+    },
+    removeTodo: async (id) => {
+      await removeCanonicalTodo({ accessToken: TODO_ACCESS_TOKEN, id: id as Id<"todos"> });
+    },
+    isReady: canonicalTodos !== undefined,
+  }) : undefined, [
+    canonicalTodos,
+    createCanonicalTodo,
+    removeCanonicalTodo,
+    toggleCanonicalTodo,
+    updateCanonicalTodo,
+  ]);
+  const data = useDeviceData(
+    state,
+    setState,
+    newsHeadlines,
+    calendarEvents,
+    calendarStatus,
+    loadCalendarRange,
+    "backup",
+    todoData,
+  );
   return <DataContext.Provider value={data}>{children}</DataContext.Provider>;
 }
 
