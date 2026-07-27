@@ -19,6 +19,16 @@ function json(body: unknown, status = 200) {
   });
 }
 
+function tomorrowInPerth() {
+  const tomorrow = new Date(Date.now() + 24 * 60 * 60_000);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Australia/Perth",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(tomorrow);
+}
+
 http.route({
   path: "/google-tasks/connect",
   method: "GET",
@@ -134,7 +144,7 @@ http.route({
     }
     const id = await ctx.runMutation(internal.todos.createFromShortcut, {
       title: body.title,
-      dueDate: body.dueDate as string | undefined,
+      dueDate: (body.dueDate as string | undefined) ?? tomorrowInPerth(),
       assignee,
       priority,
     });

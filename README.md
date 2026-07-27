@@ -67,7 +67,8 @@ https://<deployment>.convex.site/google-tasks/connect?setupToken=<setup token>
 
 The Apple Shortcut sends `POST /quick-add-todo` with the quick-add token as a
 Bearer token and a JSON body. Omitted assignee and priority default to `dad` and
-`medium`.
+`medium`. An omitted due date defaults to tomorrow in the
+`Australia/Perth` time zone, matching the existing shortcut behaviour.
 
 Set the same `CANNVAS_TODO_ACCESS_TOKEN` value as
 `VITE_CANNVAS_TODO_ACCESS_TOKEN` when building the mirror. It authorizes the
