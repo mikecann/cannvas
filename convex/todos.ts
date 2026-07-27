@@ -277,6 +277,22 @@ export const listDadOutsideGoogleList = internalQuery({
   },
 });
 
+export const listActiveGoogleTaskIds = internalQuery({
+  args: { googleTaskListId: v.string() },
+  returns: v.array(v.string()),
+  handler: async (ctx, args) => {
+    const linked = await ctx.db
+      .query("todos")
+      .withIndex("by_google_task_list_id_and_google_task_id", (q) =>
+        q.eq("googleTaskListId", args.googleTaskListId),
+      )
+      .take(500);
+    return linked.flatMap((row) =>
+      row.deletedAt === undefined && row.googleTaskId ? [row.googleTaskId] : [],
+    );
+  },
+});
+
 export const markSynced = internalMutation({
   args: {
     todoId: v.id("todos"),
@@ -337,10 +353,21 @@ export const upsertFromGoogle = internalMutation({
       .unique();
     const googleUpdated = Date.parse(args.googleUpdatedAt);
 
-    // Google deletion is deliberately not a sync operation. Keep linked
-    // Cannvas data intact, and ignore deleted Personal tasks that were never
-    // linked in the first place.
-    if (args.deleted) return existing?._id ?? null;
+    if (args.deleted) {
+      // Google Personal is the only place where Dad tasks can be deleted.
+      // Unknown historical tombstones stay ignored, while a linked task is
+      // hidden from Cannvas without scheduling a delete back to Google.
+      if (!existing || existing.deletedAt !== undefined) return existing?._id ?? null;
+      const deletedAt = Number.isFinite(googleUpdated) ? googleUpdated : Date.now();
+      await ctx.db.patch(existing._id, {
+        deletedAt,
+        updatedAt: deletedAt,
+        googleUpdatedAt: args.googleUpdatedAt,
+        syncState: "synced",
+        syncError: undefined,
+      });
+      return existing._id;
+    }
 
     if (existing) {
       // A local removal or reassignment stays local. Keeping the link prevents

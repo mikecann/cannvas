@@ -192,7 +192,6 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .due-date svg { width: 13px; height: 13px; }
 .todo-card-actions { display: flex; flex-direction: column; gap: 4px; }
 .todo-card-actions button { width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 10px; color: #77736d; background: transparent; }
-.todo-card-actions button:last-child { color: #b76259; }
 .todo-card-actions svg { width: 16px; }
 .todo-empty { min-height: 110px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: #aaa49a; font-weight: 700; }
 .todo-empty svg { width: 30px; height: 30px; padding: 6px; border-radius: 50%; color: white; background: #b9dacf; }

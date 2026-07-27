@@ -6,6 +6,7 @@ import { internalAction } from "./_generated/server";
 const GOOGLE_API_BASE = "https://tasks.googleapis.com/tasks/v1";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const PERSONAL_LIST_TITLE = "Personal";
+const MAX_GOOGLE_DELETIONS_PER_POLL = 5;
 
 type Connection = {
   refreshToken: string;
@@ -238,6 +239,7 @@ export const poll = internalAction({
       ? new Date(connection.lastPolledAt - 5 * 60_000).toISOString()
       : undefined;
 
+    const tasks: GoogleTask[] = [];
     let pageToken: string | undefined;
     let pageCount = 0;
     do {
@@ -253,24 +255,41 @@ export const poll = internalAction({
         accessToken,
         `/lists/${encodeURIComponent(personalListId)}/tasks?${query.toString()}`,
       );
-      for (const task of page.items ?? []) {
-        await ctx.runMutation(internal.todos.upsertFromGoogle, {
-          googleTaskId: task.id,
-          googleTaskListId: personalListId,
-          title: task.title?.trim() || "Untitled task",
-          assignee: "dad",
-          dueDate: task.due?.slice(0, 10),
-          completed: task.status === "completed",
-          deleted: task.deleted === true,
-          googleUpdatedAt: task.updated ?? new Date().toISOString(),
-        });
-      }
+      tasks.push(...(page.items ?? []));
       pageToken = page.nextPageToken;
       pageCount += 1;
       if (pageCount >= 10 && pageToken) {
         throw new Error("Google Tasks sync exceeded 1,000 tasks in Personal");
       }
     } while (pageToken);
+
+    const activeGoogleTaskIds = new Set(
+      await ctx.runQuery(internal.todos.listActiveGoogleTaskIds, {
+        googleTaskListId: personalListId,
+      }),
+    );
+    const linkedDeletions = tasks.filter(
+      (task) => task.deleted === true && activeGoogleTaskIds.has(task.id),
+    );
+    if (linkedDeletions.length > MAX_GOOGLE_DELETIONS_PER_POLL) {
+      throw new Error(
+        `Google Tasks reported ${linkedDeletions.length} linked deletions; `
+        + `the safety limit is ${MAX_GOOGLE_DELETIONS_PER_POLL}`,
+      );
+    }
+
+    for (const task of tasks) {
+      await ctx.runMutation(internal.todos.upsertFromGoogle, {
+        googleTaskId: task.id,
+        googleTaskListId: personalListId,
+        title: task.title?.trim() || "Untitled task",
+        assignee: "dad",
+        dueDate: task.due?.slice(0, 10),
+        completed: task.status === "completed",
+        deleted: task.deleted === true,
+        googleUpdatedAt: task.updated ?? new Date().toISOString(),
+      });
+    }
 
     await ctx.runMutation(internal.googleTasksStore.saveLastPolledAt, { lastPolledAt: startedAt });
     return null;

@@ -1,6 +1,5 @@
-import { CalendarDays, Check, Pencil, Plus, Trash2 } from "lucide-react";
+import { CalendarDays, Check, Pencil, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
-import { ConfirmDialog } from "../components/ConfirmDialog";
 import { useCannvasData } from "../data/DataProvider";
 import type { Todo, TodoAssignee, TodoPriority } from "../data/types";
 
@@ -29,9 +28,8 @@ function sortTodos(left: Todo, right: Todo) {
 }
 
 export function TodosApp() {
-  const { todos, addTodo, updateTodo, toggleTodo, removeTodo } = useCannvasData();
+  const { todos, addTodo, updateTodo, toggleTodo } = useCannvasData();
   const [editingId, setEditingId] = useState<string | "new" | null>(null);
-  const [removeId, setRemoveId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [assignee, setAssignee] = useState<TodoAssignee>("josh");
   const [priority, setPriority] = useState<TodoPriority>("medium");
@@ -105,7 +103,6 @@ export function TodosApp() {
                     </div>
                     <div className="todo-card-actions">
                       <button onClick={() => openEdit(todo)} aria-label={`Edit ${todo.title}`}><Pencil /></button>
-                      <button onClick={() => setRemoveId(todo.id)} aria-label={`Remove ${todo.title}`}><Trash2 /></button>
                     </div>
                   </article>
                 ))}
@@ -144,9 +141,6 @@ export function TodosApp() {
         </div>
       )}
 
-      <ConfirmDialog open={removeId !== null} title="Remove this to-do?" confirmLabel="Remove to-do" onCancel={() => setRemoveId(null)} onConfirm={() => { if (removeId) void removeTodo(removeId); setRemoveId(null); }}>
-        This removes it from the family list.
-      </ConfirmDialog>
     </section>
   );
 }

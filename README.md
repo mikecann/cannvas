@@ -42,9 +42,11 @@ Cannvas synchronizes Dad's to-do's with the existing Google task list named
 Cannvas with medium priority, and new Dad tasks are added to Personal. Local
 changes are sent immediately, while a two-minute Convex cron brings Google-side
 edits, completions, and reopening back to Cannvas. Deletions and removals never
-propagate in either direction; complete tasks instead. Mum and Josh to-do's stay
-in Cannvas only. Google's API exposes due dates but not due times or Cannvas
-priority.
+flow from Cannvas to Google. Deleting a linked task in Google removes it from
+Cannvas, and Cannvas deliberately has no delete control for to-do's. Mum and
+Josh to-do's stay in Cannvas only. Google's API exposes due dates but not due
+times or Cannvas priority. As a safety guard, a poll reporting more than five
+linked deletions is rejected without applying that deletion batch.
 
 Configure a Google OAuth web client whose redirect URI is:
 
