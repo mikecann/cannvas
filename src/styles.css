@@ -257,8 +257,8 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .home-connection-card.connected > svg { background: #75d3b6; }
 .home-connection-card span { display: flex; flex-direction: column; color: #d6d3cd; font-size: .75rem; font-weight: 700; }
 .home-connection-card strong { margin-bottom: 2px; color: white; font: 700 1.35rem "Fraunces", serif; }
-.home-automation-board { min-height: 0; margin-top: 18px; padding-bottom: 94px; position: relative; flex: 1; overflow: hidden; border: 1px solid #ded7cb; border-radius: 28px; background: rgba(255,253,248,.86); box-shadow: var(--shadow); }
-.home-dashboard-scroll { height: 100%; padding: 22px 22px 115px; display: flex; flex-direction: column; overflow-y: auto; }
+.home-automation-board { min-height: 0; margin-top: 18px; position: relative; flex: 1; overflow: hidden; border: 1px solid #ded7cb; border-radius: 28px; background: rgba(255,253,248,.86); box-shadow: var(--shadow); }
+.home-dashboard-scroll { height: 100%; padding: 22px; display: flex; flex-direction: column; overflow-y: auto; }
 .home-presence-section, .home-location-section, .home-network-section, .home-control-section, .home-sensor-section { margin-bottom: 26px; }
 .home-control-section { margin-top: auto; padding-top: 26px; }
 .home-section-title { margin-bottom: 12px; display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
@@ -340,19 +340,17 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .home-sensor-grid strong { overflow: hidden; font-size: .9rem; text-overflow: ellipsis; white-space: nowrap; text-transform: capitalize; }
 .home-sensor-grid small { margin-top: 2px; overflow: hidden; color: var(--muted); font-size: .66rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .home-section-empty { grid-column: 1 / -1; margin: 0; padding: 28px; border: 1px dashed #d7d0c5; border-radius: 18px; color: var(--muted); text-align: center; font-weight: 700; }
-.home-connect-empty, .home-loading { position: absolute; inset: 0 0 88px; padding: 60px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.home-connect-empty, .home-loading { position: absolute; inset: 0; padding: 60px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
 .home-connect-empty > span { width: 92px; height: 92px; display: grid; place-items: center; border-radius: 30px; color: white; background: var(--green); box-shadow: 0 15px 28px rgba(22,139,112,.22); }
 .home-connect-empty > span svg { width: 48px; height: 48px; }
 .home-connect-empty h2 { margin: 20px 0 8px; font: 700 2rem "Fraunces", serif; }
 .home-connect-empty p { max-width: 570px; margin-bottom: 24px; color: var(--muted); font-size: 1rem; line-height: 1.5; }
 .home-loading { flex-direction: row; gap: 10px; color: var(--muted); font-weight: 800; }
 .home-loading svg { width: 25px; animation: home-spin 1s linear infinite; }
-.home-error { position: absolute; z-index: 3; left: 18px; right: 18px; bottom: 94px; padding: 13px 16px; display: flex; align-items: center; gap: 11px; border: 1px solid #efb5ad; border-radius: 16px; color: #8d3932; background: #fff0ed; box-shadow: 0 7px 18px rgba(79,42,37,.12); }
+.home-error { position: absolute; z-index: 3; left: 18px; right: 18px; bottom: 18px; padding: 13px 16px; display: flex; align-items: center; gap: 11px; border: 1px solid #efb5ad; border-radius: 16px; color: #8d3932; background: #fff0ed; box-shadow: 0 7px 18px rgba(79,42,37,.12); }
 .home-error > svg { width: 23px; flex: 0 0 auto; }
 .home-error span { display: flex; flex-direction: column; font-size: .72rem; }
 .home-error strong { margin-bottom: 2px; font-size: .82rem; }
-.home-automation-actions { position: absolute; z-index: 4; left: 50%; bottom: 14px; padding: 8px; display: flex; gap: 8px; border-radius: 22px; transform: translateX(-50%); }
-.home-automation-actions .button { min-width: 155px; }
 .home-settings-card { width: min(88vw, 690px); text-align: left; }
 .home-settings-card h2, .home-settings-card > p { text-align: center; }
 .home-settings-card > p { margin: 0 auto 20px; max-width: 540px; color: var(--muted); line-height: 1.45; }

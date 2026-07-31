@@ -491,10 +491,6 @@ export function HomeAutomationApp() {
 
         {error && <div className="home-error" role="alert"><WifiOff /><span><strong>Home Assistant needs attention</strong>{error}</span></div>}
 
-        <footer className="home-automation-actions app-control-palette">
-          <button className="button secondary" onClick={() => void refresh()} disabled={!configured}><RefreshCw /> Refresh</button>
-          <button className="button primary" onClick={() => setShowSettings(true)}><Settings /> {configured ? "Connection" : "Connect"}</button>
-        </footer>
       </div>
 
       {showSettings && (
