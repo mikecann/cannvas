@@ -16,7 +16,7 @@ function InventoryRoot() {
   }, []);
   return (
     <ConvexAuthProvider client={client} storageNamespace="cannvas-inventory">
-      <InventoryExperience mode="mobile" />
+      <InventoryExperience />
     </ConvexAuthProvider>
   );
 }

@@ -1,6 +1,5 @@
 import { useAuthActions } from "@convex-dev/auth/react";
 import {
-  ArchiveRestore,
   Box,
   Camera,
   ChevronLeft,
@@ -12,6 +11,7 @@ import {
   Pencil,
   Plus,
   Search,
+  ShieldCheck,
   Sparkles,
   X,
 } from "lucide-react";
@@ -28,7 +28,6 @@ import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 
-type InventoryMode = "mobile" | "kiosk";
 type InventoryStatus = "active" | "disposed" | "donated" | "sold" | "lost";
 type InventoryItemSummary = {
   _id: Id<"inventoryItems">;
@@ -49,7 +48,7 @@ function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message.replace(/^\[CONVEX[^\]]*\]\s*/, "") : String(error);
 }
 
-function AuthScreen({ mode }: { mode: InventoryMode }) {
+function AuthScreen() {
   const { signIn } = useAuthActions();
   const [flow, setFlow] = useState<"signIn" | "signUp">("signIn");
   const [email, setEmail] = useState("");
@@ -71,7 +70,7 @@ function AuthScreen({ mode }: { mode: InventoryMode }) {
   };
 
   return (
-    <main className={`inventory-auth inventory-mode-${mode}`}>
+    <main className="inventory-auth">
       <div className="inventory-auth-mark"><Box /></div>
       <h1>Cannvas Inventory</h1>
       <p>Everything you own, and exactly where you put it.</p>
@@ -91,40 +90,18 @@ function AuthScreen({ mode }: { mode: InventoryMode }) {
   );
 }
 
-function AccessGate({ mode }: { mode: InventoryMode }) {
+function AccessGate() {
   const status = useQuery(api.inventory.accessStatus);
-  const claim = useAction(api.inventoryAccess.claim);
   const { signOut } = useAuthActions();
-  const [setupToken, setSetupToken] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
 
   if (status === undefined) return <LoadingScreen />;
-  if (status.hasAccess) return <InventoryBrowser mode={mode} />;
-
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
-      await claim({ setupToken });
-    } catch (caught) {
-      setError(getErrorMessage(caught));
-    } finally {
-      setBusy(false);
-    }
-  };
+  if (status.hasAccess) return <InventoryBrowser />;
 
   return (
-    <main className={`inventory-auth inventory-mode-${mode}`}>
-      <div className="inventory-auth-mark"><ArchiveRestore /></div>
-      <h1>One last step</h1>
-      <p>Enter the private Cannvas setup code to connect this account to the household inventory.</p>
-      <form onSubmit={submit}>
-        <label>Setup code<input type="password" autoComplete="one-time-code" value={setupToken} onChange={(event) => setSetupToken(event.target.value)} required /></label>
-        {error && <div className="inventory-error"><CircleAlert />{error}</div>}
-        <button className="inventory-primary" disabled={busy}>{busy && <LoaderCircle className="spin" />}Connect inventory</button>
-      </form>
+    <main className="inventory-auth">
+      <div className="inventory-auth-mark"><ShieldCheck /></div>
+      <h1>Access needed</h1>
+      <p>This account has not been granted access to the Cannvas household inventory.</p>
       <button className="inventory-text-button" onClick={() => void signOut()}>Sign out</button>
     </main>
   );
@@ -348,7 +325,7 @@ function DetailSheet({ itemId, onClose }: { itemId: Id<"inventoryItems">; onClos
   );
 }
 
-function InventoryBrowser({ mode }: { mode: InventoryMode }) {
+function InventoryBrowser() {
   const { signOut } = useAuthActions();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<InventoryStatus>("active");
@@ -374,7 +351,7 @@ function InventoryBrowser({ mode }: { mode: InventoryMode }) {
   }, [loadMore, pageStatus]);
 
   return (
-    <main className={`inventory-root inventory-mode-${mode}`}>
+    <main className="inventory-root">
       <header className="inventory-topbar">
         <div><div className="inventory-logo"><Box /></div><h1>Inventory</h1></div>
         <button className="inventory-icon-button" onClick={() => void signOut()} aria-label="Sign out"><LogOut /></button>
@@ -398,12 +375,12 @@ function InventoryBrowser({ mode }: { mode: InventoryMode }) {
   );
 }
 
-export function InventoryExperience({ mode }: { mode: InventoryMode }) {
+export function InventoryExperience() {
   return (
     <>
       <AuthLoading><LoadingScreen /></AuthLoading>
-      <Unauthenticated><AuthScreen mode={mode} /></Unauthenticated>
-      <Authenticated><AccessGate mode={mode} /></Authenticated>
+      <Unauthenticated><AuthScreen /></Unauthenticated>
+      <Authenticated><AccessGate /></Authenticated>
     </>
   );
 }

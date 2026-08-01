@@ -18,7 +18,6 @@ import type * as googleTasks from "../googleTasks.js";
 import type * as googleTasksStore from "../googleTasksStore.js";
 import type * as http from "../http.js";
 import type * as inventory from "../inventory.js";
-import type * as inventoryAccess from "../inventoryAccess.js";
 import type * as inventoryAccessStore from "../inventoryAccessStore.js";
 import type * as inventoryAi from "../inventoryAi.js";
 import type * as inventoryAiStore from "../inventoryAiStore.js";
@@ -43,7 +42,6 @@ declare const fullApi: ApiFromModules<{
   googleTasksStore: typeof googleTasksStore;
   http: typeof http;
   inventory: typeof inventory;
-  inventoryAccess: typeof inventoryAccess;
   inventoryAccessStore: typeof inventoryAccessStore;
   inventoryAi: typeof inventoryAi;
   inventoryAiStore: typeof inventoryAiStore;
