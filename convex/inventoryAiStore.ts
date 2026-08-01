@@ -81,7 +81,8 @@ export const applyEnrichment = internalMutation({
     const item = await ctx.db.get(args.itemId);
     if (!item) return null;
     const reviewReason = args.enrichment.reviewReason.trim();
-    const tags = args.enrichment.tags.map((tag) => tag.trim()).filter(Boolean).slice(0, 29);
+    const tags = args.enrichment.tags.map((tag) => tag.trim()).filter(Boolean).slice(0, 28);
+    if (item.tags.some((tag) => tag.toLocaleLowerCase("en-AU") === "box only")) tags.push("box only");
     if (args.enrichment.needsReview) tags.push("needs review");
     const attributes = args.enrichment.attributes
       .map(({ label, value }) => ({ label: label.trim(), value: value.trim() }))
@@ -94,7 +95,7 @@ export const applyEnrichment = internalMutation({
       title: args.enrichment.title.trim() || "Unidentified item",
       description: args.enrichment.description.trim(),
       category: args.enrichment.category.trim() || "Uncategorised",
-      tags: [...new Set(tags)],
+      tags: [...new Set(tags)].slice(0, 30),
       condition: args.enrichment.condition.trim() || "Unknown",
       quantity: Math.max(1, Math.floor(args.enrichment.quantity)),
       attributes,

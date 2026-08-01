@@ -152,6 +152,7 @@ export const create = mutation({
   args: {
     storageIds: v.array(v.id("_storage")),
     locationName: v.string(),
+    boxOnly: v.boolean(),
   },
   returns: v.id("inventoryItems"),
   handler: async (ctx, args) => {
@@ -164,7 +165,7 @@ export const create = mutation({
       title: "Identifying item…",
       description: "",
       category: "Uncategorised",
-      tags: [] as string[],
+      tags: args.boxOnly ? ["box only"] : [],
       condition: "Unknown",
       quantity: 1,
       attributes: [] as Array<{ label: string; value: string }>,

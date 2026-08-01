@@ -33,6 +33,7 @@ const structurer = new Agent(components.agent, {
     "Use category names that remain useful across electronics, tools, furniture, documents, clothing and household goods.",
     "Put product-specific facts such as brand, model, dimensions, connector, material or serial number into attributes.",
     "Do not include the storage location in the generated description or tags.",
+    "When the existing markers include box only, catalogue the empty packaging rather than claiming the product is present, and make that distinction explicit in the title and description.",
     "Set needsReview when the exact identity is uncertain, the photos are unclear, multiple different objects may be present, or important visible details conflict.",
     "Give a short reviewReason that tells the owner exactly what to check. Leave reviewReason empty when no review is needed.",
   ].join(" "),
@@ -88,6 +89,7 @@ export const enrich = internalAction({
               text: [
                 `Research notes:\n${research.text}`,
                 `Existing location (context only, do not copy into the record): ${context.item.currentLocationName}`,
+                `Existing markers that must be preserved: ${context.item.tags.join(", ") || "none"}`,
                 "Create the final inventory record. If the exact identity is uncertain, keep the title and description honest but still useful.",
               ].join("\n\n"),
             },

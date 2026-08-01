@@ -51,6 +51,12 @@ type CapturePhoto = {
 
 const MAX_PHOTOS_PER_UPLOAD = 8;
 const INVENTORY_PAGE_SIZE = 18;
+const BOX_ONLY_TAG = "box only";
+
+function hasTag(tags: string[], tag: string) {
+  const normalizedTag = tag.toLocaleLowerCase("en-AU");
+  return tags.some((candidate) => candidate.toLocaleLowerCase("en-AU") === normalizedTag);
+}
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message.replace(/^\[CONVEX[^\]]*\]\s*/, "") : String(error);
@@ -143,6 +149,7 @@ function CaptureSheet({ onClose }: { onClose: () => void }) {
   const previewUrls = useRef(new Set<string>());
   const [photos, setPhotos] = useState<CapturePhoto[]>([]);
   const [location, setLocation] = useState("");
+  const [boxOnly, setBoxOnly] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -216,9 +223,10 @@ function CaptureSheet({ onClose }: { onClose: () => void }) {
     setBusy(true);
     setError("");
     try {
-      await createItem({ storageIds, locationName: location.trim() });
+      await createItem({ storageIds, locationName: location.trim(), boxOnly });
       clearPhotos();
       if (keepGoing) {
+        setBoxOnly(false);
         setSuccess("Item saved and queued for AI. Ready for the next one.");
         setBusy(false);
       } else {
@@ -263,6 +271,10 @@ function CaptureSheet({ onClose }: { onClose: () => void }) {
         </label>
         <datalist id="inventory-locations">{suggestions.map((suggestion) => <option key={suggestion._id} value={suggestion.name} />)}</datalist>
         {suggestions.length > 0 && <div className="inventory-location-chips">{suggestions.slice(0, 6).map((suggestion) => <button key={suggestion._id} onClick={() => setLocation(suggestion.name)}>{suggestion.name}</button>)}</div>}
+        <label className="inventory-box-toggle">
+          <input type="checkbox" checked={boxOnly} onChange={(event) => setBoxOnly(event.target.checked)} />
+          <span><PackageOpen /><span><b>Box only</b><small>The electronic or item is not inside</small></span></span>
+        </label>
         {success && <div className="inventory-success" aria-live="polite"><CircleCheck />{success}</div>}
         {error && <div className="inventory-error"><CircleAlert />{error}</div>}
         {hasFailedUploads ? (
@@ -285,7 +297,8 @@ function InventoryCard({ item, onOpen }: {
   item: InventoryItemSummary;
   onOpen: () => void;
 }) {
-  const needsReview = item.tags.some((tag) => tag.toLocaleLowerCase("en-AU") === "needs review");
+  const needsReview = hasTag(item.tags, "needs review");
+  const boxOnly = hasTag(item.tags, BOX_ONLY_TAG);
   return (
     <button className="inventory-card" onClick={onOpen}>
       <div className="inventory-card-photo">
@@ -294,7 +307,7 @@ function InventoryCard({ item, onOpen }: {
         {item.enrichmentStatus === "ready" && needsReview && <span className="inventory-ai-state review"><CircleAlert />Needs review</span>}
       </div>
       <div className="inventory-card-copy">
-        <span className="inventory-category">{item.category}</span>
+        <div className="inventory-card-labels"><span className="inventory-category">{item.category}</span>{boxOnly && <span className="inventory-box-only-label"><PackageOpen />Box only</span>}</div>
         <h2>{item.title}</h2>
         {item.description && <p>{item.description}</p>}
         <div className="inventory-card-location"><MapPin />{item.currentLocationName}{item.quantity > 1 && <b>×{item.quantity}</b>}</div>
@@ -332,7 +345,10 @@ function DetailSheet({ itemId, onClose }: { itemId: Id<"inventoryItems">; onClos
         title: String(data.get("title") ?? ""),
         description: String(data.get("description") ?? ""),
         category: String(data.get("category") ?? ""),
-        tags: String(data.get("tags") ?? "").split(","),
+        tags: [
+          ...String(data.get("tags") ?? "").split(",").filter((tag) => tag.trim().toLocaleLowerCase("en-AU") !== BOX_ONLY_TAG),
+          ...(data.get("boxOnly") === "on" ? [BOX_ONLY_TAG] : []),
+        ],
         condition: String(data.get("condition") ?? ""),
         quantity: Number(data.get("quantity") ?? 1),
         attributes: item.attributes,
@@ -394,6 +410,7 @@ function DetailSheet({ itemId, onClose }: { itemId: Id<"inventoryItems">; onClos
             <div className="inventory-form-pair"><label>Category<input name="category" defaultValue={item.category} /></label><label>Quantity<input name="quantity" type="number" min="1" defaultValue={item.quantity} /></label></div>
             <label>Condition<input name="condition" defaultValue={item.condition} /></label>
             <label>Tags<input name="tags" defaultValue={item.tags.join(", ")} /></label>
+            <label className="inventory-edit-box-toggle"><input name="boxOnly" type="checkbox" defaultChecked={hasTag(item.tags, BOX_ONLY_TAG)} />Box only, item is not inside</label>
             <button className="inventory-primary" disabled={busy}>Save details</button>
           </form>
         ) : (
@@ -401,9 +418,9 @@ function DetailSheet({ itemId, onClose }: { itemId: Id<"inventoryItems">; onClos
             <span className="inventory-category">{item.category}</span>
             <h1>{item.title}</h1>
             <p>{item.description || "No description yet."}</p>
-            <div className="inventory-detail-meta"><span><MapPin />{item.currentLocationName}</span><span>{item.condition}</span><span>Qty {item.quantity}</span></div>
+            <div className="inventory-detail-meta"><span><MapPin />{item.currentLocationName}</span><span>{item.condition}</span><span>Qty {item.quantity}</span>{hasTag(item.tags, BOX_ONLY_TAG) && <span className="box-only"><PackageOpen />Box only</span>}</div>
             {item.tags.length > 0 && <div className="inventory-tags">{item.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>}
-            {item.tags.some((tag) => tag.toLocaleLowerCase("en-AU") === "needs review") && <div className="inventory-review-note"><CircleAlert />The AI was not confident about every detail. Check the title, photos and attributes when you have a moment.</div>}
+            {hasTag(item.tags, "needs review") && <div className="inventory-review-note"><CircleAlert />The AI was not confident about every detail. Check the title, photos and attributes when you have a moment.</div>}
             {item.attributes.length > 0 && <dl className="inventory-attributes">{item.attributes.map(({ label, value }) => <div key={`${label}-${value}`}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>}
             {item.enrichmentStatus === "failed" && <div className="inventory-error"><CircleAlert />{item.enrichmentError ?? "AI identification failed."}</div>}
             {item.aiSources.length > 0 && <section className="inventory-sources"><h2>Identification sources</h2>{item.aiSources.map((source) => <a key={source.url} href={source.url} target="_blank" rel="noreferrer">{source.title}</a>)}</section>}
