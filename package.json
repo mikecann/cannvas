@@ -2,6 +2,7 @@
   "name": "cannvas",
   "private": true,
   "version": "0.1.0",
+  "packageManager": "pnpm@11.9.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
@@ -9,6 +10,7 @@
     "preview": "vite preview --host 0.0.0.0",
     "convex:dev": "convex dev",
     "convex:deploy": "convex deploy",
+    "deploy:cloudflare": "wrangler deploy",
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
@@ -17,7 +19,6 @@
     "@auth/core": "0.41.3",
     "@convex-dev/agent": "0.6.4",
     "@convex-dev/auth": "0.0.94",
-    "@convex-dev/static-hosting": "0.2.1",
     "@vitejs/plugin-react": "latest",
     "ai": "6.0.76",
     "convex": "latest",
@@ -35,6 +36,7 @@
     "@types/node": "^26.1.1",
     "@types/react": "latest",
     "@types/react-dom": "latest",
-    "typescript": "6.0.2"
+    "typescript": "6.0.2",
+    "wrangler": "4.118.0"
   }
 }

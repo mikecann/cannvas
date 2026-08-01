@@ -1,6 +1,5 @@
 import { httpRouter } from "convex/server";
-import { registerStaticRoutes } from "@convex-dev/static-hosting";
-import { components, internal } from "./_generated/api";
+import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 import { auth } from "./auth";
 
@@ -154,9 +153,5 @@ http.route({
     return json({ id, created: true }, 201);
   }),
 });
-
-// Keep this last: static hosting owns the catch-all route after the API and
-// OAuth endpoints above have had a chance to match.
-registerStaticRoutes(http, components.staticHosting);
 
 export default http;

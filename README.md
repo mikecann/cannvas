@@ -33,6 +33,17 @@ phone-first inventory interface is available at `/inventory/`. Both use the
 same Convex deployment, but the inventory entry has its own layout, scrolling,
 camera flow, and authentication state.
 
+Production web assets are served by a Cloudflare Worker at
+`https://cannvas.mikecann.app`. Convex remains the backend for data, auth, file
+storage, HTTP actions, and AI enrichment. A push to `main` deploys Convex,
+builds the two Vite entries against the production backend URL, and publishes
+the resulting `dist` directory to Cloudflare Workers Static Assets.
+
+The production workflow uses three GitHub Actions secrets:
+`CONVEX_DEPLOY_KEY`, `CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_ACCOUNT_ID`. The
+Cloudflare token is limited to editing Worker scripts in the Cannvas account and
+Worker routes in the `mikecann.app` zone.
+
 ### Inventory
 
 Inventory photos are uploaded directly to Convex file storage. Creating an item
