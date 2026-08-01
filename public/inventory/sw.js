@@ -1,4 +1,4 @@
-const CACHE_NAME = "cannvas-inventory-v1";
+const CACHE_NAME = "cannvas-inventory-v2";
 const APP_SHELL = [
   "/inventory/",
   "/inventory/manifest.webmanifest",

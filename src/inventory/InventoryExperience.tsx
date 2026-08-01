@@ -4,6 +4,7 @@ import {
   Camera,
   ChevronLeft,
   CircleAlert,
+  CircleCheck,
   LoaderCircle,
   LogOut,
   MapPin,
@@ -19,12 +20,11 @@ import {
   Authenticated,
   AuthLoading,
   Unauthenticated,
-  useAction,
   useMutation,
   usePaginatedQuery,
   useQuery,
 } from "convex/react";
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 
@@ -39,6 +39,14 @@ type InventoryItemSummary = {
   enrichmentStatus: string;
   photoUrl: string | null;
   quantity: number;
+};
+
+type CapturePhoto = {
+  id: string;
+  file: File;
+  previewUrl: string;
+  status: "uploading" | "uploaded" | "failed";
+  storageId?: Id<"_storage">;
 };
 
 const MAX_PHOTOS_PER_UPLOAD = 8;
@@ -132,52 +140,122 @@ function CaptureSheet({ onClose }: { onClose: () => void }) {
   const generateUploadUrlMutation = useMutation(api.inventory.generateUploadUrl);
   const createItem = useMutation(api.inventory.create);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [files, setFiles] = useState<File[]>([]);
+  const previewUrls = useRef(new Set<string>());
+  const [photos, setPhotos] = useState<CapturePhoto[]>([]);
   const [location, setLocation] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const previews = useMemo(() => files.map((file) => URL.createObjectURL(file)), [files]);
+  const [success, setSuccess] = useState("");
 
-  useEffect(() => () => previews.forEach((url) => URL.revokeObjectURL(url)), [previews]);
+  useEffect(() => () => {
+    previewUrls.current.forEach((url) => URL.revokeObjectURL(url));
+  }, []);
   useEffect(() => {
     inputRef.current?.click();
   }, []);
 
-  const addFiles = (incoming: FileList | null) => {
-    if (!incoming) return;
-    setFiles((current) => [
-      ...current,
-      ...Array.from(incoming),
-    ].slice(0, MAX_PHOTOS_PER_UPLOAD));
+  const uploadPhoto = async (photo: CapturePhoto) => {
+    try {
+      const [storageId] = await uploadFiles([photo.file], () => generateUploadUrlMutation({}));
+      setPhotos((current) => current.map((candidate) =>
+        candidate.id === photo.id ? { ...candidate, status: "uploaded", storageId } : candidate,
+      ));
+    } catch (caught) {
+      setPhotos((current) => current.map((candidate) =>
+        candidate.id === photo.id ? { ...candidate, status: "failed" } : candidate,
+      ));
+      setError(getErrorMessage(caught));
+    }
   };
 
-  const save = async () => {
-    if (!files.length || !location.trim()) return;
+  const addFiles = (incoming: File[]) => {
+    const accepted = incoming.slice(0, Math.max(0, MAX_PHOTOS_PER_UPLOAD - photos.length));
+    if (!accepted.length) return;
+    setError("");
+    setSuccess("");
+    const additions = accepted.map((file): CapturePhoto => {
+      const previewUrl = URL.createObjectURL(file);
+      previewUrls.current.add(previewUrl);
+      return {
+        id: crypto.randomUUID(),
+        file,
+        previewUrl,
+        status: "uploading",
+      };
+    });
+    setPhotos((current) => [...current, ...additions]);
+    additions.forEach((photo) => void uploadPhoto(photo));
+  };
+
+  const removePhoto = (photo: CapturePhoto) => {
+    URL.revokeObjectURL(photo.previewUrl);
+    previewUrls.current.delete(photo.previewUrl);
+    setPhotos((current) => current.filter((candidate) => candidate.id !== photo.id));
+  };
+
+  const retryUploads = () => {
+    const failed = photos.filter((photo) => photo.status === "failed");
+    setError("");
+    setPhotos((current) => current.map((photo) =>
+      photo.status === "failed" ? { ...photo, status: "uploading" } : photo,
+    ));
+    failed.forEach((photo) => void uploadPhoto({ ...photo, status: "uploading" }));
+  };
+
+  const clearPhotos = () => {
+    photos.forEach((photo) => {
+      URL.revokeObjectURL(photo.previewUrl);
+      previewUrls.current.delete(photo.previewUrl);
+    });
+    setPhotos([]);
+  };
+
+  const save = async (keepGoing: boolean) => {
+    const storageIds = photos.flatMap((photo) => photo.storageId ? [photo.storageId] : []);
+    if (storageIds.length !== photos.length || !location.trim()) return;
     setBusy(true);
     setError("");
     try {
-      const storageIds = await uploadFiles(files, () => generateUploadUrlMutation({}));
       await createItem({ storageIds, locationName: location.trim() });
-      onClose();
+      clearPhotos();
+      if (keepGoing) {
+        setSuccess("Item saved and queued for AI. Ready for the next one.");
+        setBusy(false);
+      } else {
+        onClose();
+      }
     } catch (caught) {
       setError(getErrorMessage(caught));
       setBusy(false);
     }
   };
 
+  const isUploading = photos.some((photo) => photo.status === "uploading");
+  const hasFailedUploads = photos.some((photo) => photo.status === "failed");
+  const canSave = photos.length > 0 && !isUploading && !hasFailedUploads && Boolean(location.trim());
+
   return (
     <div className="inventory-sheet-backdrop" role="presentation">
       <section className="inventory-sheet" role="dialog" aria-modal="true" aria-label="Add an inventory item">
         <header><div><h2>Add an item</h2><p>Photograph labels, connectors and each useful angle.</p></div><button className="inventory-icon-button" onClick={onClose}><X /></button></header>
-        <input ref={inputRef} className="visually-hidden" type="file" accept="image/*" capture="environment" multiple onChange={(event) => { addFiles(event.target.files); event.target.value = ""; }} />
+        <input ref={inputRef} className="visually-hidden" type="file" accept="image/*" capture="environment" onChange={(event) => {
+          // FileList is live. Copy it before resetting the input or Safari empties it
+          // before React gets to the state update.
+          const incoming = Array.from(event.currentTarget.files ?? []);
+          event.currentTarget.value = "";
+          addFiles(incoming);
+        }} />
         <div className="inventory-photo-strip">
-          {previews.map((url, index) => (
-            <div className="inventory-photo-preview" key={`${url}-${index}`}>
-              <img src={url} alt={`Item angle ${index + 1}`} />
-              <button onClick={() => setFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))}><X /></button>
+          {photos.map((photo, index) => (
+            <div className="inventory-photo-preview" key={photo.id}>
+              <img src={photo.previewUrl} alt={`Item angle ${index + 1}`} />
+              <span className={`inventory-photo-upload-state ${photo.status}`}>
+                {photo.status === "uploading" ? <LoaderCircle className="spin" /> : photo.status === "uploaded" ? <CircleCheck /> : <CircleAlert />}
+              </span>
+              <button aria-label={`Remove angle ${index + 1}`} onClick={() => removePhoto(photo)}><X /></button>
             </div>
           ))}
-          {files.length < MAX_PHOTOS_PER_UPLOAD && <button className="inventory-add-photo" onClick={() => inputRef.current?.click()}><Camera /><span>{files.length ? "Another angle" : "Take photo"}</span></button>}
+          {photos.length < MAX_PHOTOS_PER_UPLOAD && <button className="inventory-add-photo" onClick={() => inputRef.current?.click()}><Camera /><span>{photos.length ? "Another angle" : success ? "Photograph next item" : "Take photo"}</span></button>}
         </div>
         <label className="inventory-location-field">
           <span>Where will it live?</span>
@@ -185,11 +263,19 @@ function CaptureSheet({ onClose }: { onClose: () => void }) {
         </label>
         <datalist id="inventory-locations">{suggestions.map((suggestion) => <option key={suggestion._id} value={suggestion.name} />)}</datalist>
         {suggestions.length > 0 && <div className="inventory-location-chips">{suggestions.slice(0, 6).map((suggestion) => <button key={suggestion._id} onClick={() => setLocation(suggestion.name)}>{suggestion.name}</button>)}</div>}
+        {success && <div className="inventory-success" aria-live="polite"><CircleCheck />{success}</div>}
         {error && <div className="inventory-error"><CircleAlert />{error}</div>}
-        <button className="inventory-save-button" disabled={busy || !files.length || !location.trim()} onClick={() => void save()}>
-          {busy ? <LoaderCircle className="spin" /> : <Sparkles />}
-          {busy ? "Saving photos…" : "Add to inventory"}
-        </button>
+        {hasFailedUploads ? (
+          <button className="inventory-save-button" disabled={busy} onClick={retryUploads}>Retry uploads</button>
+        ) : (
+          <div className="inventory-capture-actions">
+            <button className="inventory-save-button" disabled={busy || !canSave} onClick={() => void save(true)}>
+              {busy || isUploading ? <LoaderCircle className="spin" /> : <Sparkles />}
+              {busy ? "Saving item…" : isUploading ? "Uploading photos…" : "Add item & next"}
+            </button>
+            <button className="inventory-finish-button" disabled={busy || !canSave} onClick={() => void save(false)}>Add item & finish</button>
+          </div>
+        )}
       </section>
     </div>
   );
@@ -199,11 +285,13 @@ function InventoryCard({ item, onOpen }: {
   item: InventoryItemSummary;
   onOpen: () => void;
 }) {
+  const needsReview = item.tags.some((tag) => tag.toLocaleLowerCase("en-AU") === "needs review");
   return (
     <button className="inventory-card" onClick={onOpen}>
       <div className="inventory-card-photo">
         {item.photoUrl ? <img src={item.photoUrl} alt="" /> : <PackageOpen />}
         {item.enrichmentStatus !== "ready" && <span className={`inventory-ai-state ${item.enrichmentStatus}`}><Sparkles />{item.enrichmentStatus === "failed" ? "Needs details" : "Identifying"}</span>}
+        {item.enrichmentStatus === "ready" && needsReview && <span className="inventory-ai-state review"><CircleAlert />Needs review</span>}
       </div>
       <div className="inventory-card-copy">
         <span className="inventory-category">{item.category}</span>
@@ -270,12 +358,12 @@ function DetailSheet({ itemId, onClose }: { itemId: Id<"inventoryItems">; onClos
     }
   };
 
-  const uploadMore = async (files: FileList | null) => {
-    if (!files?.length) return;
+  const uploadMore = async (files: File[]) => {
+    if (!files.length) return;
     setBusy(true);
     try {
       const storageIds = await uploadFiles(
-        Array.from(files).slice(0, MAX_PHOTOS_PER_UPLOAD),
+        files.slice(0, MAX_PHOTOS_PER_UPLOAD),
         () => generateUploadUrlMutation({}),
       );
       await addPhotos({ itemId, storageIds, rerunEnrichment: true });
@@ -293,7 +381,11 @@ function DetailSheet({ itemId, onClose }: { itemId: Id<"inventoryItems">; onClos
         <div className="inventory-detail-photos">
           {photos.map((photo) => photo.url && <img key={photo._id} src={photo.url} alt="Inventory item" />)}
           <button onClick={() => photoInput.current?.click()}><Camera /><span>Add photos</span></button>
-          <input ref={photoInput} className="visually-hidden" type="file" accept="image/*" capture="environment" multiple onChange={(event) => { void uploadMore(event.target.files); event.target.value = ""; }} />
+          <input ref={photoInput} className="visually-hidden" type="file" accept="image/*" capture="environment" multiple onChange={(event) => {
+            const incoming = Array.from(event.currentTarget.files ?? []);
+            event.currentTarget.value = "";
+            void uploadMore(incoming);
+          }} />
         </div>
         {editing ? (
           <form className="inventory-edit-form" onSubmit={saveDetails}>
@@ -311,6 +403,7 @@ function DetailSheet({ itemId, onClose }: { itemId: Id<"inventoryItems">; onClos
             <p>{item.description || "No description yet."}</p>
             <div className="inventory-detail-meta"><span><MapPin />{item.currentLocationName}</span><span>{item.condition}</span><span>Qty {item.quantity}</span></div>
             {item.tags.length > 0 && <div className="inventory-tags">{item.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>}
+            {item.tags.some((tag) => tag.toLocaleLowerCase("en-AU") === "needs review") && <div className="inventory-review-note"><CircleAlert />The AI was not confident about every detail. Check the title, photos and attributes when you have a moment.</div>}
             {item.attributes.length > 0 && <dl className="inventory-attributes">{item.attributes.map(({ label, value }) => <div key={`${label}-${value}`}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>}
             {item.enrichmentStatus === "failed" && <div className="inventory-error"><CircleAlert />{item.enrichmentError ?? "AI identification failed."}</div>}
             {item.aiSources.length > 0 && <section className="inventory-sources"><h2>Identification sources</h2>{item.aiSources.map((source) => <a key={source.url} href={source.url} target="_blank" rel="noreferrer">{source.title}</a>)}</section>}
@@ -331,6 +424,7 @@ function InventoryBrowser() {
   const [status, setStatus] = useState<InventoryStatus>("active");
   const [capturing, setCapturing] = useState(false);
   const [selected, setSelected] = useState<Id<"inventoryItems"> | null>(null);
+  const reviewFilterActive = search.trim().toLocaleLowerCase("en-AU") === "needs review";
   const sentinel = useRef<HTMLDivElement>(null);
   const { results, status: pageStatus, loadMore } = usePaginatedQuery(
     api.inventory.list,
@@ -359,6 +453,7 @@ function InventoryBrowser() {
       <div className="inventory-search"><Search /><input type="search" value={search} placeholder="Search everything" onChange={(event) => setSearch(event.target.value)} />{search && <button onClick={() => setSearch("")}><X /></button>}</div>
       <div className="inventory-status-tabs">
         <button className={status === "active" ? "active" : ""} onClick={() => setStatus("active")}>In inventory</button>
+        <button className={reviewFilterActive ? "active" : ""} onClick={() => setSearch(reviewFilterActive ? "" : "needs review")}>Needs review</button>
         <button className={status !== "active" ? "active" : ""} onClick={() => setStatus(status === "active" ? "disposed" : status)}>Removed</button>
         {status !== "active" && <select value={status} onChange={(event) => setStatus(event.target.value as InventoryStatus)}><option value="disposed">Thrown away</option><option value="donated">Donated</option><option value="sold">Sold</option><option value="lost">Lost</option></select>}
       </div>

@@ -33,6 +33,8 @@ const structurer = new Agent(components.agent, {
     "Use category names that remain useful across electronics, tools, furniture, documents, clothing and household goods.",
     "Put product-specific facts such as brand, model, dimensions, connector, material or serial number into attributes.",
     "Do not include the storage location in the generated description or tags.",
+    "Set needsReview when the exact identity is uncertain, the photos are unclear, multiple different objects may be present, or important visible details conflict.",
+    "Give a short reviewReason that tells the owner exactly what to check. Leave reviewReason empty when no review is needed.",
   ].join(" "),
 });
 
@@ -44,6 +46,8 @@ const enrichmentSchema = z.object({
   condition: z.string(),
   quantity: z.number().int().positive(),
   attributes: z.array(z.object({ label: z.string(), value: z.string() })).max(30),
+  needsReview: z.boolean(),
+  reviewReason: z.string(),
 });
 
 function errorMessage(error: unknown) {

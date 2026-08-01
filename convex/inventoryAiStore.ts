@@ -9,6 +9,8 @@ const enrichment = v.object({
   condition: v.string(),
   quantity: v.number(),
   attributes: v.array(v.object({ label: v.string(), value: v.string() })),
+  needsReview: v.boolean(),
+  reviewReason: v.string(),
 });
 
 function buildSearchText(item: {
@@ -78,17 +80,24 @@ export const applyEnrichment = internalMutation({
   handler: async (ctx, args) => {
     const item = await ctx.db.get(args.itemId);
     if (!item) return null;
+    const reviewReason = args.enrichment.reviewReason.trim();
+    const tags = args.enrichment.tags.map((tag) => tag.trim()).filter(Boolean).slice(0, 29);
+    if (args.enrichment.needsReview) tags.push("needs review");
+    const attributes = args.enrichment.attributes
+      .map(({ label, value }) => ({ label: label.trim(), value: value.trim() }))
+      .filter(({ label, value }) => label && value && label.toLocaleLowerCase("en-AU") !== "review note")
+      .slice(0, args.enrichment.needsReview && reviewReason ? 39 : 40);
+    if (args.enrichment.needsReview && reviewReason) {
+      attributes.push({ label: "Review note", value: reviewReason });
+    }
     const details = {
       title: args.enrichment.title.trim() || "Unidentified item",
       description: args.enrichment.description.trim(),
       category: args.enrichment.category.trim() || "Uncategorised",
-      tags: args.enrichment.tags.map((tag) => tag.trim()).filter(Boolean).slice(0, 30),
+      tags: [...new Set(tags)],
       condition: args.enrichment.condition.trim() || "Unknown",
       quantity: Math.max(1, Math.floor(args.enrichment.quantity)),
-      attributes: args.enrichment.attributes
-        .map(({ label, value }) => ({ label: label.trim(), value: value.trim() }))
-        .filter(({ label, value }) => label && value)
-        .slice(0, 40),
+      attributes,
       currentLocationName: item.currentLocationName,
     };
     const now = Date.now();
@@ -104,7 +113,9 @@ export const applyEnrichment = internalMutation({
     await ctx.db.insert("inventoryEvents", {
       itemId: args.itemId,
       type: "ai_enriched",
-      note: `${args.model} identified the item`,
+      note: args.enrichment.needsReview
+        ? `${args.model} identified the item and marked it for review`
+        : `${args.model} identified the item`,
       occurredAt: now,
     });
     return null;
