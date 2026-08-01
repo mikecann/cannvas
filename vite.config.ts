@@ -11,6 +11,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         cannvas: resolve(import.meta.dirname, "index.html"),
+        apps: resolve(import.meta.dirname, "apps/index.html"),
         inventory: resolve(import.meta.dirname, "inventory/index.html"),
       },
     },

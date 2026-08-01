@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#f4eee3" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect width=%2264%22 height=%2264%22 rx=%2218%22 fill=%22%2325282c%22/><path d=%22M43 19c-3-3-7-5-12-5-10 0-18 8-18 18s8 18 18 18c5 0 9-2 12-5%22 fill=%22none%22 stroke=%22%23ff765e%22 stroke-width=%228%22 stroke-linecap=%22round%22/></svg>" />
+    <title>Cannvas</title>
+    <style>
+      :root {
+        color: #25282c;
+        background: #f4eee3;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-synthesis: none;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        min-width: 320px;
+        min-height: 100svh;
+        margin: 0;
+        background:
+          radial-gradient(circle at 80% 8%, rgb(255 118 94 / 18%), transparent 28rem),
+          #f4eee3;
+      }
+
+      main {
+        width: min(100%, 660px);
+        min-height: 100svh;
+        margin: 0 auto;
+        padding: max(32px, env(safe-area-inset-top)) 20px max(32px, env(safe-area-inset-bottom));
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 1.05rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+      }
+
+      .mark {
+        display: grid;
+        width: 42px;
+        height: 42px;
+        place-items: center;
+        border-radius: 13px;
+        color: #ff765e;
+        background: #25282c;
+        font-size: 1.45rem;
+        font-weight: 900;
+      }
+
+      h1 {
+        max-width: 540px;
+        margin: 72px 0 14px;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(2.8rem, 11vw, 5.2rem);
+        line-height: 0.94;
+        letter-spacing: -0.055em;
+      }
+
+      .intro {
+        max-width: 480px;
+        margin: 0;
+        color: #68645d;
+        font-size: 1.03rem;
+        line-height: 1.55;
+      }
+
+      .apps {
+        display: grid;
+        gap: 14px;
+        margin-top: 48px;
+      }
+
+      .app-card {
+        display: grid;
+        grid-template-columns: 58px minmax(0, 1fr) 24px;
+        gap: 16px;
+        align-items: center;
+        padding: 18px;
+        border: 1px solid rgb(37 40 44 / 9%);
+        border-radius: 24px;
+        color: inherit;
+        background: rgb(255 253 249 / 82%);
+        box-shadow: 0 18px 50px rgb(54 43 31 / 8%);
+        text-decoration: none;
+        transition: transform 150ms ease, box-shadow 150ms ease;
+      }
+
+      .app-card:hover { transform: translateY(-2px); box-shadow: 0 22px 60px rgb(54 43 31 / 13%); }
+      .app-card:focus-visible { outline: 3px solid #ff765e; outline-offset: 3px; }
+
+      .app-icon {
+        display: grid;
+        width: 58px;
+        height: 58px;
+        place-items: center;
+        border-radius: 18px;
+        color: #f7f1e7;
+        background: #163c38;
+      }
+
+      .app-icon svg { width: 29px; height: 29px; }
+      .app-copy { min-width: 0; }
+      .app-copy strong { display: block; margin-bottom: 5px; font-size: 1.1rem; letter-spacing: -0.02em; }
+      .app-copy span { display: block; color: #716d65; font-size: 0.87rem; line-height: 1.4; }
+      .arrow { color: #ff765e; font-size: 1.7rem; line-height: 1; }
+
+      footer {
+        margin-top: 48px;
+        color: #8a857c;
+        font-size: 0.76rem;
+      }
+
+      @media (max-width: 420px) {
+        h1 { margin-top: 58px; }
+        .app-card { grid-template-columns: 52px minmax(0, 1fr) 18px; gap: 13px; padding: 15px; }
+        .app-icon { width: 52px; height: 52px; border-radius: 16px; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .app-card { transition: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand"><span class="mark" aria-hidden="true">C</span><span>Cannvas</span></div>
+
+      <h1>Useful things,<br />all in one place.</h1>
+      <p class="intro">A small collection of apps for around the house. Pick one to get started.</p>
+
+      <nav class="apps" aria-label="Cannvas apps">
+        <a class="app-card" href="/inventory/">
+          <span class="app-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m21 8-9-5-9 5 9 5 9-5Z" />
+              <path d="m3 8 9 5 9-5" />
+              <path d="M3 8v8l9 5 9-5V8" />
+              <path d="M12 13v8" />
+            </svg>
+          </span>
+          <span class="app-copy">
+            <strong>Inventory</strong>
+            <span>Photograph, organise and find the things stored around the house.</span>
+          </span>
+          <span class="arrow" aria-hidden="true">›</span>
+        </a>
+      </nav>
+
+      <footer>More apps can live here as Cannvas grows.</footer>
+    </main>
+  </body>
+</html>
