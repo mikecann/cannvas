@@ -1,0 +1,26 @@
+{
+  "name": "Cannvas Inventory",
+  "short_name": "Inventory",
+  "description": "Photograph, organise and find the things stored around the house.",
+  "id": "/inventory/",
+  "start_url": "/inventory/",
+  "scope": "/inventory/",
+  "display": "standalone",
+  "background_color": "#f4eee2",
+  "theme_color": "#163c38",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/inventory/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/inventory/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

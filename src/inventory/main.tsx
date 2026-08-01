@@ -8,6 +8,14 @@ import "./inventory.css";
 document.title = "Cannvas Inventory";
 document.querySelector('meta[name="theme-color"]')?.setAttribute("content", "#163c38");
 
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/inventory/sw.js", { scope: "/inventory/" }).catch((error) => {
+      console.warn("Inventory could not enable offline support.", error);
+    });
+  });
+}
+
 function InventoryRoot() {
   const client = useMemo(() => {
     const url = import.meta.env.VITE_CONVEX_URL;

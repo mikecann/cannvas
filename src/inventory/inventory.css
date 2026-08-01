@@ -8,6 +8,30 @@
   --inventory-paper: #fffdf8;
   --inventory-coral: #f2765c;
   --inventory-muted: #6d746f;
+  background: var(--inventory-cream);
+}
+
+html {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  background: var(--inventory-cream);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  overflow-x: hidden;
+  background: var(--inventory-cream);
+  overscroll-behavior-y: none;
+}
+
+#root {
+  width: 100%;
+  min-height: 100dvh;
+  overflow-x: clip;
 }
 
 .inventory-root, .inventory-auth, .inventory-loading, .inventory-detail, .inventory-sheet {
@@ -18,6 +42,12 @@
 .inventory-root *, .inventory-auth *, .inventory-loading *, .inventory-detail *, .inventory-sheet * { box-sizing: border-box; }
 .inventory-root button, .inventory-auth button, .inventory-detail button, .inventory-sheet button,
 .inventory-root input, .inventory-auth input, .inventory-detail input, .inventory-detail textarea, .inventory-detail select, .inventory-sheet input { font: inherit; }
+.inventory-root button, .inventory-auth button, .inventory-detail button, .inventory-sheet button,
+.inventory-root input, .inventory-auth input, .inventory-detail input, .inventory-detail textarea, .inventory-detail select, .inventory-sheet input {
+  touch-action: manipulation;
+}
+.inventory-root input, .inventory-auth input, .inventory-detail input, .inventory-detail textarea,
+.inventory-detail select, .inventory-sheet input { font-size: 1rem; }
 .visually-hidden { position: fixed !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; }
 .spin { animation: inventory-spin .9s linear infinite; }
 @keyframes inventory-spin { to { transform: rotate(360deg); } }
