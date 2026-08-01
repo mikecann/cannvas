@@ -11,6 +11,8 @@ digital whiteboard, chores and pocket money, news, weather, and more.
 - Joshua's weekly chore tracker and pocket-money totals
 - Family to-do lists grouped by Mum, Dad, and Josh
 - A monthly calendar sourced only from the primary personal Google Calendar
+- A searchable household inventory with mobile camera capture, storage locations,
+  item history, and background AI identification
 - An idle home display using the original Mike's Smarter Mirror family-video
   library, Yr Busselton meteogram, BBC headlines, and a seven-day calendar brief
 
@@ -25,6 +27,38 @@ pnpm install
 pnpm convex:dev
 pnpm dev
 ```
+
+The Vite build has two entries. The wall display remains at `/`, while the
+phone-first inventory interface is available at `/inventory/`. Both use the
+same Convex deployment, but the inventory entry has its own layout, scrolling,
+camera flow, and authentication state.
+
+### Inventory
+
+Inventory photos are uploaded directly to Convex file storage. Creating an item
+requires at least one photo and a location. Locations accept free text while
+also suggesting the most-used and most-recent values. After the item is saved,
+GPT-5.6 Luna inspects every angle and can use web search when a visible brand or
+model identifier warrants it. Generated records remain editable and retain the
+sources used during identification.
+
+Configure the development deployment before using the mobile app:
+
+```sh
+pnpm exec convex env set INVENTORY_SETUP_TOKEN '<long random setup code>'
+pnpm exec convex env set OPENAI_API_KEY '<OpenAI API key>'
+npx @convex-dev/auth --skip-git-check --web-server-url http://localhost:5173/inventory/
+```
+
+The first account claims owner access with `INVENTORY_SETUP_TOKEN`. Later
+accounts remain unable to read or write inventory data until they claim access
+with the same private code. The setup code generated for this workspace is also
+stored in the macOS Keychain under the service `cannvas-inventory-setup`.
+
+Items keep an append-only history for creation, edits, moves, added photos, AI
+enrichment, restoration, and removal states such as disposed, donated, sold, or
+lost. Search covers titles, descriptions, tags, categories, condition, flexible
+attributes, and the current location, and list queries are paginated.
 
 The mirror is local-first for whiteboards, chores, and device settings. Browser
 storage on the device is authoritative for those domains, and Convex receives a

@@ -12,20 +12,29 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
+    "@ai-sdk/openai": "3.0.27",
+    "@ai-sdk/provider-utils": "4.0.14",
+    "@auth/core": "0.41.3",
+    "@convex-dev/agent": "0.6.4",
+    "@convex-dev/auth": "0.0.94",
+    "@convex-dev/static-hosting": "0.2.1",
     "@vitejs/plugin-react": "latest",
+    "ai": "6.0.76",
     "convex": "latest",
+    "convex-helpers": "0.1.120",
     "leaflet": "^1.9.4",
     "lucide-react": "latest",
     "node-ical": "^0.27.0",
     "react": "latest",
     "react-dom": "latest",
-    "vite": "latest"
+    "vite": "latest",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/leaflet": "^1.9.21",
     "@types/node": "^26.1.1",
     "@types/react": "latest",
     "@types/react-dom": "latest",
-    "typescript": "latest"
+    "typescript": "6.0.2"
   }
 }

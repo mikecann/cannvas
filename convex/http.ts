@@ -1,8 +1,11 @@
 import { httpRouter } from "convex/server";
-import { internal } from "./_generated/api";
+import { registerStaticRoutes } from "@convex-dev/static-hosting";
+import { components, internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
+import { auth } from "./auth";
 
 const http = httpRouter();
+auth.addHttpRoutes(http);
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 
@@ -151,5 +154,9 @@ http.route({
     return json({ id, created: true }, 201);
   }),
 });
+
+// Keep this last: static hosting owns the catch-all route after the API and
+// OAuth endpoints above have had a chance to match.
+registerStaticRoutes(http, components.staticHosting);
 
 export default http;

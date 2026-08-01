@@ -1,15 +1,31 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CalendarDays, CheckSquare2, HousePlug, LayoutDashboard, ListTodo, PencilLine } from "lucide-react";
+import {
+  CalendarDays,
+  CheckSquare2,
+  HousePlug,
+  LayoutDashboard,
+  ListTodo,
+  PackageSearch,
+  PencilLine,
+} from "lucide-react";
 import { CalendarApp } from "./apps/CalendarApp";
 import { ChoresApp } from "./apps/ChoresApp";
 import { DisplayApp } from "./apps/DisplayApp";
 import { HomeAutomationApp } from "./apps/HomeAutomationApp";
+import { InventoryApp } from "./apps/InventoryApp";
 import { TodosApp } from "./apps/TodosApp";
 import { WhiteboardApp } from "./apps/WhiteboardApp";
 import { useCannvasData } from "./data/DataProvider";
 import { installNativeKeyboard } from "./lib/nativeKeyboard";
 
-type AppId = "whiteboard" | "chores" | "todos" | "calendar" | "home-automation" | "display";
+type AppId =
+  | "whiteboard"
+  | "chores"
+  | "todos"
+  | "calendar"
+  | "home-automation"
+  | "inventory"
+  | "display";
 
 const apps = [
   { id: "whiteboard" as const, label: "Whiteboard", icon: PencilLine },
@@ -17,6 +33,7 @@ const apps = [
   { id: "todos" as const, label: "To-do's", icon: ListTodo },
   { id: "calendar" as const, label: "Calendar", icon: CalendarDays },
   { id: "home-automation" as const, label: "Home controls", icon: HousePlug },
+  { id: "inventory" as const, label: "Inventory", icon: PackageSearch },
   { id: "display" as const, label: "Home", icon: LayoutDashboard },
 ];
 
@@ -74,6 +91,7 @@ export function App() {
         {isReady && activeApp === "todos" && <TodosApp />}
         {isReady && activeApp === "calendar" && <CalendarApp />}
         {isReady && activeApp === "home-automation" && <HomeAutomationApp />}
+        {isReady && activeApp === "inventory" && <InventoryApp />}
         {isReady && activeApp === "display" && <DisplayApp onOpenCalendar={() => openApp("calendar")} />}
       </div>
 
