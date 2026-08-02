@@ -34,6 +34,25 @@ const itemSummary = v.object({
   updatedAt: v.number(),
   photoUrl: v.union(v.string(), v.null()),
 });
+const publicGiveawayItem = v.object({
+  _id: v.id("inventoryItems"),
+  title: v.string(),
+  description: v.string(),
+  category: v.string(),
+  condition: v.string(),
+  quantity: v.number(),
+  boxOnly: v.boolean(),
+  enrichmentStatus: v.union(
+    v.literal("queued"),
+    v.literal("processing"),
+    v.literal("ready"),
+    v.literal("failed"),
+  ),
+  updatedAt: v.number(),
+  photoUrls: v.array(v.string()),
+});
+
+const PUBLIC_GIVEAWAY_LOCATIONS = ["giveaway", "to giveaway"] as const;
 
 function normalizeLocation(name: string) {
   return name.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-AU");
@@ -145,6 +164,57 @@ export const locationSuggestions = query({
     return [...unique.values()]
       .slice(0, 16)
       .map(({ _id, name, usageCount }) => ({ _id, name, usageCount }));
+  },
+});
+
+// This is deliberately the only unauthenticated inventory read. It exposes a
+// small, explicit projection of active items in the approved Giveaway location
+// without leaking household locations, history, attributes, or AI sources.
+export const publicGiveaway = query({
+  args: {},
+  returns: v.array(publicGiveawayItem),
+  handler: async (ctx) => {
+    const locations = await Promise.all(
+      PUBLIC_GIVEAWAY_LOCATIONS.map((normalizedName) =>
+        ctx.db
+          .query("inventoryLocations")
+          .withIndex("by_normalized_name", (q) => q.eq("normalizedName", normalizedName))
+          .unique(),
+      ),
+    );
+    const locationIds = locations.flatMap((location) => location ? [location._id] : []);
+    const itemGroups = await Promise.all(
+      locationIds.map((locationId) =>
+        ctx.db
+          .query("inventoryItems")
+          .withIndex("by_current_location_id_and_status_and_updated_at", (q) =>
+            q.eq("currentLocationId", locationId).eq("status", "active"),
+          )
+          .order("desc")
+          .take(100),
+      ),
+    );
+    const items = itemGroups.flat().sort((a, b) => b.updatedAt - a.updatedAt);
+
+    return Promise.all(items.map(async (item) => {
+      const photos = await ctx.db
+        .query("inventoryPhotos")
+        .withIndex("by_item_id_and_sort_order", (q) => q.eq("itemId", item._id))
+        .take(8);
+      const photoUrls = await Promise.all(photos.map((photo) => ctx.storage.getUrl(photo.storageId)));
+      return {
+        _id: item._id,
+        title: item.title,
+        description: item.description,
+        category: item.category,
+        condition: item.condition,
+        quantity: item.quantity,
+        boxOnly: item.tags.some((tag) => tag.trim().toLocaleLowerCase("en-AU") === "box only"),
+        enrichmentStatus: item.enrichmentStatus,
+        updatedAt: item.updatedAt,
+        photoUrls: photoUrls.flatMap((url) => url ? [url] : []),
+      };
+    }));
   },
 });
 

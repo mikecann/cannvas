@@ -18,8 +18,14 @@ export default {
       return env.ASSETS.fetch(new Request(url, request));
     }
 
+    if (url.pathname === "/giveaway" || url.pathname === "/giveaway/") {
+      url.pathname = "/giveaway/index.html";
+      return env.ASSETS.fetch(new Request(url, request));
+    }
+
     if (
       url.pathname.startsWith("/inventory/") ||
+      url.pathname.startsWith("/giveaway/") ||
       url.pathname.startsWith("/assets/") ||
       url.pathname.startsWith("/avatars/")
     ) {

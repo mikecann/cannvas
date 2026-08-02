@@ -12,6 +12,7 @@ export default defineConfig({
       input: {
         cannvas: resolve(import.meta.dirname, "index.html"),
         apps: resolve(import.meta.dirname, "apps/index.html"),
+        giveaway: resolve(import.meta.dirname, "giveaway/index.html"),
         inventory: resolve(import.meta.dirname, "inventory/index.html"),
       },
     },
