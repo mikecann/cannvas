@@ -3,15 +3,18 @@ import {
   CalendarDays,
   CheckSquare2,
   Dog,
+  Ellipsis,
   HousePlug,
   LayoutDashboard,
   ListTodo,
+  PackageSearch,
   PencilLine,
 } from "lucide-react";
 import { CalendarApp } from "./apps/CalendarApp";
 import { ChoresApp } from "./apps/ChoresApp";
 import { DisplayApp } from "./apps/DisplayApp";
 import { HomeAutomationApp } from "./apps/HomeAutomationApp";
+import { KioskInventoryApp } from "./apps/KioskInventoryApp";
 import { SammyTabletTickerApp } from "./apps/SammyTabletTickerApp";
 import { TodosApp } from "./apps/TodosApp";
 import { WhiteboardApp } from "./apps/WhiteboardApp";
@@ -25,16 +28,20 @@ type AppId =
   | "calendar"
   | "home-automation"
   | "sammy-tablets"
+  | "inventory"
   | "display";
 
-const apps = [
+const primaryApps = [
   { id: "whiteboard" as const, label: "Whiteboard", icon: PencilLine },
   { id: "chores" as const, label: "Joshua's chores", icon: CheckSquare2 },
   { id: "todos" as const, label: "To-do's", icon: ListTodo },
   { id: "calendar" as const, label: "Calendar", icon: CalendarDays },
   { id: "home-automation" as const, label: "Home controls", icon: HousePlug },
-  { id: "sammy-tablets" as const, label: "Sammy", icon: Dog },
-  { id: "display" as const, label: "Home", icon: LayoutDashboard },
+];
+
+const moreApps = [
+  { id: "sammy-tablets" as const, label: "Sammy", description: "Tablet schedule", icon: Dog },
+  { id: "inventory" as const, label: "Inventory", description: "Find household items", icon: PackageSearch },
 ];
 
 const DEFAULT_IDLE_TIMEOUT = 5 * 60 * 1000;
@@ -42,6 +49,8 @@ const DEFAULT_IDLE_TIMEOUT = 5 * 60 * 1000;
 export function App() {
   const { isReady } = useCannvasData();
   const [activeApp, setActiveApp] = useState<AppId>("whiteboard");
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreWrap = useRef<HTMLDivElement>(null);
   const lastInteractiveApp = useRef<AppId>("whiteboard");
   const idleTimer = useRef<number | undefined>(undefined);
   const idleTimeout = Number(import.meta.env.VITE_IDLE_TIMEOUT_MS) || DEFAULT_IDLE_TIMEOUT;
@@ -68,7 +77,24 @@ export function App() {
     };
   }, [resetIdleTimer]);
 
+  useEffect(() => {
+    if (!moreOpen) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!moreWrap.current?.contains(event.target as Node)) setMoreOpen(false);
+    };
+    const closeWithKeyboard = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMoreOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeWithKeyboard);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeWithKeyboard);
+    };
+  }, [moreOpen]);
+
   const openApp = (app: AppId) => {
+    setMoreOpen(false);
     if (app !== "display") lastInteractiveApp.current = app;
     setActiveApp(app);
     resetIdleTimer();
@@ -77,6 +103,8 @@ export function App() {
   const wake = () => {
     if (activeApp === "display") openApp(lastInteractiveApp.current);
   };
+
+  const moreActive = moreApps.some(({ id }) => id === activeApp);
 
   return (
     <main
@@ -92,12 +120,13 @@ export function App() {
         {isReady && activeApp === "calendar" && <CalendarApp />}
         {isReady && activeApp === "home-automation" && <HomeAutomationApp />}
         {isReady && activeApp === "sammy-tablets" && <SammyTabletTickerApp />}
+        {isReady && activeApp === "inventory" && <KioskInventoryApp />}
         {isReady && activeApp === "display" && <DisplayApp onOpenCalendar={() => openApp("calendar")} />}
       </div>
 
       {activeApp !== "display" && (
         <nav className="app-dock" aria-label="Cannvas apps">
-          {apps.map(({ id, label, icon: Icon }) => (
+          {primaryApps.map(({ id, label, icon: Icon }) => (
             <button
               className={activeApp === id ? "dock-item active" : "dock-item"}
               key={id}
@@ -108,6 +137,37 @@ export function App() {
               <span>{label}</span>
             </button>
           ))}
+          <div className="dock-more-wrap" ref={moreWrap}>
+            {moreOpen && (
+              <div className="more-apps-popover" role="dialog" aria-label="More apps">
+                <div><strong>More apps</strong><span>Things you use less often</span></div>
+                {moreApps.map(({ id, label, description, icon: Icon }) => (
+                  <button key={id} onClick={() => openApp(id)}>
+                    <span className="more-app-icon"><Icon /></span>
+                    <span><strong>{label}</strong><small>{description}</small></span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <button
+              className={moreActive ? "dock-item active" : "dock-item"}
+              onClick={() => setMoreOpen((open) => !open)}
+              aria-current={moreActive ? "page" : undefined}
+              aria-expanded={moreOpen}
+              aria-haspopup="dialog"
+            >
+              <span className="dock-icon"><Ellipsis strokeWidth={2.4} /></span>
+              <span>More</span>
+            </button>
+          </div>
+          <span className="dock-divider" aria-hidden="true" />
+          <button
+            className="dock-item"
+            onClick={() => openApp("display")}
+          >
+            <span className="dock-icon"><LayoutDashboard strokeWidth={2.4} /></span>
+            <span>Home</span>
+          </button>
         </nav>
       )}
     </main>

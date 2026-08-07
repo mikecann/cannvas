@@ -1,0 +1,42 @@
+#!/bin/sh
+set -eu
+
+convex_site_url=${1:-}
+mirror_host=${2:-mirror}
+tailscale_bin=${TAILSCALE_BIN:-/Applications/Tailscale.app/Contents/MacOS/Tailscale}
+
+if [ -z "$convex_site_url" ]; then
+  echo "Usage: $0 https://your-deployment.convex.site [tailscale-host]" >&2
+  exit 2
+fi
+
+case "$convex_site_url" in
+  https://*.convex.site) ;;
+  *)
+    echo "The first argument must be an https://*.convex.site URL." >&2
+    exit 2
+    ;;
+esac
+
+for command in openssl jq pnpm; do
+  if ! command -v "$command" >/dev/null 2>&1; then
+    echo "$command is required." >&2
+    exit 1
+  fi
+done
+
+if [ ! -x "$tailscale_bin" ]; then
+  echo "Tailscale was not found at $tailscale_bin." >&2
+  exit 1
+fi
+
+# The token exists only in this process, Convex, and the mirror's mode-0600 file.
+inventory_token=$(openssl rand -hex 32)
+pnpm exec convex env set --prod CANNVAS_KIOSK_INVENTORY_TOKEN "$inventory_token" >/dev/null
+jq -nc --arg url "$convex_site_url" --arg token "$inventory_token" \
+  '{url:$url,token:$token}' \
+  | "$tailscale_bin" ssh "pi@$mirror_host" \
+      'sudo install -o pi -g pi -m 0600 /dev/stdin /var/lib/cannvas/inventory.json'
+unset inventory_token
+
+echo "Cannvas Inventory access is configured for $mirror_host."

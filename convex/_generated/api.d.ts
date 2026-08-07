@@ -23,6 +23,7 @@ import type * as inventoryAi from "../inventoryAi.js";
 import type * as inventoryAiStore from "../inventoryAiStore.js";
 import type * as inventoryAuth from "../inventoryAuth.js";
 import type * as inventoryConstants from "../inventoryConstants.js";
+import type * as inventoryKioskStore from "../inventoryKioskStore.js";
 import type * as news from "../news.js";
 import type * as todos from "../todos.js";
 
@@ -48,6 +49,7 @@ declare const fullApi: ApiFromModules<{
   inventoryAiStore: typeof inventoryAiStore;
   inventoryAuth: typeof inventoryAuth;
   inventoryConstants: typeof inventoryConstants;
+  inventoryKioskStore: typeof inventoryKioskStore;
   news: typeof news;
   todos: typeof todos;
 }>;

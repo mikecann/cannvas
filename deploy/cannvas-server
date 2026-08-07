@@ -1,9 +1,9 @@
 #!/usr/bin/python3
-"""Serve Cannvas and proxy its local Home Assistant connection.
+"""Serve Cannvas and proxy its private local integrations.
 
-The browser only talks to this loopback server. Home Assistant's long-lived
-token stays in a mode-0600 file on the mirror instead of being compiled into
-the public JavaScript bundle.
+The browser only talks to this loopback server. Home Assistant and Inventory
+credentials stay in mode-0600 files on the mirror instead of being compiled
+into the public JavaScript bundle.
 """
 
 from __future__ import annotations
@@ -18,12 +18,13 @@ import ssl
 from threading import Lock
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
-from urllib.request import HTTPSHandler, HTTPCookieProcessor, Request, build_opener, urlopen
+from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.request import HTTPRedirectHandler, HTTPSHandler, HTTPCookieProcessor, Request, build_opener, urlopen
 
 
 CONFIG_PATH = Path(os.environ.get("CANNVAS_HOME_ASSISTANT_CONFIG", "/var/lib/cannvas/home-assistant.json"))
 UNIFI_CONFIG_PATH = Path(os.environ.get("CANNVAS_UNIFI_CONFIG", "/var/lib/cannvas/unifi.json"))
+INVENTORY_CONFIG_PATH = Path(os.environ.get("CANNVAS_INVENTORY_CONFIG", "/var/lib/cannvas/inventory.json"))
 DEFAULT_URL = "http://homeassistant.local:8123"
 ENTITY_ID = re.compile(r"^[a-z_]+\.[a-z0-9_]+$")
 ALLOWED_ACTIONS = {
@@ -33,6 +34,15 @@ ALLOWED_ACTIONS = {
 _UNIFI_LOCK = Lock()
 _UNIFI_OPENER: Any = None
 _UNIFI_SIGNATURE: tuple[str, str, str] | None = None
+
+
+class RejectRedirects(HTTPRedirectHandler):
+    # Never forward the mirror credential beyond the configured Convex host.
+    def redirect_request(self, request: Request, file_pointer: Any, code: int, message: str, headers: Any, new_url: str) -> None:
+        return None
+
+
+_INVENTORY_OPENER = build_opener(HTTPSHandler(), RejectRedirects())
 
 
 def load_config() -> dict[str, str] | None:
@@ -57,6 +67,48 @@ def load_unifi_config() -> dict[str, str] | None:
         "site": str(value.get("site", "default")),
     }
     return config if all(config.values()) else None
+
+
+def load_inventory_config() -> dict[str, str] | None:
+    try:
+        value = json.loads(INVENTORY_CONFIG_PATH.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(value, dict):
+        return None
+    config = {
+        "url": str(value.get("url", "")).rstrip("/"),
+        "token": str(value.get("token", "")),
+    }
+    parsed = urlparse(config["url"])
+    try:
+        port = parsed.port
+    except ValueError:
+        return None
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or not parsed.hostname.lower().endswith(".convex.site")
+        or parsed.username
+        or parsed.password
+        or port not in {None, 443}
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+        or len(config["token"]) < 32
+    ):
+        return None
+    return config
+
+
+def inventory_request(config: dict[str, str], cursor: str | None) -> Any:
+    query = f"?{urlencode({'cursor': cursor})}" if cursor else ""
+    request = Request(
+        f"{config['url']}/kiosk-inventory{query}",
+        headers={"Authorization": f"Bearer {config['token']}"},
+    )
+    with _INVENTORY_OPENER.open(request, timeout=12) as response:
+        return json.loads(response.read())
 
 
 def validate_url(value: str) -> str:
@@ -216,6 +268,27 @@ class CannvasHandler(SimpleHTTPRequestHandler):
             self.send_json(500, {"error": "Home Assistant request failed"})
 
     def do_GET(self) -> None:
+        parsed_path = urlparse(self.path)
+        if parsed_path.path == "/api/inventory":
+            config = load_inventory_config()
+            if not config:
+                self.send_json(200, {"configured": False, "items": []})
+                return
+            try:
+                cursor = parse_qs(parsed_path.query).get("cursor", [None])[0]
+                result = inventory_request(config, cursor)
+                self.send_json(200, {"configured": True, **result})
+            except HTTPError as error:
+                if error.code in {401, 403}:
+                    self.send_json(401, {"error": "Cannvas Inventory access needs attention"})
+                else:
+                    self.send_json(502, {"error": "Cannvas Inventory is temporarily unavailable"})
+            except (URLError, TimeoutError, json.JSONDecodeError):
+                self.send_json(502, {"error": "Cannvas Inventory is temporarily unavailable"})
+            except Exception:
+                self.send_json(502, {"error": "Cannvas Inventory is temporarily unavailable"})
+            return
+
         if self.path == "/api/unifi/status":
             config = load_unifi_config()
             if not config:
