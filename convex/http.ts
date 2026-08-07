@@ -162,8 +162,11 @@ http.route({
     if (request.headers.get("Authorization") !== `Bearer ${expected}`) {
       return json({ error: "Unauthorized" }, 401);
     }
-    const items = await ctx.runQuery(internal.inventoryKioskStore.listForMirror, {});
-    return json({ items });
+    const cursor = new URL(request.url).searchParams.get("cursor");
+    const result = await ctx.runQuery(internal.inventoryKioskStore.listForMirror, {
+      paginationOpts: { cursor, numItems: 100 },
+    });
+    return json(result);
   }),
 });
 

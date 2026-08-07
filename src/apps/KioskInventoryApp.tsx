@@ -14,7 +14,9 @@ type InventoryItem = {
 
 type InventoryResponse = {
   configured?: boolean;
-  items?: InventoryItem[];
+  page?: InventoryItem[];
+  isDone?: boolean;
+  continueCursor?: string;
   error?: string;
 };
 
@@ -26,16 +28,31 @@ export function KioskInventoryApp() {
 
   useEffect(() => {
     let active = true;
-    void fetch("/api/inventory")
-      .then(async (response) => {
+    const loadInventory = async () => {
+      const loadedItems: InventoryItem[] = [];
+      let cursor: string | null = null;
+      let isDone = false;
+
+      while (!isDone) {
+        const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+        const response = await fetch(`/api/inventory${query}`);
         if (!response.headers.get("Content-Type")?.includes("application/json")) {
           throw new Error("Inventory is available on the Cannvas touchscreen");
         }
         const body = await response.json() as InventoryResponse;
         if (!response.ok) throw new Error(body.error || "Inventory is temporarily unavailable");
         if (!body.configured) throw new Error("Inventory is available on the Cannvas touchscreen");
-        if (active) setItems(body.items ?? []);
-      })
+        loadedItems.push(...(body.page ?? []));
+        isDone = body.isDone ?? true;
+        if (!isDone && (!body.continueCursor || body.continueCursor === cursor)) {
+          throw new Error("Inventory stopped loading before it was complete");
+        }
+        cursor = body.continueCursor ?? null;
+      }
+      if (active) setItems(loadedItems);
+    };
+
+    void loadInventory()
       .catch((error: unknown) => {
         if (active) setMessage(error instanceof Error ? error.message : "Inventory is temporarily unavailable");
       })

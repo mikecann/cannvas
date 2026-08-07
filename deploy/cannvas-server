@@ -18,7 +18,7 @@ import ssl
 from threading import Lock
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import HTTPSHandler, HTTPCookieProcessor, Request, build_opener, urlopen
 
 
@@ -72,9 +72,10 @@ def load_inventory_config() -> dict[str, str] | None:
     return config if all(config.values()) else None
 
 
-def inventory_request(config: dict[str, str]) -> Any:
+def inventory_request(config: dict[str, str], cursor: str | None) -> Any:
+    query = f"?{urlencode({'cursor': cursor})}" if cursor else ""
     request = Request(
-        f"{config['url']}/kiosk-inventory",
+        f"{config['url']}/kiosk-inventory{query}",
         headers={"Authorization": f"Bearer {config['token']}"},
     )
     with urlopen(request, timeout=12) as response:
@@ -238,14 +239,16 @@ class CannvasHandler(SimpleHTTPRequestHandler):
             self.send_json(500, {"error": "Home Assistant request failed"})
 
     def do_GET(self) -> None:
-        if self.path == "/api/inventory":
+        parsed_path = urlparse(self.path)
+        if parsed_path.path == "/api/inventory":
             config = load_inventory_config()
             if not config:
                 self.send_json(200, {"configured": False, "items": []})
                 return
             try:
-                result = inventory_request(config)
-                self.send_json(200, {"configured": True, "items": result.get("items", [])})
+                cursor = parse_qs(parsed_path.query).get("cursor", [None])[0]
+                result = inventory_request(config, cursor)
+                self.send_json(200, {"configured": True, **result})
             except HTTPError as error:
                 if error.code in {401, 403}:
                     self.send_json(401, {"error": "Cannvas Inventory access needs attention"})

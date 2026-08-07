@@ -95,6 +95,17 @@ The Giveaway page uses a separate anonymous Convex query. It only exposes active
 items placed in Giveaway or To Giveaway and leaves out household locations,
 history, creator details, and AI research sources.
 
+The family touchscreen has a separate read-only Inventory view that does not
+ask for a login. Its access token stays on the mirror and is never included in
+the public browser bundle. When setting up a new mirror, configure it with:
+
+```sh
+./deploy/configure-kiosk-inventory https://your-deployment.convex.site
+```
+
+You can pass the mirror's Tailscale hostname as a second argument when it is not
+named `mirror`.
+
 ### Google Calendar
 
 Cannvas reads one private iCal feed. The feed address stays in Convex rather
