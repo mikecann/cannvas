@@ -1,5 +1,5 @@
-import { CalendarDays, Check, HeartPulse, RotateCcw, ShieldCheck } from "lucide-react";
-import { useMemo } from "react";
+import { CalendarDays, Check, HeartPulse, History, RotateCcw, ShieldCheck, X } from "lucide-react";
+import { useMemo, useState } from "react";
 import { useCannvasData } from "../data/DataProvider";
 import type { TabletSchedule } from "../data/types";
 
@@ -28,10 +28,15 @@ function dueState(tablet: TabletSchedule) {
 
 export function SammyTabletTickerApp() {
   const { tabletSchedules, tabletCompletions, setTabletDueDate, completeTablet, undoTabletCompletion } = useCannvasData();
+  const [showHistory, setShowHistory] = useState(false);
   const latestByTablet = useMemo(() => new Map(tabletSchedules.map((tablet) => [
     tablet.id,
     [...tabletCompletions].reverse().find((completion) => completion.tabletId === tablet.id),
   ])), [tabletCompletions, tabletSchedules]);
+  const sortedHistory = useMemo(
+    () => [...tabletCompletions].sort((left, right) => right.takenDate.localeCompare(left.takenDate)),
+    [tabletCompletions],
+  );
 
   return (
     <section className="sammy-tablets-app">
@@ -41,6 +46,11 @@ export function SammyTabletTickerApp() {
           <h1>Sammy Tablet Ticker</h1>
           <p>Set each next dose, then tick it off when Sammy has had it.</p>
         </div>
+        <button className="tablet-history-button" onClick={() => setShowHistory(true)}>
+          <History />
+          View history
+          <span>{tabletCompletions.length}</span>
+        </button>
       </header>
 
       <div className="tablet-list">
@@ -85,13 +95,42 @@ export function SammyTabletTickerApp() {
               {latest && (
                 <div className="tablet-last-given">
                   <span>Last given {formatDate(latest.takenDate)}</span>
-                  <button onClick={() => void undoTabletCompletion(tablet.id)}><RotateCcw /> Undo</button>
+                  {latest.previousDueDate !== undefined && (
+                    <button onClick={() => void undoTabletCompletion(tablet.id)}><RotateCcw /> Undo</button>
+                  )}
                 </div>
               )}
             </article>
           );
         })}
       </div>
+
+      {showHistory && (
+        <div className="dialog-backdrop" role="presentation" onPointerDown={() => setShowHistory(false)}>
+          <section className="dialog-card tablet-history-card" role="dialog" aria-modal="true" aria-labelledby="tablet-history-title" onPointerDown={(event) => event.stopPropagation()}>
+            <header>
+              <div>
+                <h2 id="tablet-history-title">Sammy's tablet history</h2>
+                <p>{tabletCompletions.length} recorded dose{tabletCompletions.length === 1 ? "" : "s"}</p>
+              </div>
+              <button className="tablet-history-close" onClick={() => setShowHistory(false)} aria-label="Close tablet history"><X /></button>
+            </header>
+            <div className="tablet-history-list">
+              {sortedHistory.map((completion) => {
+                const tablet = tabletSchedules.find(({ id }) => id === completion.tabletId);
+                if (!tablet) return null;
+                return (
+                  <article key={completion.id} style={{ "--tablet-color": tablet.color } as React.CSSProperties}>
+                    <span className="tablet-history-dot"><Check /></span>
+                    <div><strong>{tablet.name}</strong><small>{tablet.purpose}</small></div>
+                    <time dateTime={completion.takenDate}>{formatDate(completion.takenDate)}</time>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        </div>
+      )}
     </section>
   );
 }

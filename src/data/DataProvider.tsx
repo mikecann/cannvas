@@ -13,7 +13,7 @@ import {
 import { ConvexProvider, ConvexReactClient, useAction, useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
-import type { CalendarEvent, CalendarStatus, CannvasData, Chore, ChoreCategory, Completion, NewsHeadline, Stroke, TabletSchedule, Todo } from "./types";
+import type { CalendarEvent, CalendarStatus, CannvasData, Chore, ChoreCategory, Completion, NewsHeadline, Stroke, TabletCompletion, TabletSchedule, Todo } from "./types";
 
 const DataContext = createContext<CannvasData | null>(null);
 const DEVICE_STORAGE_KEY = "cannvas-device-data-v2";
@@ -28,6 +28,20 @@ const PREVIEW_HEADLINES: NewsHeadline[] = [
   { title: "World headlines will update automatically", url: "https://www.bbc.com/news/world" },
   { title: "The news source can be changed later", url: "https://www.bbc.com/news/world" },
   { title: "Fresh stories appear throughout the day", url: "https://www.bbc.com/news/world" },
+];
+const INITIAL_TABLET_HISTORY: TabletCompletion[] = [
+  { id: "history-nuheart-2025-08-20", tabletId: "nuheart", takenDate: "2025-08-20" },
+  { id: "history-milbemax-2025-09-20", tabletId: "milbemax", takenDate: "2025-09-20" },
+  { id: "history-bravecto-2025-09-25", tabletId: "bravecto", takenDate: "2025-09-25" },
+  { id: "history-nuheart-2025-10-20", tabletId: "nuheart", takenDate: "2025-10-20" },
+  { id: "history-nuheart-2025-11-20", tabletId: "nuheart", takenDate: "2025-11-20" },
+  { id: "history-milbemax-2025-12-20", tabletId: "milbemax", takenDate: "2025-12-20" },
+  { id: "history-bravecto-2025-12-25", tabletId: "bravecto", takenDate: "2025-12-25" },
+  { id: "history-nuheart-2026-01-20", tabletId: "nuheart", takenDate: "2026-01-20" },
+  { id: "history-nuheart-2026-02-20", tabletId: "nuheart", takenDate: "2026-02-20" },
+  { id: "history-milbemax-2026-03-20", tabletId: "milbemax", takenDate: "2026-03-20" },
+  { id: "history-bravecto-2026-03-25", tabletId: "bravecto", takenDate: "2026-03-25" },
+  { id: "history-nuheart-2026-04-20", tabletId: "nuheart", takenDate: "2026-04-20" },
 ];
 
 function previewCalendarEvents(): CalendarEvent[] {
@@ -92,7 +106,7 @@ function createInitialLocalState(): LocalState {
       { id: "milbemax", name: "Milbemax", purpose: "Intestinal worms", cadenceMonths: 3, color: "#5f8fda" },
       { id: "bravecto", name: "Bravecto", purpose: "Fleas and ticks", cadenceMonths: 3, color: "#8c6bc7" },
     ],
-    tabletCompletions: [],
+    tabletCompletions: INITIAL_TABLET_HISTORY,
   };
 }
 
@@ -117,7 +131,10 @@ function toDeviceState(value: Partial<LocalState & Pick<DeviceState, "revision">
       // already entered on the mirror.
       return { ...defaultSchedule, dueDate: stored?.dueDate };
     }),
-    tabletCompletions: value.tabletCompletions ?? fallback.tabletCompletions,
+    tabletCompletions: [
+      ...INITIAL_TABLET_HISTORY,
+      ...(value.tabletCompletions ?? []).filter(({ id }) => !INITIAL_TABLET_HISTORY.some((entry) => entry.id === id)),
+    ],
   };
 }
 

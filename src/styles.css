@@ -254,6 +254,9 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .sammy-title-icon svg { width: 46px; height: 46px; }
 .sammy-tablets-header h1 { font-size: 3.4rem; }
 .sammy-tablets-header p { margin: 10px 0 0; color: var(--muted); font-size: 1.12rem; }
+.tablet-history-button { min-height: 62px; margin-left: auto; padding: 0 18px; display: flex; align-items: center; gap: 9px; flex: 0 0 auto; border: 1px solid #dcd4c8; border-radius: 19px; background: rgba(255,253,248,.9); box-shadow: 0 7px 18px rgba(54,45,34,.08); font-weight: 850; }
+.tablet-history-button > svg { width: 22px; color: var(--orange); }
+.tablet-history-button > span { min-width: 27px; height: 27px; padding: 0 7px; display: grid; place-items: center; border-radius: 999px; color: white; background: var(--ink); font-size: .72rem; }
 .tablet-list { margin-top: 42px; display: grid; gap: 25px; }
 .tablet-card { --tablet-color: var(--green); padding: 30px; overflow: hidden; position: relative; border: 2px solid #e1d9cd; border-radius: 32px; background: rgba(255,253,248,.95); box-shadow: var(--shadow); }
 .tablet-card::before { content: ""; width: 9px; position: absolute; inset: 0 auto 0 0; background: var(--tablet-color); }
@@ -283,6 +286,20 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .tablet-last-given { margin: 20px 2px 0; padding-top: 17px; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid #e8e1d7; color: var(--muted); font-size: .84rem; font-weight: 700; }
 .tablet-last-given button { padding: 7px 10px; display: flex; align-items: center; gap: 6px; border: 0; border-radius: 11px; color: #6f6a62; background: #eee9df; font-size: .77rem; font-weight: 800; }
 .tablet-last-given button svg { width: 15px; }
+.tablet-history-card { width: min(88vw, 760px); max-height: min(82vh, 1240px); padding: 28px; text-align: left; }
+.tablet-history-card > header { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.tablet-history-card h2 { margin: 0; font: 700 2rem "Fraunces", serif; }
+.tablet-history-card header p { margin: 5px 0 0; color: var(--muted); font-size: .82rem; font-weight: 700; }
+.tablet-history-close { width: 50px; height: 50px; display: grid; place-items: center; flex: 0 0 auto; border: 0; border-radius: 16px; background: #eee9df; }
+.tablet-history-close svg { width: 23px; }
+.tablet-history-list { margin-top: 22px; display: grid; gap: 9px; overflow-y: auto; }
+.tablet-history-list article { min-height: 72px; padding: 12px 15px; display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 13px; border: 1px solid #e4ddd2; border-radius: 18px; background: white; }
+.tablet-history-dot { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 14px; color: white; background: var(--tablet-color); }
+.tablet-history-dot svg { width: 21px; stroke-width: 3; }
+.tablet-history-list article div { display: flex; flex-direction: column; }
+.tablet-history-list article strong { font-size: 1rem; }
+.tablet-history-list article small { margin-top: 3px; color: var(--muted); font-size: .7rem; font-weight: 700; }
+.tablet-history-list time { color: #4c4a46; font-size: .82rem; font-weight: 850; }
 
 /* Home automation */
 .home-automation-app { height: 100%; padding: 34px 34px 10px; display: flex; flex-direction: column; overflow: hidden; background: radial-gradient(circle at 92% 6%, rgba(94,198,165,.22), transparent 27%), radial-gradient(circle at 5% 75%, rgba(107,167,255,.18), transparent 31%), var(--cream); }
