@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as auth from "../auth.js";
 import type * as boards from "../boards.js";
 import type * as calendar from "../calendar.js";
 import type * as chores from "../chores.js";
@@ -16,6 +17,12 @@ import type * as deviceBackups from "../deviceBackups.js";
 import type * as googleTasks from "../googleTasks.js";
 import type * as googleTasksStore from "../googleTasksStore.js";
 import type * as http from "../http.js";
+import type * as inventory from "../inventory.js";
+import type * as inventoryAccessStore from "../inventoryAccessStore.js";
+import type * as inventoryAi from "../inventoryAi.js";
+import type * as inventoryAiStore from "../inventoryAiStore.js";
+import type * as inventoryAuth from "../inventoryAuth.js";
+import type * as inventoryConstants from "../inventoryConstants.js";
 import type * as news from "../news.js";
 import type * as todos from "../todos.js";
 
@@ -26,6 +33,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  auth: typeof auth;
   boards: typeof boards;
   calendar: typeof calendar;
   chores: typeof chores;
@@ -34,6 +42,12 @@ declare const fullApi: ApiFromModules<{
   googleTasks: typeof googleTasks;
   googleTasksStore: typeof googleTasksStore;
   http: typeof http;
+  inventory: typeof inventory;
+  inventoryAccessStore: typeof inventoryAccessStore;
+  inventoryAi: typeof inventoryAi;
+  inventoryAiStore: typeof inventoryAiStore;
+  inventoryAuth: typeof inventoryAuth;
+  inventoryConstants: typeof inventoryConstants;
   news: typeof news;
   todos: typeof todos;
 }>;
@@ -64,4 +78,6 @@ export declare const internal: FilterApi<
   FunctionReference<any, "internal">
 >;
 
-export declare const components: {};
+export declare const components: {
+  agent: import("@convex-dev/agent/_generated/component.js").ComponentApi<"agent">;
+};

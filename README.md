@@ -4,11 +4,16 @@
 
 Cannvas turns a TV into a giant family touchscreen. It gives us one shared
 place for whiteboards, chores, to-do lists, the family calendar, home controls,
-weather, news, pet care, and family photos.
+weather, news, pet care, family photos, and a household inventory.
 
-It is built around a Raspberry Pi connected to a portrait TV with an infrared
-touch frame, but you can run the app in an ordinary browser to explore it or
-adapt it for your own home.
+This is a [Convex](https://www.convex.dev/)-powered project. Convex handles the
+shared data, backups, authentication, file storage, scheduled jobs, and
+server-side integrations while the touchscreen stays responsive and useful on
+the local network.
+
+Cannvas is built around a Raspberry Pi connected to a portrait TV with an
+infrared touch frame, but you can run the app in an ordinary browser to explore
+it or adapt it for your own home.
 
 ## What it does
 
@@ -23,6 +28,10 @@ adapt it for your own home.
   network activity, and show family locations when those are available.
 - **Pet care:** keep track of Sammy's regular tablets and when each one was last
   given.
+- **Household inventory:** photograph an item on your phone, record where it is,
+  and let AI help identify and describe it.
+- **Giveaway page:** share a deliberately small public view of things that are
+  ready for friends and family to take.
 - **Home display:** return automatically to family videos, weather, news, and
   upcoming events after five minutes without activity.
 
@@ -38,13 +47,18 @@ pnpm dev
 
 Open [http://localhost:5173](http://localhost:5173). Cannvas will use sample
 content and store your changes in that browser, so you do not need to create an
-account or configure a backend just to try it.
+account or configure a backend just to try the wall display.
 
-## Add backups and live integrations
+The project has separate web experiences for different jobs:
 
-The rest of the setup is optional. Cannvas uses
-[Convex](https://www.convex.dev/) for backups and for the integrations that need
-to run away from the touchscreen.
+- `/` is the portrait family touchscreen.
+- `/inventory/` is the private, phone-first inventory app.
+- `/giveaway/` is the public, read-only giveaway page.
+
+## Add the Convex backend
+
+The main touchscreen can work locally, but Convex unlocks shared data, backups,
+authentication, file uploads, AI enrichment, and the live integrations.
 
 Start the Convex development setup in another terminal:
 
@@ -54,6 +68,32 @@ pnpm convex:dev
 
 This creates the local deployment details used by the app. See
 [`.env.example`](.env.example) for the browser settings you can provide.
+
+### Inventory
+
+The inventory app uploads photos to Convex file storage and keeps an append-only
+history of edits, moves, added photos, AI enrichment, and removal states. Its
+search covers item details and the current storage location.
+
+Add the development secret before using it:
+
+```sh
+pnpm exec convex env set OPENAI_API_KEY '<OpenAI API key>'
+npx @convex-dev/auth --skip-git-check --web-server-url http://localhost:5173/inventory/
+```
+
+Create the account through `/inventory/`, then grant it access by email:
+
+```sh
+pnpm exec convex run inventoryAccessStore:grantByEmail '{"email":"you@example.com"}'
+```
+
+The first granted account becomes the owner. Other accounts cannot see or
+change inventory data until they are granted access the same way.
+
+The Giveaway page uses a separate anonymous Convex query. It only exposes active
+items placed in Giveaway or To Giveaway and leaves out household locations,
+history, creator details, and AI research sources.
 
 ### Google Calendar
 
@@ -149,18 +189,19 @@ touchscreen. When Convex is connected, Cannvas keeps a revisioned backup so the
 display can recover without making the internet connection responsible for
 every tap or brush stroke.
 
-Google Tasks and Calendar need server-side connections. Home Assistant and
+Inventory, Google Tasks, and Calendar use the Convex backend. Home Assistant and
 UniFi stay behind the local Raspberry Pi server. Their private credentials are
 not committed to this repository.
 
 ## Useful commands
 
 ```sh
-pnpm dev          # Run the app locally
-pnpm typecheck    # Check the TypeScript code
-pnpm build        # Create a production build
-pnpm preview      # Preview the production build
-pnpm convex:dev   # Run or configure the Convex development backend
+pnpm dev                # Run the app locally
+pnpm typecheck          # Check the TypeScript code
+pnpm build              # Create a production build
+pnpm preview            # Preview the production build
+pnpm convex:dev         # Run or configure the Convex development backend
+pnpm deploy:cloudflare  # Publish the web entries to Cloudflare
 ```
 
 This is a real family project, so some names, labels, defaults, and integrations

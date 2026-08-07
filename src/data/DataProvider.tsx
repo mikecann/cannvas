@@ -10,7 +10,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { ConvexProvider, ConvexReactClient, useAction, useMutation, useQuery } from "convex/react";
+import { ConvexReactClient, useAction, useMutation, useQuery } from "convex/react";
+import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import type { CalendarEvent, CalendarStatus, CannvasData, Chore, ChoreCategory, Completion, NewsHeadline, Stroke, TabletCompletion, TabletSchedule, Todo } from "./types";
@@ -575,9 +576,9 @@ export function DataProvider({ children }: PropsWithChildren) {
 
   if (!client) return <LocalDataProvider>{children}</LocalDataProvider>;
   return (
-    <ConvexProvider client={client}>
+    <ConvexAuthProvider client={client} storageNamespace="cannvas-kiosk">
       <LocalFirstBackupProvider>{children}</LocalFirstBackupProvider>
-    </ConvexProvider>
+    </ConvexAuthProvider>
   );
 }
 

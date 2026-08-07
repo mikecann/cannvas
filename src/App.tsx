@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CalendarDays, CheckSquare2, Dog, HousePlug, LayoutDashboard, ListTodo, PencilLine } from "lucide-react";
+import {
+  CalendarDays,
+  CheckSquare2,
+  Dog,
+  HousePlug,
+  LayoutDashboard,
+  ListTodo,
+  PencilLine,
+} from "lucide-react";
 import { CalendarApp } from "./apps/CalendarApp";
 import { ChoresApp } from "./apps/ChoresApp";
 import { DisplayApp } from "./apps/DisplayApp";
@@ -10,7 +18,14 @@ import { WhiteboardApp } from "./apps/WhiteboardApp";
 import { useCannvasData } from "./data/DataProvider";
 import { installNativeKeyboard } from "./lib/nativeKeyboard";
 
-type AppId = "whiteboard" | "chores" | "todos" | "calendar" | "home-automation" | "sammy-tablets" | "display";
+type AppId =
+  | "whiteboard"
+  | "chores"
+  | "todos"
+  | "calendar"
+  | "home-automation"
+  | "sammy-tablets"
+  | "display";
 
 const apps = [
   { id: "whiteboard" as const, label: "Whiteboard", icon: PencilLine },
