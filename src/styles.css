@@ -137,8 +137,10 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .kiosk-inventory-copy small { overflow: hidden; color: var(--muted); font-size: .72rem; white-space: nowrap; text-overflow: ellipsis; }
 .kiosk-inventory-state { height: calc(100% - 100px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; color: var(--muted); text-align: center; }
 .kiosk-inventory-state > svg { width: 44px; height: 44px; color: #168b70; }
+.kiosk-inventory-state .spin { animation: kiosk-inventory-spin .9s linear infinite; }
 .kiosk-inventory-state strong { color: var(--ink); font: 700 1.4rem "Fraunces", serif; }
 .kiosk-inventory-state span { font-size: .85rem; }
+@keyframes kiosk-inventory-spin { to { transform: rotate(360deg); } }
 
 /* Chores */
 .chores-app { height: 100%; padding: 34px 34px 10px; overflow: auto; background: radial-gradient(circle at 90% 5%, rgba(255,190,71,.24), transparent 27%), radial-gradient(circle at 5% 70%, rgba(107,167,255,.18), transparent 30%), var(--cream); }

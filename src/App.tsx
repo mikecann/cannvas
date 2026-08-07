@@ -50,6 +50,7 @@ export function App() {
   const { isReady } = useCannvasData();
   const [activeApp, setActiveApp] = useState<AppId>("whiteboard");
   const [moreOpen, setMoreOpen] = useState(false);
+  const moreWrap = useRef<HTMLDivElement>(null);
   const lastInteractiveApp = useRef<AppId>("whiteboard");
   const idleTimer = useRef<number | undefined>(undefined);
   const idleTimeout = Number(import.meta.env.VITE_IDLE_TIMEOUT_MS) || DEFAULT_IDLE_TIMEOUT;
@@ -76,6 +77,22 @@ export function App() {
     };
   }, [resetIdleTimer]);
 
+  useEffect(() => {
+    if (!moreOpen) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!moreWrap.current?.contains(event.target as Node)) setMoreOpen(false);
+    };
+    const closeWithKeyboard = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMoreOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeWithKeyboard);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeWithKeyboard);
+    };
+  }, [moreOpen]);
+
   const openApp = (app: AppId) => {
     setMoreOpen(false);
     if (app !== "display") lastInteractiveApp.current = app;
@@ -86,6 +103,8 @@ export function App() {
   const wake = () => {
     if (activeApp === "display") openApp(lastInteractiveApp.current);
   };
+
+  const moreActive = moreApps.some(({ id }) => id === activeApp);
 
   return (
     <main
@@ -119,12 +138,12 @@ export function App() {
             </button>
           ))}
           <span className="dock-divider" aria-hidden="true" />
-          <div className="dock-more-wrap">
+          <div className="dock-more-wrap" ref={moreWrap}>
             {moreOpen && (
-              <div className="more-apps-popover" role="menu" aria-label="More apps">
+              <div className="more-apps-popover" role="dialog" aria-label="More apps">
                 <div><strong>More apps</strong><span>Things you use less often</span></div>
                 {moreApps.map(({ id, label, description, icon: Icon }) => (
-                  <button key={id} role="menuitem" onClick={() => openApp(id)}>
+                  <button key={id} onClick={() => openApp(id)}>
                     <span className="more-app-icon"><Icon /></span>
                     <span><strong>{label}</strong><small>{description}</small></span>
                   </button>
@@ -132,10 +151,11 @@ export function App() {
               </div>
             )}
             <button
-              className={moreApps.some(({ id }) => id === activeApp) ? "dock-item active" : "dock-item"}
+              className={moreActive ? "dock-item active" : "dock-item"}
               onClick={() => setMoreOpen((open) => !open)}
+              aria-current={moreActive ? "page" : undefined}
               aria-expanded={moreOpen}
-              aria-haspopup="menu"
+              aria-haspopup="dialog"
             >
               <span className="dock-icon"><Ellipsis strokeWidth={2.4} /></span>
               <span>More</span>

@@ -19,7 +19,7 @@ from threading import Lock
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlencode, urlparse
-from urllib.request import HTTPSHandler, HTTPCookieProcessor, Request, build_opener, urlopen
+from urllib.request import HTTPRedirectHandler, HTTPSHandler, HTTPCookieProcessor, Request, build_opener, urlopen
 
 
 CONFIG_PATH = Path(os.environ.get("CANNVAS_HOME_ASSISTANT_CONFIG", "/var/lib/cannvas/home-assistant.json"))
@@ -34,6 +34,15 @@ ALLOWED_ACTIONS = {
 _UNIFI_LOCK = Lock()
 _UNIFI_OPENER: Any = None
 _UNIFI_SIGNATURE: tuple[str, str, str] | None = None
+
+
+class RejectRedirects(HTTPRedirectHandler):
+    # Never forward the mirror credential beyond the configured Convex host.
+    def redirect_request(self, request: Request, file_pointer: Any, code: int, message: str, headers: Any, new_url: str) -> None:
+        return None
+
+
+_INVENTORY_OPENER = build_opener(HTTPSHandler(), RejectRedirects())
 
 
 def load_config() -> dict[str, str] | None:
@@ -65,11 +74,31 @@ def load_inventory_config() -> dict[str, str] | None:
         value = json.loads(INVENTORY_CONFIG_PATH.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return None
+    if not isinstance(value, dict):
+        return None
     config = {
         "url": str(value.get("url", "")).rstrip("/"),
         "token": str(value.get("token", "")),
     }
-    return config if all(config.values()) else None
+    parsed = urlparse(config["url"])
+    try:
+        port = parsed.port
+    except ValueError:
+        return None
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or not parsed.hostname.lower().endswith(".convex.site")
+        or parsed.username
+        or parsed.password
+        or port not in {None, 443}
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+        or len(config["token"]) < 32
+    ):
+        return None
+    return config
 
 
 def inventory_request(config: dict[str, str], cursor: str | None) -> Any:
@@ -78,7 +107,7 @@ def inventory_request(config: dict[str, str], cursor: str | None) -> Any:
         f"{config['url']}/kiosk-inventory{query}",
         headers={"Authorization": f"Bearer {config['token']}"},
     )
-    with urlopen(request, timeout=12) as response:
+    with _INVENTORY_OPENER.open(request, timeout=12) as response:
         return json.loads(response.read())
 
 
@@ -255,6 +284,8 @@ class CannvasHandler(SimpleHTTPRequestHandler):
                 else:
                     self.send_json(502, {"error": "Cannvas Inventory is temporarily unavailable"})
             except (URLError, TimeoutError, json.JSONDecodeError):
+                self.send_json(502, {"error": "Cannvas Inventory is temporarily unavailable"})
+            except Exception:
                 self.send_json(502, {"error": "Cannvas Inventory is temporarily unavailable"})
             return
 
