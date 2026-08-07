@@ -1,9 +1,13 @@
 const KEYBOARD_CONTROL_URL = "http://127.0.0.1:4174";
 
-function isEditable(target: EventTarget | null): target is HTMLElement {
+const TEXT_INPUT_TYPES = new Set(["email", "number", "password", "search", "tel", "text", "url"]);
+
+function needsNativeKeyboard(target: EventTarget | null): target is HTMLElement {
   if (!(target instanceof HTMLElement)) return false;
   if (target instanceof HTMLTextAreaElement) return !target.disabled && !target.readOnly;
-  if (target instanceof HTMLInputElement) return !target.disabled && !target.readOnly;
+  if (target instanceof HTMLInputElement) {
+    return !target.disabled && !target.readOnly && TEXT_INPUT_TYPES.has(target.type);
+  }
   return target.isContentEditable;
 }
 
@@ -19,14 +23,20 @@ function setNativeKeyboardVisible(visible: boolean) {
 
 export function installNativeKeyboard() {
   const showForEditableTarget = (event: Event) => {
-    if (isEditable(event.target)) setNativeKeyboardVisible(true);
+    if (needsNativeKeyboard(event.target)) {
+      setNativeKeyboardVisible(true);
+    } else if (event.target instanceof HTMLInputElement) {
+      // Date, time, colour and other picker-based inputs should use Chromium's
+      // built-in control without leaving the Wayland keyboard over the screen.
+      setNativeKeyboardVisible(false);
+    }
   };
 
   const hideAfterFocusMoves = () => {
     // focusout fires before the next field receives focus. Wait one frame so
     // moving between inputs does not flash the keyboard closed and open.
     window.requestAnimationFrame(() => {
-      if (!isEditable(document.activeElement)) setNativeKeyboardVisible(false);
+      if (!needsNativeKeyboard(document.activeElement)) setNativeKeyboardVisible(false);
     });
   };
 
