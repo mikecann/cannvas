@@ -50,6 +50,7 @@ type CapturePhoto = {
 };
 
 const MAX_PHOTOS_PER_UPLOAD = 8;
+const MAX_PHOTOS_PER_ITEM = 24;
 const INVENTORY_PAGE_SIZE = 18;
 const BOX_ONLY_TAG = "box only";
 
@@ -245,7 +246,7 @@ function CaptureSheet({ onClose }: { onClose: () => void }) {
   return (
     <div className="inventory-sheet-backdrop" role="presentation">
       <section className="inventory-sheet" role="dialog" aria-modal="true" aria-label="Add an inventory item">
-        <header><div><h2>Add an item</h2><p>Photograph labels, connectors and each useful angle.</p></div><button className="inventory-icon-button" onClick={onClose}><X /></button></header>
+        <header><div><h2>Add an item</h2><p>Photograph labels, connectors and each useful angle.</p></div><button className="inventory-icon-button" aria-label="Close" disabled={busy || isUploading} onClick={onClose}><X /></button></header>
         <input ref={inputRef} className="visually-hidden" type="file" accept="image/*" capture="environment" onChange={(event) => {
           // FileList is live. Copy it before resetting the input or Safari empties it
           // before React gets to the state update.
@@ -364,6 +365,7 @@ function DetailSheet({ itemId, onClose }: { itemId: Id<"inventoryItems">; onClos
   const moveItem = async () => {
     if (!location.trim()) return;
     setBusy(true);
+    setError("");
     try {
       await move({ itemId, locationName: location.trim() });
       setLocation("");
@@ -376,13 +378,31 @@ function DetailSheet({ itemId, onClose }: { itemId: Id<"inventoryItems">; onClos
 
   const uploadMore = async (files: File[]) => {
     if (!files.length) return;
+    const availableSlots = MAX_PHOTOS_PER_ITEM - photos.length;
+    if (availableSlots <= 0) {
+      setError(`An item can have at most ${MAX_PHOTOS_PER_ITEM} photos.`);
+      return;
+    }
     setBusy(true);
+    setError("");
     try {
       const storageIds = await uploadFiles(
-        files.slice(0, MAX_PHOTOS_PER_UPLOAD),
+        files.slice(0, Math.min(MAX_PHOTOS_PER_UPLOAD, availableSlots)),
         () => generateUploadUrlMutation({}),
       );
       await addPhotos({ itemId, storageIds, rerunEnrichment: true });
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const changeStatus = async (status: InventoryStatus) => {
+    setBusy(true);
+    setError("");
+    try {
+      await setStatus({ itemId, status });
     } catch (caught) {
       setError(getErrorMessage(caught));
     } finally {
@@ -396,7 +416,7 @@ function DetailSheet({ itemId, onClose }: { itemId: Id<"inventoryItems">; onClos
         <header className="inventory-detail-header"><button className="inventory-icon-button" onClick={onClose}><ChevronLeft /></button><button className="inventory-icon-button" onClick={() => setEditing(!editing)}><Pencil /></button></header>
         <div className="inventory-detail-photos">
           {photos.map((photo) => photo.url && <img key={photo._id} src={photo.url} alt="Inventory item" />)}
-          <button onClick={() => photoInput.current?.click()}><Camera /><span>Add photos</span></button>
+          {photos.length < MAX_PHOTOS_PER_ITEM && <button disabled={busy} onClick={() => photoInput.current?.click()}><Camera /><span>Add photos</span></button>}
           <input ref={photoInput} className="visually-hidden" type="file" accept="image/*" capture="environment" multiple onChange={(event) => {
             const incoming = Array.from(event.currentTarget.files ?? []);
             event.currentTarget.value = "";
@@ -427,7 +447,7 @@ function DetailSheet({ itemId, onClose }: { itemId: Id<"inventoryItems">; onClos
           </div>
         )}
         <section className="inventory-move"><h2>Move item</h2><div><input value={location} list="detail-locations" placeholder="Enter a new location" onChange={(event) => setLocation(event.target.value)} /><button disabled={!location.trim() || busy} onClick={() => void moveItem()}>Move</button></div><datalist id="detail-locations">{suggestions.map((suggestion) => <option key={suggestion._id} value={suggestion.name} />)}</datalist></section>
-        <section className="inventory-lifecycle"><h2>Item status</h2><select value={item.status} disabled={busy} onChange={(event) => void setStatus({ itemId, status: event.target.value as InventoryStatus })}><option value="active">In inventory</option><option value="disposed">Thrown away</option><option value="donated">Donated</option><option value="sold">Sold</option><option value="lost">Lost</option></select></section>
+        <section className="inventory-lifecycle"><h2>Item status</h2><select value={item.status} disabled={busy} onChange={(event) => void changeStatus(event.target.value as InventoryStatus)}><option value="active">In inventory</option><option value="disposed">Thrown away</option><option value="donated">Donated</option><option value="sold">Sold</option><option value="lost">Lost</option></select></section>
         <section className="inventory-history"><h2>History</h2>{events.map((event) => <div key={event._id}><span>{event.type.replaceAll("_", " ")}</span><p>{event.fromLocationName && event.toLocationName ? `${event.fromLocationName} → ${event.toLocationName}` : event.note}</p><time>{new Date(event.occurredAt).toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" })}</time></div>)}</section>
         {error && <div className="inventory-error inventory-sticky-error"><CircleAlert />{error}</div>}
       </article>

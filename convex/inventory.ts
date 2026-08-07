@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { requireInventoryUser } from "./inventoryAuth";
+import { MAX_INVENTORY_PHOTOS } from "./inventoryConstants";
 
 const inventoryStatus = v.union(
   v.literal("active"),
@@ -246,6 +247,8 @@ export const create = mutation({
       currentLocationId: location.id,
       status: "active",
       enrichmentStatus: "queued",
+      enrichmentGeneration: 1,
+      manualEditVersion: 0,
       aiSources: [],
       searchText: buildSearchText(draft),
       createdBy: userId,
@@ -267,7 +270,7 @@ export const create = mutation({
       toLocationName: location.name,
       occurredAt: now,
     });
-    await ctx.scheduler.runAfter(0, internal.inventoryAi.enrich, { itemId });
+    await ctx.scheduler.runAfter(0, internal.inventoryAi.enrich, { itemId, generation: 1 });
     return itemId;
   },
 });
@@ -353,7 +356,7 @@ export const get = query({
     const item = await ctx.db.get(args.itemId);
     if (!item) return null;
     const [photos, events] = await Promise.all([
-      ctx.db.query("inventoryPhotos").withIndex("by_item_id_and_sort_order", (q) => q.eq("itemId", args.itemId)).take(50),
+      ctx.db.query("inventoryPhotos").withIndex("by_item_id_and_sort_order", (q) => q.eq("itemId", args.itemId)).take(MAX_INVENTORY_PHOTOS),
       ctx.db.query("inventoryEvents").withIndex("by_item_id_and_occurred_at", (q) => q.eq("itemId", args.itemId)).order("desc").take(100),
     ]);
     return {
@@ -393,7 +396,12 @@ export const updateDetails = mutation({
       attributes: args.attributes.map(({ label, value }) => ({ label: label.trim(), value: value.trim() })).filter(({ label, value }) => label && value).slice(0, 40),
       currentLocationName: item.currentLocationName,
     };
-    await ctx.db.patch(args.itemId, { ...details, searchText: buildSearchText(details), updatedAt: Date.now() });
+    await ctx.db.patch(args.itemId, {
+      ...details,
+      searchText: buildSearchText(details),
+      manualEditVersion: (item.manualEditVersion ?? 0) + 1,
+      updatedAt: Date.now(),
+    });
     await ctx.db.insert("inventoryEvents", { itemId: args.itemId, type: "edited", actorId: userId, occurredAt: Date.now() });
     return null;
   },
@@ -448,10 +456,17 @@ export const addPhotos = mutation({
     if (args.storageIds.length === 0 || args.storageIds.length > 8) throw new Error("Add between one and eight photos.");
     const item = await ctx.db.get(args.itemId);
     if (!item) throw new Error("Item not found.");
-    const lastPhoto = await ctx.db.query("inventoryPhotos")
-      .withIndex("by_item_id_and_sort_order", (q) => q.eq("itemId", args.itemId)).order("desc").first();
+    const existingPhotos = await ctx.db.query("inventoryPhotos")
+      .withIndex("by_item_id_and_sort_order", (q) => q.eq("itemId", args.itemId))
+      .order("desc")
+      .take(MAX_INVENTORY_PHOTOS + 1);
+    if (existingPhotos.length + args.storageIds.length > MAX_INVENTORY_PHOTOS) {
+      throw new Error(`An item can have at most ${MAX_INVENTORY_PHOTOS} photos.`);
+    }
+    const lastPhoto = existingPhotos[0];
     const startSortOrder = (lastPhoto?.sortOrder ?? -1) + 1;
     const now = Date.now();
+    const generation = (item.enrichmentGeneration ?? 0) + 1;
     await Promise.all(args.storageIds.map((storageId, index) => ctx.db.insert("inventoryPhotos", {
       itemId: args.itemId,
       storageId,
@@ -465,9 +480,18 @@ export const addPhotos = mutation({
     });
     await ctx.db.patch(args.itemId, {
       updatedAt: now,
-      ...(args.rerunEnrichment ? { enrichmentStatus: "queued" as const, enrichmentError: undefined } : {}),
+      ...(args.rerunEnrichment ? {
+        enrichmentStatus: "queued" as const,
+        enrichmentGeneration: generation,
+        enrichmentError: undefined,
+      } : {}),
     });
-    if (args.rerunEnrichment) await ctx.scheduler.runAfter(0, internal.inventoryAi.enrich, { itemId: args.itemId });
+    if (args.rerunEnrichment) {
+      await ctx.scheduler.runAfter(0, internal.inventoryAi.enrich, {
+        itemId: args.itemId,
+        generation,
+      });
+    }
     return null;
   },
 });

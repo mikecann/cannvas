@@ -14,7 +14,7 @@ import { ConvexReactClient, useAction, useMutation, useQuery } from "convex/reac
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
-import type { CalendarEvent, CalendarStatus, CannvasData, Chore, ChoreCategory, Completion, NewsHeadline, Stroke, Todo } from "./types";
+import type { CalendarEvent, CalendarStatus, CannvasData, Chore, ChoreCategory, Completion, NewsHeadline, Stroke, TabletCompletion, TabletSchedule, Todo } from "./types";
 
 const DataContext = createContext<CannvasData | null>(null);
 const DEVICE_STORAGE_KEY = "cannvas-device-data-v2";
@@ -24,11 +24,26 @@ const DEVICE_ID = import.meta.env.VITE_CANNVAS_DEVICE_ID
 const TODO_ACCESS_TOKEN = import.meta.env.VITE_CANNVAS_TODO_ACCESS_TOKEN ?? "";
 const BACKUP_DEBOUNCE_MS = 500;
 const CALENDAR_CACHE_KEY = "cannvas-calendar-cache-v1";
+const TABLET_SCHEDULE_VERSION = 1;
 const COLORS = ["#ff8066", "#ffbf47", "#5ec6a5", "#6ba7ff", "#a77bea", "#ff7eb3"];
 const PREVIEW_HEADLINES: NewsHeadline[] = [
   { title: "World headlines will update automatically", url: "https://www.bbc.com/news/world" },
   { title: "The news source can be changed later", url: "https://www.bbc.com/news/world" },
   { title: "Fresh stories appear throughout the day", url: "https://www.bbc.com/news/world" },
+];
+const INITIAL_TABLET_HISTORY: TabletCompletion[] = [
+  { id: "history-nuheart-2025-08-20", tabletId: "nuheart", takenDate: "2025-08-20" },
+  { id: "history-milbemax-2025-09-20", tabletId: "milbemax", takenDate: "2025-09-20" },
+  { id: "history-bravecto-2025-09-25", tabletId: "bravecto", takenDate: "2025-09-25" },
+  { id: "history-nuheart-2025-10-20", tabletId: "nuheart", takenDate: "2025-10-20" },
+  { id: "history-nuheart-2025-11-20", tabletId: "nuheart", takenDate: "2025-11-20" },
+  { id: "history-milbemax-2025-12-20", tabletId: "milbemax", takenDate: "2025-12-20" },
+  { id: "history-bravecto-2025-12-25", tabletId: "bravecto", takenDate: "2025-12-25" },
+  { id: "history-nuheart-2026-01-20", tabletId: "nuheart", takenDate: "2026-01-20" },
+  { id: "history-nuheart-2026-02-20", tabletId: "nuheart", takenDate: "2026-02-20" },
+  { id: "history-milbemax-2026-03-20", tabletId: "milbemax", takenDate: "2026-03-20" },
+  { id: "history-bravecto-2026-03-25", tabletId: "bravecto", takenDate: "2026-03-25" },
+  { id: "history-nuheart-2026-04-20", tabletId: "nuheart", takenDate: "2026-04-20" },
 ];
 
 function previewCalendarEvents(): CalendarEvent[] {
@@ -60,10 +75,13 @@ type LocalState = {
   chores: Chore[];
   completions: Completion[];
   todos: Todo[];
+  tabletSchedules: TabletSchedule[];
+  tabletCompletions: CannvasData["tabletCompletions"];
 };
 
 type DeviceState = LocalState & {
   version: 2;
+  tabletScheduleVersion: number;
   revision: number;
   updatedAt: number;
 };
@@ -86,13 +104,21 @@ function createInitialLocalState(): LocalState {
     ],
     completions: [],
     todos: [],
+    tabletSchedules: [
+      { id: "nuheart", name: "Nuheart", purpose: "Heartworm", cadenceMonths: 1, color: "#ed6a5a", dueDate: "2026-08-20" },
+      { id: "milbemax", name: "Milbemax", purpose: "Intestinal worms", cadenceMonths: 3, color: "#5f8fda", dueDate: "2026-09-20" },
+      { id: "bravecto", name: "Bravecto", purpose: "Fleas and ticks", cadenceMonths: 3, color: "#8c6bc7", dueDate: "2026-09-25" },
+    ],
+    tabletCompletions: INITIAL_TABLET_HISTORY,
   };
 }
 
-function toDeviceState(value: Partial<LocalState & Pick<DeviceState, "revision">>): DeviceState {
+function toDeviceState(value: Partial<LocalState & Pick<DeviceState, "revision" | "tabletScheduleVersion">>): DeviceState {
   const fallback = createInitialLocalState();
+  const needsTabletScheduleMigration = value.tabletScheduleVersion !== TABLET_SCHEDULE_VERSION;
   return {
     version: 2,
+    tabletScheduleVersion: TABLET_SCHEDULE_VERSION,
     revision: Number.isFinite(value.revision) ? Math.max(0, Number(value.revision)) : 0,
     updatedAt: Date.now(),
     boards: value.boards ?? fallback.boards,
@@ -104,7 +130,43 @@ function toDeviceState(value: Partial<LocalState & Pick<DeviceState, "revision">
     // Older device snapshots pre-date To-do's. An empty list migrates them
     // without replacing any device-owned data with a remote default.
     todos: value.todos ?? fallback.todos,
+    tabletSchedules: fallback.tabletSchedules.map((defaultSchedule) => {
+      const stored = value.tabletSchedules?.find(({ id }) => id === defaultSchedule.id);
+      // Seed Mike's agreed schedule once, then preserve any future manual
+      // adjustment made from the date picker.
+      return {
+        ...defaultSchedule,
+        dueDate: needsTabletScheduleMigration ? defaultSchedule.dueDate : stored?.dueDate,
+      };
+    }),
+    tabletCompletions: [
+      ...INITIAL_TABLET_HISTORY,
+      ...(value.tabletCompletions ?? []).filter(({ id }) => !INITIAL_TABLET_HISTORY.some((entry) => entry.id === id)),
+    ],
   };
+}
+
+function addMonthsToDateKey(dateKey: string, months: number): string {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const targetMonth = month - 1 + months;
+  const targetYear = year + Math.floor(targetMonth / 12);
+  const normalizedMonth = ((targetMonth % 12) + 12) % 12;
+  const lastDay = new Date(targetYear, normalizedMonth + 1, 0).getDate();
+  const result = new Date(targetYear, normalizedMonth, Math.min(day, lastDay));
+  return [result.getFullYear(), String(result.getMonth() + 1).padStart(2, "0"), String(result.getDate()).padStart(2, "0")].join("-");
+}
+
+function nextTabletDueDate(tablet: TabletSchedule): string | undefined {
+  if (!tablet.dueDate) return undefined;
+
+  let nextDate = addMonthsToDateKey(tablet.dueDate, tablet.cadenceMonths);
+  if (tablet.id !== "nuheart") return nextDate;
+
+  // Milbemax is given on the 20th in March, June, September and December.
+  // It replaces Nuheart in those months, so advance to the following month.
+  const month = Number(nextDate.slice(5, 7));
+  if (month % 3 === 0) nextDate = addMonthsToDateKey(nextDate, 1);
+  return nextDate;
 }
 
 function readStoredState(key: string): DeviceState | null {
@@ -137,6 +199,7 @@ function useDeviceData(
       return {
         ...next,
         version: 2,
+        tabletScheduleVersion: current.tabletScheduleVersion,
         revision: current.revision + 1,
         updatedAt: Date.now(),
       };
@@ -158,6 +221,8 @@ function useDeviceData(
     },
     chores: visibleState.chores,
     completions: visibleState.completions,
+    tabletSchedules: visibleState.tabletSchedules,
+    tabletCompletions: visibleState.tabletCompletions,
     todos: todoData?.todos ?? visibleState.todos,
     newsHeadlines,
     calendarEvents,
@@ -215,6 +280,45 @@ function useDeviceData(
           return value < start || value >= end;
         }),
       }));
+    },
+    setTabletDueDate: async (tabletId, dueDate) => {
+      updateState((current) => ({
+        ...current,
+        tabletSchedules: current.tabletSchedules.map((tablet) => tablet.id === tabletId
+          ? { ...tablet, dueDate: dueDate || undefined }
+          : tablet),
+      }));
+    },
+    completeTablet: async (tabletId, takenDate) => {
+      updateState((current) => {
+        const tablet = current.tabletSchedules.find(({ id }) => id === tabletId);
+        if (!tablet) return current;
+        return {
+          ...current,
+          tabletSchedules: current.tabletSchedules.map((candidate) => candidate.id === tabletId
+            ? { ...candidate, dueDate: nextTabletDueDate(candidate) }
+            : candidate),
+          tabletCompletions: [...current.tabletCompletions, {
+            id: crypto.randomUUID(),
+            tabletId,
+            takenDate,
+            previousDueDate: tablet.dueDate,
+          }],
+        };
+      });
+    },
+    undoTabletCompletion: async (tabletId) => {
+      updateState((current) => {
+        const latest = [...current.tabletCompletions].reverse().find((completion) => completion.tabletId === tabletId);
+        if (!latest) return current;
+        return {
+          ...current,
+          tabletSchedules: current.tabletSchedules.map((tablet) => tablet.id === tabletId
+            ? { ...tablet, dueDate: latest.previousDueDate }
+            : tablet),
+          tabletCompletions: current.tabletCompletions.filter(({ id }) => id !== latest.id),
+        };
+      });
     },
     addTodo: todoData?.addTodo ?? (async (title, assignee, priority, dueDate) => {
       updateState((current) => ({

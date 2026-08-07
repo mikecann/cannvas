@@ -25,6 +25,24 @@ export type Completion = {
   date: string;
 };
 
+export type TabletId = "nuheart" | "milbemax" | "bravecto";
+
+export type TabletSchedule = {
+  id: TabletId;
+  name: string;
+  purpose: string;
+  cadenceMonths: 1 | 3;
+  color: string;
+  dueDate?: string;
+};
+
+export type TabletCompletion = {
+  id: string;
+  tabletId: TabletId;
+  takenDate: string;
+  previousDueDate?: string;
+};
+
 export type TodoAssignee = "mum" | "dad" | "josh";
 export type TodoPriority = "low" | "medium" | "high";
 
@@ -60,6 +78,8 @@ export type CannvasData = {
   saveBoard: (date: string, strokes: Stroke[]) => Promise<void>;
   chores: Chore[];
   completions: Completion[];
+  tabletSchedules: TabletSchedule[];
+  tabletCompletions: TabletCompletion[];
   todos: Todo[];
   newsHeadlines: NewsHeadline[];
   calendarEvents: CalendarEvent[];
@@ -70,6 +90,9 @@ export type CannvasData = {
   removeChore: (id: string) => Promise<void>;
   toggleCompletion: (choreId: string, date: string) => Promise<void>;
   clearWeek: (weekStart: string) => Promise<void>;
+  setTabletDueDate: (tabletId: TabletId, dueDate?: string) => Promise<void>;
+  completeTablet: (tabletId: TabletId, takenDate: string) => Promise<void>;
+  undoTabletCompletion: (tabletId: TabletId) => Promise<void>;
   addTodo: (title: string, assignee: TodoAssignee, priority: TodoPriority, dueDate?: string) => Promise<void>;
   updateTodo: (id: string, title: string, assignee: TodoAssignee, priority: TodoPriority, dueDate?: string) => Promise<void>;
   toggleTodo: (id: string) => Promise<void>;

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CalendarDays,
   CheckSquare2,
+  Dog,
   HousePlug,
   LayoutDashboard,
   ListTodo,
@@ -11,6 +12,7 @@ import { CalendarApp } from "./apps/CalendarApp";
 import { ChoresApp } from "./apps/ChoresApp";
 import { DisplayApp } from "./apps/DisplayApp";
 import { HomeAutomationApp } from "./apps/HomeAutomationApp";
+import { SammyTabletTickerApp } from "./apps/SammyTabletTickerApp";
 import { TodosApp } from "./apps/TodosApp";
 import { WhiteboardApp } from "./apps/WhiteboardApp";
 import { useCannvasData } from "./data/DataProvider";
@@ -22,6 +24,7 @@ type AppId =
   | "todos"
   | "calendar"
   | "home-automation"
+  | "sammy-tablets"
   | "display";
 
 const apps = [
@@ -30,6 +33,7 @@ const apps = [
   { id: "todos" as const, label: "To-do's", icon: ListTodo },
   { id: "calendar" as const, label: "Calendar", icon: CalendarDays },
   { id: "home-automation" as const, label: "Home controls", icon: HousePlug },
+  { id: "sammy-tablets" as const, label: "Sammy", icon: Dog },
   { id: "display" as const, label: "Home", icon: LayoutDashboard },
 ];
 
@@ -87,6 +91,7 @@ export function App() {
         {isReady && activeApp === "todos" && <TodosApp />}
         {isReady && activeApp === "calendar" && <CalendarApp />}
         {isReady && activeApp === "home-automation" && <HomeAutomationApp />}
+        {isReady && activeApp === "sammy-tablets" && <SammyTabletTickerApp />}
         {isReady && activeApp === "display" && <DisplayApp onOpenCalendar={() => openApp("calendar")} />}
       </div>
 

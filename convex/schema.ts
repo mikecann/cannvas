@@ -133,6 +133,10 @@ export default defineSchema({
     currentLocationName: v.string(),
     status: inventoryStatus,
     enrichmentStatus: inventoryEnrichmentStatus,
+    // Optional because production already contains inventory rows from the
+    // first deployment. New writes always set both counters.
+    enrichmentGeneration: v.optional(v.number()),
+    manualEditVersion: v.optional(v.number()),
     enrichmentError: v.optional(v.string()),
     aiModel: v.optional(v.string()),
     aiSources: v.array(v.object({ title: v.string(), url: v.string() })),

@@ -56,14 +56,22 @@ function errorMessage(error: unknown) {
 }
 
 export const enrich = internalAction({
-  args: { itemId: v.id("inventoryItems") },
+  args: { itemId: v.id("inventoryItems"), generation: v.number() },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await ctx.runMutation(internal.inventoryAiStore.markProcessing, { itemId: args.itemId });
+    const isCurrent = await ctx.runMutation(internal.inventoryAiStore.markProcessing, {
+      itemId: args.itemId,
+      generation: args.generation,
+    });
+    if (!isCurrent) return null;
     try {
       if (!process.env.OPENAI_API_KEY?.trim()) throw new Error("OPENAI_API_KEY is not configured.");
-      const context = await ctx.runQuery(internal.inventoryAiStore.getContext, { itemId: args.itemId });
-      if (!context || context.photoUrls.length === 0) throw new Error("No inventory photos are available.");
+      const context = await ctx.runQuery(internal.inventoryAiStore.getContext, {
+        itemId: args.itemId,
+        generation: args.generation,
+      });
+      if (!context) return null;
+      if (context.photoUrls.length === 0) throw new Error("No inventory photos are available.");
 
       const imageParts = context.photoUrls.map((image) => ({ type: "image" as const, image }));
       const { threadId } = await researcher.createThread(ctx, { userId: `inventory:${args.itemId}` });
@@ -104,6 +112,8 @@ export const enrich = internalAction({
         .map((source) => ({ title: source.title ?? source.url, url: source.url }));
       await ctx.runMutation(internal.inventoryAiStore.applyEnrichment, {
         itemId: args.itemId,
+        generation: args.generation,
+        manualEditVersion: context.manualEditVersion,
         enrichment: structured.object,
         model: MODEL,
         sources,
@@ -111,6 +121,7 @@ export const enrich = internalAction({
     } catch (error) {
       await ctx.runMutation(internal.inventoryAiStore.markFailed, {
         itemId: args.itemId,
+        generation: args.generation,
         error: errorMessage(error),
       });
     }
