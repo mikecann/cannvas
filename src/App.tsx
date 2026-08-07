@@ -5,6 +5,7 @@ import {
   Dog,
   Ellipsis,
   HousePlug,
+  Keyboard,
   LayoutDashboard,
   ListTodo,
   PackageSearch,
@@ -19,7 +20,7 @@ import { SammyTabletTickerApp } from "./apps/SammyTabletTickerApp";
 import { TodosApp } from "./apps/TodosApp";
 import { WhiteboardApp } from "./apps/WhiteboardApp";
 import { useCannvasData } from "./data/DataProvider";
-import { installNativeKeyboard } from "./lib/nativeKeyboard";
+import { dismissNativeKeyboard, installNativeKeyboard } from "./lib/nativeKeyboard";
 
 type AppId =
   | "whiteboard"
@@ -50,20 +51,28 @@ export function App() {
   const { isReady } = useCannvasData();
   const [activeApp, setActiveApp] = useState<AppId>("whiteboard");
   const [moreOpen, setMoreOpen] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const moreWrap = useRef<HTMLDivElement>(null);
   const lastInteractiveApp = useRef<AppId>("whiteboard");
   const idleTimer = useRef<number | undefined>(undefined);
   const idleTimeout = Number(import.meta.env.VITE_IDLE_TIMEOUT_MS) || DEFAULT_IDLE_TIMEOUT;
 
+  const openDisplay = useCallback(() => {
+    // A focused field can be unmounted without firing focusout. Hide the native
+    // keyboard explicitly so it never covers the idle display.
+    dismissNativeKeyboard();
+    setActiveApp("display");
+  }, []);
+
   const resetIdleTimer = useCallback(() => {
     window.clearTimeout(idleTimer.current);
     idleTimer.current = window.setTimeout(() => {
-      setActiveApp("display");
+      openDisplay();
     }, idleTimeout);
-  }, [idleTimeout]);
+  }, [idleTimeout, openDisplay]);
 
   useEffect(() => {
-    return installNativeKeyboard();
+    return installNativeKeyboard(setKeyboardVisible);
   }, []);
 
   useEffect(() => {
@@ -95,8 +104,12 @@ export function App() {
 
   const openApp = (app: AppId) => {
     setMoreOpen(false);
-    if (app !== "display") lastInteractiveApp.current = app;
-    setActiveApp(app);
+    if (app === "display") {
+      openDisplay();
+    } else {
+      lastInteractiveApp.current = app;
+      setActiveApp(app);
+    }
     resetIdleTimer();
   };
 
@@ -123,6 +136,16 @@ export function App() {
         {isReady && activeApp === "inventory" && <KioskInventoryApp />}
         {isReady && activeApp === "display" && <DisplayApp onOpenCalendar={() => openApp("calendar")} />}
       </div>
+
+      {keyboardVisible && activeApp !== "display" && (
+        <button
+          className="keyboard-dismiss-button"
+          onClick={dismissNativeKeyboard}
+        >
+          <Keyboard />
+          Hide keyboard
+        </button>
+      )}
 
       {activeApp !== "display" && (
         <nav className="app-dock" aria-label="Cannvas apps">
