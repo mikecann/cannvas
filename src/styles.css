@@ -247,6 +247,43 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .calendar-actions { position: absolute; z-index: 4; left: 50%; bottom: 14px; width: max-content; padding: 8px; display: flex; align-items: center; gap: 8px; border-radius: 22px; transform: translateX(-50%); }
 .calendar-actions .button { min-width: 155px; }
 
+/* Sammy tablet ticker */
+.sammy-tablets-app { height: 100%; padding: 54px 52px 30px; overflow-y: auto; background: radial-gradient(circle at 88% 6%, rgba(237,106,90,.2), transparent 25%), radial-gradient(circle at 4% 76%, rgba(95,143,218,.16), transparent 30%), var(--cream); }
+.sammy-tablets-header { display: flex; align-items: center; gap: 22px; }
+.sammy-title-icon { width: 84px; height: 84px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 28px; color: white; background: var(--ink); box-shadow: var(--shadow); }
+.sammy-title-icon svg { width: 46px; height: 46px; }
+.sammy-tablets-header h1 { font-size: 3.4rem; }
+.sammy-tablets-header p { margin: 10px 0 0; color: var(--muted); font-size: 1.12rem; }
+.tablet-list { margin-top: 42px; display: grid; gap: 25px; }
+.tablet-card { --tablet-color: var(--green); padding: 30px; overflow: hidden; position: relative; border: 2px solid #e1d9cd; border-radius: 32px; background: rgba(255,253,248,.95); box-shadow: var(--shadow); }
+.tablet-card::before { content: ""; width: 9px; position: absolute; inset: 0 auto 0 0; background: var(--tablet-color); }
+.tablet-card.overdue { border-color: #e9a49b; background: #fff8f6; }
+.tablet-card.today { border-color: #edb755; background: #fffaf0; }
+.tablet-card-top { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; align-items: center; gap: 17px; }
+.tablet-mark { width: 64px; height: 64px; display: grid; place-items: center; border-radius: 21px; color: white; background: var(--tablet-color); }
+.tablet-mark svg { width: 34px; height: 34px; }
+.tablet-name h2 { margin: 0; font: 700 2.1rem/1.05 "Fraunces", serif; }
+.tablet-name p { margin: 7px 0 0; color: var(--muted); font-size: .94rem; font-weight: 700; }
+.tablet-status { padding: 9px 14px; border-radius: 999px; color: #49645d; background: #e2f0eb; font-size: .8rem; font-weight: 900; }
+.tablet-status.unset { color: #6f6a62; background: #ece8e0; }
+.tablet-status.soon { color: #7d5a12; background: #ffedb5; }
+.tablet-status.today { color: #744c02; background: #ffd974; }
+.tablet-status.overdue { color: #973d35; background: #ffdcd6; }
+.tablet-card-actions { margin-top: 26px; display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: 14px; }
+.tablet-date-field { min-height: 76px; padding: 10px 17px; position: relative; display: flex; align-items: center; gap: 13px; border: 2px solid #ded7cc; border-radius: 20px; background: white; cursor: pointer; }
+.tablet-date-field > svg { width: 27px; color: var(--tablet-color); }
+.tablet-date-field span { display: flex; flex-direction: column; gap: 2px; }
+.tablet-date-field small { color: var(--muted); font-size: .68rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.tablet-date-field strong { font-size: 1rem; }
+.tablet-date-field input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.tablet-done-button { min-height: 76px; padding: 0 20px; display: flex; align-items: center; justify-content: center; gap: 10px; border: 0; border-radius: 20px; color: white; background: var(--ink); font-weight: 900; }
+.tablet-done-button svg { width: 25px; height: 25px; padding: 4px; border-radius: 50%; color: var(--ink); background: white; }
+.tablet-done-button:active { transform: scale(.98); }
+.tablet-done-button:disabled { opacity: .32; }
+.tablet-last-given { margin: 20px 2px 0; padding-top: 17px; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid #e8e1d7; color: var(--muted); font-size: .84rem; font-weight: 700; }
+.tablet-last-given button { padding: 7px 10px; display: flex; align-items: center; gap: 6px; border: 0; border-radius: 11px; color: #6f6a62; background: #eee9df; font-size: .77rem; font-weight: 800; }
+.tablet-last-given button svg { width: 15px; }
+
 /* Home automation */
 .home-automation-app { height: 100%; padding: 34px 34px 10px; display: flex; flex-direction: column; overflow: hidden; background: radial-gradient(circle at 92% 6%, rgba(94,198,165,.22), transparent 27%), radial-gradient(circle at 5% 75%, rgba(107,167,255,.18), transparent 31%), var(--cream); }
 .home-automation-header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
@@ -466,7 +503,7 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 
 @media (orientation: portrait) {
   .app-stage { height: calc(100% - 132px); }
-  .whiteboard-app, .chores-app, .todos-app, .calendar-app, .home-automation-app { padding-left: 28px; padding-right: 28px; }
+  .whiteboard-app, .chores-app, .todos-app, .calendar-app, .home-automation-app, .sammy-tablets-app { padding-left: 28px; padding-right: 28px; }
   .whiteboard-header { align-items: center; }
   .drawing-tools { flex-wrap: wrap; }
   .history-tools { margin-left: auto; }
