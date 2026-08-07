@@ -137,7 +137,6 @@ export function App() {
               <span>{label}</span>
             </button>
           ))}
-          <span className="dock-divider" aria-hidden="true" />
           <div className="dock-more-wrap" ref={moreWrap}>
             {moreOpen && (
               <div className="more-apps-popover" role="dialog" aria-label="More apps">
@@ -161,6 +160,7 @@ export function App() {
               <span>More</span>
             </button>
           </div>
+          <span className="dock-divider" aria-hidden="true" />
           <button
             className="dock-item"
             onClick={() => openApp("display")}
