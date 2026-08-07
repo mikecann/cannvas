@@ -21,14 +21,24 @@ function setNativeKeyboardVisible(visible: boolean) {
   }).catch(() => undefined);
 }
 
-export function installNativeKeyboard() {
+export function dismissNativeKeyboard() {
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  setNativeKeyboardVisible(false);
+}
+
+export function installNativeKeyboard(onVisibilityChange: (visible: boolean) => void = () => undefined) {
+  const updateKeyboard = (visible: boolean) => {
+    onVisibilityChange(visible);
+    setNativeKeyboardVisible(visible);
+  };
+
   const showForEditableTarget = (event: Event) => {
     if (needsNativeKeyboard(event.target)) {
-      setNativeKeyboardVisible(true);
+      updateKeyboard(true);
     } else if (event.target instanceof HTMLInputElement) {
       // Date, time, colour and other picker-based inputs should use Chromium's
       // built-in control without leaving the Wayland keyboard over the screen.
-      setNativeKeyboardVisible(false);
+      updateKeyboard(false);
     }
   };
 
@@ -36,7 +46,7 @@ export function installNativeKeyboard() {
     // focusout fires before the next field receives focus. Wait one frame so
     // moving between inputs does not flash the keyboard closed and open.
     window.requestAnimationFrame(() => {
-      if (!needsNativeKeyboard(document.activeElement)) setNativeKeyboardVisible(false);
+      if (!needsNativeKeyboard(document.activeElement)) updateKeyboard(false);
     });
   };
 
@@ -50,6 +60,6 @@ export function installNativeKeyboard() {
     document.removeEventListener("pointerdown", showForEditableTarget, true);
     document.removeEventListener("focusin", showForEditableTarget, true);
     document.removeEventListener("focusout", hideAfterFocusMoves, true);
-    setNativeKeyboardVisible(false);
+    updateKeyboard(false);
   };
 }

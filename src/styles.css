@@ -13,6 +13,8 @@
   --orange: #ff765e;
   --green: #168b70;
   --shadow: 0 18px 50px rgba(64, 53, 38, 0.12);
+  /* Keep this in sync with the wvkbd height in deploy/cannvas-keyboard. */
+  --native-keyboard-height: 620px;
 }
 
 * { box-sizing: border-box; }
@@ -41,6 +43,9 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .dock-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 12px; background: #ebe4d7; color: var(--ink); }
 .dock-item.active .dock-icon { background: var(--orange); color: white; }
 .dock-icon svg { width: 22px; }
+.keyboard-dismiss-button { position: fixed; z-index: 80; right: 28px; bottom: calc(var(--native-keyboard-height) + 24px); min-height: 58px; padding: 0 22px; display: flex; align-items: center; gap: 10px; border: 2px solid rgba(255,255,255,.88); border-radius: 18px; color: white; background: var(--ink); box-shadow: 0 12px 34px rgba(32,29,25,.3); font-weight: 800; cursor: pointer; }
+.keyboard-dismiss-button svg { width: 23px; }
+.keyboard-dismiss-button:active { transform: scale(.97); }
 .dock-divider { width: 1px; height: 46px; margin: 0 7px; flex: 0 0 auto; background: #d6cec1; }
 .dock-more-wrap { position: relative; }
 .more-apps-popover { position: absolute; z-index: 40; right: -8px; bottom: calc(100% + 20px); width: 310px; padding: 14px; display: grid; gap: 8px; border: 1px solid #d9d1c5; border-radius: 24px; background: rgba(255,253,248,.98); box-shadow: 0 20px 54px rgba(54,45,34,.24); }
