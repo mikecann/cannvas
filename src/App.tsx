@@ -57,12 +57,20 @@ export function App() {
   const idleTimer = useRef<number | undefined>(undefined);
   const idleTimeout = Number(import.meta.env.VITE_IDLE_TIMEOUT_MS) || DEFAULT_IDLE_TIMEOUT;
 
+  const openDisplay = useCallback(() => {
+    // A focused field can be unmounted without firing focusout. Hide the native
+    // keyboard explicitly so it never covers the idle display.
+    dismissNativeKeyboard();
+    setKeyboardVisible(false);
+    setActiveApp("display");
+  }, []);
+
   const resetIdleTimer = useCallback(() => {
     window.clearTimeout(idleTimer.current);
     idleTimer.current = window.setTimeout(() => {
-      setActiveApp("display");
+      openDisplay();
     }, idleTimeout);
-  }, [idleTimeout]);
+  }, [idleTimeout, openDisplay]);
 
   useEffect(() => {
     return installNativeKeyboard(setKeyboardVisible);
@@ -97,8 +105,12 @@ export function App() {
 
   const openApp = (app: AppId) => {
     setMoreOpen(false);
-    if (app !== "display") lastInteractiveApp.current = app;
-    setActiveApp(app);
+    if (app === "display") {
+      openDisplay();
+    } else {
+      lastInteractiveApp.current = app;
+      setActiveApp(app);
+    }
     resetIdleTimer();
   };
 
