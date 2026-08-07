@@ -41,6 +41,20 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .dock-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 12px; background: #ebe4d7; color: var(--ink); }
 .dock-item.active .dock-icon { background: var(--orange); color: white; }
 .dock-icon svg { width: 22px; }
+.dock-divider { width: 1px; height: 46px; margin: 0 7px; flex: 0 0 auto; background: #d6cec1; }
+.dock-more-wrap { position: relative; }
+.more-apps-popover { position: absolute; z-index: 40; right: -8px; bottom: calc(100% + 20px); width: 310px; padding: 14px; display: grid; gap: 8px; border: 1px solid #d9d1c5; border-radius: 24px; background: rgba(255,253,248,.98); box-shadow: 0 20px 54px rgba(54,45,34,.24); }
+.more-apps-popover::after { content: ""; position: absolute; right: 56px; bottom: -9px; width: 18px; height: 18px; transform: rotate(45deg); border-right: 1px solid #d9d1c5; border-bottom: 1px solid #d9d1c5; background: var(--paper); }
+.more-apps-popover > div { padding: 4px 6px 8px; display: flex; flex-direction: column; }
+.more-apps-popover > div strong { font: 700 1.25rem "Fraunces", serif; }
+.more-apps-popover > div span { margin-top: 2px; color: var(--muted); font-size: .75rem; }
+.more-apps-popover button { min-height: 72px; padding: 10px; display: grid; grid-template-columns: 48px 1fr; gap: 12px; align-items: center; border: 0; border-radius: 17px; background: #f2ede4; text-align: left; cursor: pointer; }
+.more-apps-popover button:active { transform: scale(.98); }
+.more-app-icon { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 15px; color: white; background: var(--ink); }
+.more-app-icon svg { width: 25px; }
+.more-apps-popover button > span:last-child { display: flex; flex-direction: column; gap: 2px; }
+.more-apps-popover button strong { font-size: .95rem; }
+.more-apps-popover button small { color: var(--muted); font-size: .72rem; }
 .icon-button { width: 56px; height: 56px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid #dfd8cc; border-radius: 17px; background: var(--paper); cursor: pointer; }
 .icon-button:active { transform: scale(.96); }
 .button { min-height: 54px; padding: 0 24px; display: inline-flex; align-items: center; justify-content: center; gap: 9px; border-radius: 17px; border: 0; font-weight: 800; cursor: pointer; }
@@ -99,6 +113,32 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .tool-button svg { width: 18px; }
 .tool-button.danger-text { color: #b44d46; }
 .flip-horizontal { transform: scaleX(-1); }
+
+/* Read-only inventory for the trusted family touchscreen */
+.kiosk-inventory-app { height: 100%; padding: 34px 34px 16px; overflow: auto; background: radial-gradient(circle at 8% 6%, rgba(94,198,165,.2), transparent 25%), radial-gradient(circle at 96% 92%, rgba(255,128,102,.16), transparent 27%), var(--cream); }
+.kiosk-inventory-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 28px; }
+.kiosk-inventory-title { display: flex; align-items: center; gap: 14px; }
+.kiosk-inventory-title > span { width: 54px; height: 54px; display: grid; place-items: center; border-radius: 18px; color: white; background: #164d43; box-shadow: 0 8px 18px rgba(22,77,67,.18); }
+.kiosk-inventory-title svg { width: 28px; }
+.kiosk-inventory-header p { margin: 8px 0 0 68px; color: var(--muted); }
+.kiosk-inventory-search { width: min(420px, 42vw); height: 58px; padding: 0 18px; display: flex; align-items: center; gap: 10px; border: 1px solid #ddd5c8; border-radius: 18px; background: var(--paper); box-shadow: 0 8px 24px rgba(54,45,34,.08); }
+.kiosk-inventory-search svg { width: 21px; color: var(--muted); }
+.kiosk-inventory-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; font-size: 1rem; }
+.kiosk-inventory-grid { margin-top: 24px; padding-bottom: 96px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.kiosk-inventory-card { min-height: 170px; overflow: hidden; display: grid; grid-template-columns: 138px minmax(0, 1fr); border: 1px solid #e0d8cb; border-radius: 22px; background: rgba(255,253,248,.92); box-shadow: 0 10px 28px rgba(54,45,34,.1); }
+.kiosk-inventory-photo { min-height: 170px; display: grid; place-items: center; color: #8b958f; background: #e2e9e4; }
+.kiosk-inventory-photo img { width: 100%; height: 100%; object-fit: cover; }
+.kiosk-inventory-photo svg { width: 42px; }
+.kiosk-inventory-copy { min-width: 0; padding: 16px; display: flex; flex-direction: column; }
+.kiosk-inventory-copy > span { color: #b25f4e; font-size: .68rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.kiosk-inventory-copy h2 { margin: 6px 0 10px; font: 700 1.18rem/1.08 "Fraunces", serif; }
+.kiosk-inventory-copy p { margin: auto 0 7px; display: flex; align-items: center; gap: 5px; color: #164d43; font-size: .82rem; font-weight: 800; }
+.kiosk-inventory-copy p svg { width: 16px; }
+.kiosk-inventory-copy small { overflow: hidden; color: var(--muted); font-size: .72rem; white-space: nowrap; text-overflow: ellipsis; }
+.kiosk-inventory-state { height: calc(100% - 100px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; color: var(--muted); text-align: center; }
+.kiosk-inventory-state > svg { width: 44px; height: 44px; color: #168b70; }
+.kiosk-inventory-state strong { color: var(--ink); font: 700 1.4rem "Fraunces", serif; }
+.kiosk-inventory-state span { font-size: .85rem; }
 
 /* Chores */
 .chores-app { height: 100%; padding: 34px 34px 10px; overflow: auto; background: radial-gradient(circle at 90% 5%, rgba(255,190,71,.24), transparent 27%), radial-gradient(circle at 5% 70%, rgba(107,167,255,.18), transparent 30%), var(--cream); }
@@ -535,7 +575,7 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 
 @media (orientation: portrait) {
   .app-stage { height: calc(100% - 132px); }
-  .whiteboard-app, .chores-app, .todos-app, .calendar-app, .home-automation-app, .sammy-tablets-app { padding-left: 28px; padding-right: 28px; }
+  .whiteboard-app, .chores-app, .todos-app, .calendar-app, .home-automation-app, .sammy-tablets-app, .kiosk-inventory-app { padding-left: 28px; padding-right: 28px; }
   .whiteboard-header { align-items: center; }
   .drawing-tools { flex-wrap: wrap; }
   .history-tools { margin-left: auto; }
@@ -551,6 +591,9 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
   .display-content { top: 80px; left: 48px; }
   .display-time { font-size: 9rem; }
   .display-widgets { bottom: 72px; }
+  .kiosk-inventory-header { align-items: stretch; flex-direction: column; gap: 18px; }
+  .kiosk-inventory-search { width: 100%; }
+  .kiosk-inventory-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 800px) {

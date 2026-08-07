@@ -154,4 +154,17 @@ http.route({
   }),
 });
 
+http.route({
+  path: "/kiosk-inventory",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const expected = requiredEnv("CANNVAS_KIOSK_INVENTORY_TOKEN");
+    if (request.headers.get("Authorization") !== `Bearer ${expected}`) {
+      return json({ error: "Unauthorized" }, 401);
+    }
+    const items = await ctx.runQuery(internal.inventoryKioskStore.listForMirror, {});
+    return json({ items });
+  }),
+});
+
 export default http;
