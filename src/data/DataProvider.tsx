@@ -23,6 +23,7 @@ const DEVICE_ID = import.meta.env.VITE_CANNVAS_DEVICE_ID
 const TODO_ACCESS_TOKEN = import.meta.env.VITE_CANNVAS_TODO_ACCESS_TOKEN ?? "";
 const BACKUP_DEBOUNCE_MS = 500;
 const CALENDAR_CACHE_KEY = "cannvas-calendar-cache-v1";
+const TABLET_SCHEDULE_VERSION = 1;
 const COLORS = ["#ff8066", "#ffbf47", "#5ec6a5", "#6ba7ff", "#a77bea", "#ff7eb3"];
 const PREVIEW_HEADLINES: NewsHeadline[] = [
   { title: "World headlines will update automatically", url: "https://www.bbc.com/news/world" },
@@ -79,6 +80,7 @@ type LocalState = {
 
 type DeviceState = LocalState & {
   version: 2;
+  tabletScheduleVersion: number;
   revision: number;
   updatedAt: number;
 };
@@ -102,18 +104,20 @@ function createInitialLocalState(): LocalState {
     completions: [],
     todos: [],
     tabletSchedules: [
-      { id: "nuheart", name: "Nuheart", purpose: "Heartworm", cadenceMonths: 1, color: "#ed6a5a" },
-      { id: "milbemax", name: "Milbemax", purpose: "Intestinal worms", cadenceMonths: 3, color: "#5f8fda" },
-      { id: "bravecto", name: "Bravecto", purpose: "Fleas and ticks", cadenceMonths: 3, color: "#8c6bc7" },
+      { id: "nuheart", name: "Nuheart", purpose: "Heartworm", cadenceMonths: 1, color: "#ed6a5a", dueDate: "2026-08-20" },
+      { id: "milbemax", name: "Milbemax", purpose: "Intestinal worms", cadenceMonths: 3, color: "#5f8fda", dueDate: "2026-09-20" },
+      { id: "bravecto", name: "Bravecto", purpose: "Fleas and ticks", cadenceMonths: 3, color: "#8c6bc7", dueDate: "2026-09-25" },
     ],
     tabletCompletions: INITIAL_TABLET_HISTORY,
   };
 }
 
-function toDeviceState(value: Partial<LocalState & Pick<DeviceState, "revision">>): DeviceState {
+function toDeviceState(value: Partial<LocalState & Pick<DeviceState, "revision" | "tabletScheduleVersion">>): DeviceState {
   const fallback = createInitialLocalState();
+  const needsTabletScheduleMigration = value.tabletScheduleVersion !== TABLET_SCHEDULE_VERSION;
   return {
     version: 2,
+    tabletScheduleVersion: TABLET_SCHEDULE_VERSION,
     revision: Number.isFinite(value.revision) ? Math.max(0, Number(value.revision)) : 0,
     updatedAt: Date.now(),
     boards: value.boards ?? fallback.boards,
@@ -127,9 +131,12 @@ function toDeviceState(value: Partial<LocalState & Pick<DeviceState, "revision">
     todos: value.todos ?? fallback.todos,
     tabletSchedules: fallback.tabletSchedules.map((defaultSchedule) => {
       const stored = value.tabletSchedules?.find(({ id }) => id === defaultSchedule.id);
-      // Keep product names and intervals current while preserving the dates
-      // already entered on the mirror.
-      return { ...defaultSchedule, dueDate: stored?.dueDate };
+      // Seed Mike's agreed schedule once, then preserve any future manual
+      // adjustment made from the date picker.
+      return {
+        ...defaultSchedule,
+        dueDate: needsTabletScheduleMigration ? defaultSchedule.dueDate : stored?.dueDate,
+      };
     }),
     tabletCompletions: [
       ...INITIAL_TABLET_HISTORY,
@@ -146,6 +153,19 @@ function addMonthsToDateKey(dateKey: string, months: number): string {
   const lastDay = new Date(targetYear, normalizedMonth + 1, 0).getDate();
   const result = new Date(targetYear, normalizedMonth, Math.min(day, lastDay));
   return [result.getFullYear(), String(result.getMonth() + 1).padStart(2, "0"), String(result.getDate()).padStart(2, "0")].join("-");
+}
+
+function nextTabletDueDate(tablet: TabletSchedule): string | undefined {
+  if (!tablet.dueDate) return undefined;
+
+  let nextDate = addMonthsToDateKey(tablet.dueDate, tablet.cadenceMonths);
+  if (tablet.id !== "nuheart") return nextDate;
+
+  // Milbemax is given on the 20th in March, June, September and December.
+  // It replaces Nuheart in those months, so advance to the following month.
+  const month = Number(nextDate.slice(5, 7));
+  if (month % 3 === 0) nextDate = addMonthsToDateKey(nextDate, 1);
+  return nextDate;
 }
 
 function readStoredState(key: string): DeviceState | null {
@@ -178,6 +198,7 @@ function useDeviceData(
       return {
         ...next,
         version: 2,
+        tabletScheduleVersion: current.tabletScheduleVersion,
         revision: current.revision + 1,
         updatedAt: Date.now(),
       };
@@ -274,7 +295,7 @@ function useDeviceData(
         return {
           ...current,
           tabletSchedules: current.tabletSchedules.map((candidate) => candidate.id === tabletId
-            ? { ...candidate, dueDate: addMonthsToDateKey(takenDate, candidate.cadenceMonths) }
+            ? { ...candidate, dueDate: nextTabletDueDate(candidate) }
             : candidate),
           tabletCompletions: [...current.tabletCompletions, {
             id: crypto.randomUUID(),

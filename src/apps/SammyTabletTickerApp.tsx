@@ -96,7 +96,7 @@ export function SammyTabletTickerApp() {
                 <div className="tablet-mark"><ShieldCheck /></div>
                 <div className="tablet-name">
                   <h2>{tablet.name}</h2>
-                  <p>{tablet.purpose} · every {tablet.cadenceMonths === 1 ? "month" : "3 months"}</p>
+                  <p>{tablet.purpose} · {tablet.id === "nuheart" ? "monthly, except worm tablet months" : "every 3 months"}</p>
                 </div>
                 <span className={`tablet-status ${status.className}`}>{status.label}</span>
               </div>
