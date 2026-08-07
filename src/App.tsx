@@ -18,7 +18,7 @@ const apps = [
   { id: "todos" as const, label: "To-do's", icon: ListTodo },
   { id: "calendar" as const, label: "Calendar", icon: CalendarDays },
   { id: "home-automation" as const, label: "Home controls", icon: HousePlug },
-  { id: "sammy-tablets" as const, label: "Sammy's tablets", icon: Dog },
+  { id: "sammy-tablets" as const, label: "Sammy", icon: Dog },
   { id: "display" as const, label: "Home", icon: LayoutDashboard },
 ];
 

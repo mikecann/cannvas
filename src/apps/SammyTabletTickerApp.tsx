@@ -76,7 +76,7 @@ export function SammyTabletTickerApp() {
       <header className="sammy-tablets-header">
         <div className="sammy-title-icon"><HeartPulse /></div>
         <div>
-          <h1>Sammy Tablet Ticker</h1>
+          <h1>Sammy</h1>
           <p>Set each next dose, then tick it off when Sammy has had it.</p>
         </div>
         <button className="tablet-history-button" onClick={() => setShowHistory(true)}>
