@@ -273,12 +273,11 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .tablet-status.today { color: #744c02; background: #ffd974; }
 .tablet-status.overdue { color: #973d35; background: #ffdcd6; }
 .tablet-card-actions { margin-top: 26px; display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: 14px; }
-.tablet-date-field { min-height: 76px; padding: 10px 17px; position: relative; display: flex; align-items: center; gap: 13px; border: 2px solid #ded7cc; border-radius: 20px; background: white; cursor: pointer; }
+.tablet-date-field { min-height: 76px; padding: 10px 17px; position: relative; display: flex; align-items: center; gap: 13px; border: 2px solid #ded7cc; border-radius: 20px; text-align: left; background: white; cursor: pointer; }
 .tablet-date-field > svg { width: 27px; color: var(--tablet-color); }
 .tablet-date-field span { display: flex; flex-direction: column; gap: 2px; }
 .tablet-date-field small { color: var(--muted); font-size: .68rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
 .tablet-date-field strong { font-size: 1rem; }
-.tablet-date-field input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 .tablet-done-button { min-height: 76px; padding: 0 20px; display: flex; align-items: center; justify-content: center; gap: 10px; border: 0; border-radius: 20px; color: white; background: var(--ink); font-weight: 900; }
 .tablet-done-button svg { width: 25px; height: 25px; padding: 4px; border-radius: 50%; color: var(--ink); background: white; }
 .tablet-done-button:active { transform: scale(.98); }
@@ -300,6 +299,22 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .tablet-history-list article strong { font-size: 1rem; }
 .tablet-history-list article small { margin-top: 3px; color: var(--muted); font-size: .7rem; font-weight: 700; }
 .tablet-history-list time { color: #4c4a46; font-size: .82rem; font-weight: 850; }
+.tablet-date-picker-card { width: min(88vw, 720px); padding: 30px; text-align: left; }
+.tablet-date-picker-card > header { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.tablet-date-picker-card h2 { margin: 0; font: 700 2rem "Fraunces", serif; }
+.tablet-date-picker-card header p { margin: 5px 0 0; color: var(--muted); font-size: .84rem; font-weight: 700; }
+.tablet-picker-month { margin: 24px 0 14px; display: grid; grid-template-columns: 58px 1fr 58px; align-items: center; gap: 10px; }
+.tablet-picker-month > button { width: 58px; height: 58px; display: grid; place-items: center; border: 1px solid #ded7cc; border-radius: 17px; background: white; }
+.tablet-picker-month > button svg { width: 24px; }
+.tablet-picker-month > strong { text-align: center; font: 700 1.45rem "Fraunces", serif; }
+.tablet-picker-weekdays, .tablet-picker-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 7px; }
+.tablet-picker-weekdays { margin-bottom: 7px; }
+.tablet-picker-weekdays span { height: 32px; display: grid; place-items: center; color: var(--muted); font-size: .68rem; font-weight: 850; text-transform: uppercase; }
+.tablet-picker-grid button { aspect-ratio: 1; min-width: 0; display: grid; place-items: center; border: 1px solid #e2dbd0; border-radius: 15px; background: white; font-size: .9rem; font-weight: 800; }
+.tablet-picker-grid button.outside { color: #68645d; background: #f5f1ea; }
+.tablet-picker-grid button.today { box-shadow: inset 0 0 0 3px #f1ad3c; }
+.tablet-picker-grid button.selected { color: white; border-color: var(--ink); background: var(--ink); box-shadow: none; }
+.tablet-picker-actions { margin-top: 22px; display: flex; justify-content: flex-end; gap: 10px; }
 
 /* Home automation */
 .home-automation-app { height: 100%; padding: 34px 34px 10px; display: flex; flex-direction: column; overflow: hidden; background: radial-gradient(circle at 92% 6%, rgba(94,198,165,.22), transparent 27%), radial-gradient(circle at 5% 75%, rgba(107,167,255,.18), transparent 31%), var(--cream); }
