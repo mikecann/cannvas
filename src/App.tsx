@@ -61,7 +61,6 @@ export function App() {
     // A focused field can be unmounted without firing focusout. Hide the native
     // keyboard explicitly so it never covers the idle display.
     dismissNativeKeyboard();
-    setKeyboardVisible(false);
     setActiveApp("display");
   }, []);
 
@@ -141,10 +140,7 @@ export function App() {
       {keyboardVisible && activeApp !== "display" && (
         <button
           className="keyboard-dismiss-button"
-          onClick={() => {
-            dismissNativeKeyboard();
-            setKeyboardVisible(false);
-          }}
+          onClick={dismissNativeKeyboard}
         >
           <Keyboard />
           Hide keyboard

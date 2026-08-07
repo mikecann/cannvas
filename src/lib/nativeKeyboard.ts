@@ -1,6 +1,8 @@
 const KEYBOARD_CONTROL_URL = "http://127.0.0.1:4174";
 
 const TEXT_INPUT_TYPES = new Set(["email", "number", "password", "search", "tel", "text", "url"]);
+const visibilityListeners = new Set<(visible: boolean) => void>();
+let visibilityRequest = 0;
 
 function needsNativeKeyboard(target: EventTarget | null): target is HTMLElement {
   if (!(target instanceof HTMLElement)) return false;
@@ -11,34 +13,48 @@ function needsNativeKeyboard(target: EventTarget | null): target is HTMLElement 
   return target.isContentEditable;
 }
 
-function setNativeKeyboardVisible(visible: boolean) {
-  // This controller only exists on the mirror. Local browser checks will
-  // harmlessly fail, while the kiosk receives the request over loopback.
+function notifyVisibility(visible: boolean) {
+  for (const listener of visibilityListeners) listener(visible);
+}
+
+function updateNativeKeyboard(visible: boolean) {
+  const request = ++visibilityRequest;
+
+  // Hiding the control immediately keeps the app state in sync even if the
+  // kiosk controller is restarting or unavailable.
+  if (!visible) notifyVisibility(false);
+
+  // This controller only exists on the mirror. Only reveal the dismiss button
+  // after the loopback request succeeds, so ordinary desktop browsers do not
+  // show a control for a keyboard they do not have.
   void fetch(`${KEYBOARD_CONTROL_URL}/${visible ? "show" : "hide"}`, {
     mode: "no-cors",
     cache: "no-store",
     keepalive: true,
-  }).catch(() => undefined);
+  })
+    .then(() => {
+      if (visible && request === visibilityRequest) notifyVisibility(true);
+    })
+    .catch(() => {
+      if (visible && request === visibilityRequest) notifyVisibility(false);
+    });
 }
 
 export function dismissNativeKeyboard() {
   if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-  setNativeKeyboardVisible(false);
+  updateNativeKeyboard(false);
 }
 
 export function installNativeKeyboard(onVisibilityChange: (visible: boolean) => void = () => undefined) {
-  const updateKeyboard = (visible: boolean) => {
-    onVisibilityChange(visible);
-    setNativeKeyboardVisible(visible);
-  };
+  visibilityListeners.add(onVisibilityChange);
 
   const showForEditableTarget = (event: Event) => {
     if (needsNativeKeyboard(event.target)) {
-      updateKeyboard(true);
+      updateNativeKeyboard(true);
     } else if (event.target instanceof HTMLInputElement) {
       // Date, time, colour and other picker-based inputs should use Chromium's
       // built-in control without leaving the Wayland keyboard over the screen.
-      updateKeyboard(false);
+      updateNativeKeyboard(false);
     }
   };
 
@@ -46,7 +62,7 @@ export function installNativeKeyboard(onVisibilityChange: (visible: boolean) => 
     // focusout fires before the next field receives focus. Wait one frame so
     // moving between inputs does not flash the keyboard closed and open.
     window.requestAnimationFrame(() => {
-      if (!needsNativeKeyboard(document.activeElement)) updateKeyboard(false);
+      if (!needsNativeKeyboard(document.activeElement)) updateNativeKeyboard(false);
     });
   };
 
@@ -60,6 +76,7 @@ export function installNativeKeyboard(onVisibilityChange: (visible: boolean) => 
     document.removeEventListener("pointerdown", showForEditableTarget, true);
     document.removeEventListener("focusin", showForEditableTarget, true);
     document.removeEventListener("focusout", hideAfterFocusMoves, true);
-    updateKeyboard(false);
+    updateNativeKeyboard(false);
+    visibilityListeners.delete(onVisibilityChange);
   };
 }
