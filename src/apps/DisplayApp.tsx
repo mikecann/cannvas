@@ -19,7 +19,9 @@ async function crawlVideos(root = VIDEO_ROOT, depth = 0, visited = new Set<strin
   const urls = [...html.matchAll(VIDEO_PATTERN)]
     .map((match) => match[1])
     .filter((href) => href !== "../" && href !== "./../")
-    .map((href) => new URL(href, root).toString())
+    // Keep proxy URLs relative to Cannvas. `new URL(href, root)` turns them
+    // into absolute browser URLs, which then fail the VIDEO_ROOT safety check.
+    .map((href) => new URL(href, new URL(root, window.location.origin)).pathname)
     .filter((url) => url.startsWith(VIDEO_ROOT));
   const videos = urls.filter((url) => /\.(mp4|m4v|mov|webm)$/i.test(url));
   const folders = urls.filter((url) => url.endsWith("/") && url !== root);
