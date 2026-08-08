@@ -25,6 +25,7 @@ from urllib.request import HTTPRedirectHandler, HTTPSHandler, HTTPCookieProcesso
 CONFIG_PATH = Path(os.environ.get("CANNVAS_HOME_ASSISTANT_CONFIG", "/var/lib/cannvas/home-assistant.json"))
 UNIFI_CONFIG_PATH = Path(os.environ.get("CANNVAS_UNIFI_CONFIG", "/var/lib/cannvas/unifi.json"))
 INVENTORY_CONFIG_PATH = Path(os.environ.get("CANNVAS_INVENTORY_CONFIG", "/var/lib/cannvas/inventory.json"))
+VIDEO_URL = os.environ.get("CANNVAS_VIDEO_URL", "http://bruce.local:6113").rstrip("/")
 DEFAULT_URL = "http://homeassistant.local:8123"
 ENTITY_ID = re.compile(r"^[a-z_]+\.[a-z0-9_]+$")
 ALLOWED_ACTIONS = {
@@ -267,8 +268,37 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         else:
             self.send_json(500, {"error": "Home Assistant request failed"})
 
+    def proxy_video(self, include_body: bool = True) -> None:
+        # Bruce exposes only Joshua's web-ready folder. Keeping that service
+        # behind this loopback proxy avoids CORS and keeps the browser isolated
+        # from the rest of the home network.
+        suffix = self.path.removeprefix("/videos") or "/"
+        request_headers = {}
+        if range_header := self.headers.get("Range"):
+            request_headers["Range"] = range_header
+        request = Request(f"{VIDEO_URL}{suffix}", headers=request_headers)
+        try:
+            with urlopen(request, timeout=20) as response:
+                self.send_response(response.status)
+                for header in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "Last-Modified"):
+                    if value := response.headers.get(header):
+                        self.send_header(header, value)
+                self.send_header("Cache-Control", "no-store" if suffix.endswith("/") else "private, max-age=3600")
+                self.end_headers()
+                if include_body:
+                    while chunk := response.read(1024 * 1024):
+                        self.wfile.write(chunk)
+        except HTTPError as error:
+            self.send_error(error.code)
+        except (URLError, TimeoutError):
+            self.send_error(502, "Bruce video service is unavailable")
+
     def do_GET(self) -> None:
         parsed_path = urlparse(self.path)
+        if parsed_path.path == "/videos" or parsed_path.path.startswith("/videos/"):
+            self.proxy_video()
+            return
+
         if parsed_path.path == "/api/inventory":
             config = load_inventory_config()
             if not config:
@@ -326,6 +356,13 @@ class CannvasHandler(SimpleHTTPRequestHandler):
                 self.home_assistant_error(error)
             return
         super().do_GET()
+
+    def do_HEAD(self) -> None:
+        parsed_path = urlparse(self.path)
+        if parsed_path.path == "/videos" or parsed_path.path.startswith("/videos/"):
+            self.proxy_video(include_body=False)
+            return
+        super().do_HEAD()
 
     def do_POST(self) -> None:
         if self.path == "/api/home-assistant/config":
