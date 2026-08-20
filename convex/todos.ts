@@ -69,6 +69,7 @@ export const create = mutation({
   args: {
     accessToken: v.string(),
     title: v.string(),
+    notes: v.optional(v.string()),
     assignee,
     priority,
     dueDate: v.optional(v.string()),
@@ -87,7 +88,10 @@ export const create = mutation({
       updatedAt: now,
       syncState: "pending",
     });
-    await ctx.scheduler.runAfter(0, internal.googleTasks.pushTodo, { todoId: id });
+    await ctx.scheduler.runAfter(0, internal.googleTasks.pushTodo, {
+      todoId: id,
+      notes: args.notes,
+    });
     return id;
   },
 });
@@ -97,6 +101,7 @@ export const update = mutation({
     accessToken: v.string(),
     id: v.id("todos"),
     title: v.string(),
+    notes: v.optional(v.string()),
     assignee,
     priority,
     dueDate: v.optional(v.string()),
@@ -115,7 +120,10 @@ export const update = mutation({
       syncState: "pending",
       syncError: undefined,
     });
-    await ctx.scheduler.runAfter(0, internal.googleTasks.pushTodo, { todoId: args.id });
+    await ctx.scheduler.runAfter(0, internal.googleTasks.pushTodo, {
+      todoId: args.id,
+      notes: args.notes,
+    });
     return null;
   },
 });
