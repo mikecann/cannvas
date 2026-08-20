@@ -145,7 +145,9 @@ export const pushTodo = internalAction({
   handler: async (ctx, args) => {
     const connection = await ctx.runQuery(internal.googleTasksStore.getConnection, {});
     if (!connection) return null;
-    const todo = await ctx.runQuery(internal.todos.getForSync, args);
+    const todo = await ctx.runQuery(internal.todos.getForSync, {
+      todoId: args.todoId,
+    });
     if (!todo) return null;
 
     try {
