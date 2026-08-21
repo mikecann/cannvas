@@ -137,12 +137,17 @@ export const setupPersonalList = internalAction({
 });
 
 export const pushTodo = internalAction({
-  args: { todoId: v.id("todos") },
+  args: {
+    todoId: v.id("todos"),
+    notes: v.optional(v.string()),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
     const connection = await ctx.runQuery(internal.googleTasksStore.getConnection, {});
     if (!connection) return null;
-    const todo = await ctx.runQuery(internal.todos.getForSync, args);
+    const todo = await ctx.runQuery(internal.todos.getForSync, {
+      todoId: args.todoId,
+    });
     if (!todo) return null;
 
     try {
@@ -176,6 +181,7 @@ export const pushTodo = internalAction({
         status: todo.completed ? "completed" : "needsAction",
         due: todo.dueDate ? `${todo.dueDate}T00:00:00.000Z` : null,
         completed: todo.completed ? new Date().toISOString() : null,
+        ...(args.notes !== undefined ? { notes: args.notes.slice(0, 8_192) } : {}),
       };
       let saved: GoogleTask | undefined;
       if (googleTaskId && googleTaskListId) {
