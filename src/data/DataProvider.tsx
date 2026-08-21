@@ -24,6 +24,11 @@ const DEVICE_ID = import.meta.env.VITE_CANNVAS_DEVICE_ID
 const TODO_ACCESS_TOKEN = import.meta.env.VITE_CANNVAS_TODO_ACCESS_TOKEN ?? "";
 const BACKUP_DEBOUNCE_MS = 500;
 const CALENDAR_CACHE_KEY = "cannvas-calendar-cache-v1";
+const CALENDAR_REQUEST_TIMEOUT_MS = 30_000;
+const CALENDAR_RETRY_MS = 60_000;
+const CALENDAR_REFRESH_MS = 15 * 60_000;
+const CALENDAR_RELOAD_COOLDOWN_MS = 10 * 60_000;
+const CALENDAR_RELOAD_KEY = "cannvas-calendar-reload-at";
 const TABLET_SCHEDULE_VERSION = 1;
 const COLORS = ["#ff8066", "#ffbf47", "#5ec6a5", "#6ba7ff", "#a77bea", "#ff7eb3"];
 const PREVIEW_HEADLINES: NewsHeadline[] = [
@@ -67,6 +72,20 @@ function readCalendarCache(): CalendarEvent[] {
     return Array.isArray(value) ? value : [];
   } catch {
     return [];
+  }
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeout: number | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timeout = window.setTimeout(() => reject(new Error("Calendar request timed out")), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) window.clearTimeout(timeout);
   }
 }
 
@@ -413,11 +432,14 @@ function LocalFirstBackupProvider({ children }: PropsWithChildren) {
     const end = new Date(Math.max(homeEnd.getTime(), requestedEndDate.getTime()));
 
     try {
-      const result = await loadPrimaryCalendar({
-        accessToken: import.meta.env.VITE_CALENDAR_ACCESS_TOKEN ?? "",
-        start: start.toISOString(),
-        end: end.toISOString(),
-      });
+      const result = await withTimeout(
+        loadPrimaryCalendar({
+          accessToken: import.meta.env.VITE_CALENDAR_ACCESS_TOKEN ?? "",
+          start: start.toISOString(),
+          end: end.toISOString(),
+        }),
+        CALENDAR_REQUEST_TIMEOUT_MS,
+      );
       if (!result.configured) {
         setCalendarStatus("not-configured");
         return;
@@ -518,9 +540,30 @@ function LocalFirstBackupProvider({ children }: PropsWithChildren) {
       void loadCalendarRange(start.toISOString(), end.toISOString());
     };
     refresh();
-    const timer = window.setInterval(refresh, 15 * 60 * 1000);
+    // Retry quickly while startup is unhealthy. Once data arrives, return to
+    // the normal 15-minute refresh so the calendar feed is not hammered.
+    const timer = window.setInterval(
+      refresh,
+      calendarStatus === "ready" ? CALENDAR_REFRESH_MS : CALENDAR_RETRY_MS,
+    );
     return () => window.clearInterval(timer);
-  }, [loadCalendarRange]);
+  }, [calendarStatus, loadCalendarRange]);
+
+  useEffect(() => {
+    if (calendarEvents.length > 0 || calendarStatus === "ready" || calendarStatus === "not-configured") return;
+
+    // Chromium occasionally starts with a dead Convex request and leaves the
+    // screensaver calendar blank forever. One guarded reload recreates the
+    // connection. The cooldown prevents a reload loop during a real outage.
+    const timer = window.setTimeout(() => {
+      const lastReload = Number(window.sessionStorage.getItem(CALENDAR_RELOAD_KEY) ?? "0");
+      if (Date.now() - lastReload < CALENDAR_RELOAD_COOLDOWN_MS) return;
+      window.sessionStorage.setItem(CALENDAR_RELOAD_KEY, String(Date.now()));
+      window.location.reload();
+    }, calendarStatus === "error" ? 5_000 : CALENDAR_REQUEST_TIMEOUT_MS + 5_000);
+
+    return () => window.clearTimeout(timer);
+  }, [calendarEvents.length, calendarStatus]);
 
   const todoData = useMemo<TodoData | undefined>(() => TODO_ACCESS_TOKEN ? ({
     todos: canonicalTodos?.map((todo) => ({ ...todo, id: todo.id })) ?? [],
