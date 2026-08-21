@@ -75,6 +75,12 @@ function readCalendarCache(): CalendarEvent[] {
   }
 }
 
+function hasCurrentCalendarEvents(events: CalendarEvent[]) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return events.some((event) => new Date(event.end) > today);
+}
+
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   let timeout: number | undefined;
   try {
@@ -417,7 +423,9 @@ function LocalFirstBackupProvider({ children }: PropsWithChildren) {
   const importCanonicalTodos = useMutation(api.todos.importLegacy);
   const [newsHeadlines, setNewsHeadlines] = useState<NewsHeadline[]>([]);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>(readCalendarCache);
-  const [calendarStatus, setCalendarStatus] = useState<CalendarStatus>(() => readCalendarCache().length > 0 ? "ready" : "loading");
+  const [calendarStatus, setCalendarStatus] = useState<CalendarStatus>(() => (
+    hasCurrentCalendarEvents(readCalendarCache()) ? "ready" : "loading"
+  ));
   const backupBaselineChecked = useRef(false);
   const legacyTodoImportStarted = useRef(false);
 
@@ -550,7 +558,7 @@ function LocalFirstBackupProvider({ children }: PropsWithChildren) {
   }, [calendarStatus, loadCalendarRange]);
 
   useEffect(() => {
-    if (calendarEvents.length > 0 || calendarStatus === "ready" || calendarStatus === "not-configured") return;
+    if (hasCurrentCalendarEvents(calendarEvents) || calendarStatus === "ready" || calendarStatus === "not-configured") return;
 
     // Chromium occasionally starts with a dead Convex request and leaves the
     // screensaver calendar blank forever. One guarded reload recreates the
