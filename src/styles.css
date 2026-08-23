@@ -186,15 +186,12 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .chore-row:last-child { border-bottom: 0; }
 .chore-name { padding: 12px 12px 12px 20px; display: flex; align-items: center; gap: 12px; }
 .chore-dot { width: 13px; height: 38px; flex: 0 0 auto; border-radius: 8px; background: var(--chore-color); }
-.chore-name > div { min-width: 0; display: flex; flex: 1; flex-direction: column; }
+.chore-name-button { min-width: 0; padding: 8px 0; display: flex; flex: 1; flex-direction: column; border: 0; background: transparent; text-align: left; cursor: pointer; }
 .chore-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1rem; }
 .chore-name small { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: .68rem; }
 .category-badge { padding: 2px 6px; border-radius: 999px; font-size: .58rem; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; }
 .category-badge.standard { color: #176d5a; background: #d9f0e9; }
 .category-badge.bonus { color: #8b5c08; background: #ffebae; }
-.edit-chore, .remove-chore { width: 42px; height: 42px; display: grid; place-items: center; border: 0; border-radius: 13px; color: #aaa39a; background: transparent; }
-.edit-chore { margin-left: auto; color: #6f777b; }
-.edit-chore svg, .remove-chore svg { width: 17px; }
 .chore-check { display: grid; place-items: center; border: 0; border-left: 1px solid #ebe4da; background: transparent; }
 .chore-check > span { width: 45px; height: 45px; display: grid; place-items: center; border: 3px solid #d9d2c7; border-radius: 15px; color: white; transition: transform .15s ease, background .15s ease; }
 .chore-check.checked > span { border-color: var(--chore-color); background: var(--chore-color); transform: rotate(-3deg) scale(1.04); box-shadow: 0 5px 12px color-mix(in srgb, var(--chore-color) 30%, transparent); }
@@ -228,13 +225,13 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .person-josh .todo-person-add { color: #286c9b; background: #dceffc; }
 .person-dad .todo-person-add { color: #276c55; background: #daf1e8; }
 .todo-list { min-height: 0; padding-top: 11px; display: flex; flex-direction: column; gap: 9px; overflow-y: auto; }
-.todo-card { min-height: 94px; padding: 12px 10px; display: grid; grid-template-columns: 45px minmax(0, 1fr); gap: 9px; align-items: center; border: 1px solid #e5ddd1; border-radius: 18px; background: white; }
+.todo-card { min-height: 94px; padding: 12px 10px; display: grid; grid-template-columns: 45px minmax(0, 1fr) 34px; gap: 9px; align-items: center; border: 1px solid #e5ddd1; border-radius: 18px; background: white; }
 .todo-card.completed { opacity: .58; background: #f0ede7; }
 .todo-card.completed .todo-copy > strong { text-decoration: line-through; }
 .todo-check { width: 43px; height: 43px; display: grid; place-items: center; border: 3px solid #d4cec4; border-radius: 14px; color: white; background: transparent; }
 .todo-check[aria-pressed="true"] { border-color: var(--green); background: var(--green); }
 .todo-check svg { width: 25px; }
-.todo-copy { min-width: 0; padding: 8px 0; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.todo-copy { min-width: 0; }
 .todo-copy > strong { display: block; overflow-wrap: anywhere; font-size: .98rem; line-height: 1.22; }
 .todo-meta { margin-top: 7px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .priority-badge { padding: 3px 8px; border-radius: 999px; font-size: .6rem; font-weight: 900; letter-spacing: .05em; text-transform: uppercase; }
@@ -243,6 +240,9 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .priority-badge.high { color: #a13e36; background: #ffe0db; }
 .due-date { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: .67rem; font-weight: 700; }
 .due-date svg { width: 13px; height: 13px; }
+.todo-card-actions { display: flex; flex-direction: column; gap: 4px; }
+.todo-card-actions button { width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 10px; color: #77736d; background: transparent; }
+.todo-card-actions svg { width: 16px; }
 .todo-empty { min-height: 110px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: #aaa49a; font-weight: 700; }
 .todo-empty svg { width: 30px; height: 30px; padding: 6px; border-radius: 50%; color: white; background: #b9dacf; }
 .todos-actions { position: absolute; z-index: 4; left: 50%; bottom: 14px; padding: 8px; display: flex; justify-content: center; border-radius: 22px; transform: translateX(-50%); }

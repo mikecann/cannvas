@@ -125,9 +125,10 @@ export function ChoresApp() {
           <div className="chore-grid chore-row" key={chore.id}>
             <div className="chore-name" style={{ "--chore-color": chore.color } as React.CSSProperties}>
               <span className="chore-dot" />
-              <div><strong>{chore.name}</strong><small><span className={`category-badge ${chore.category}`}>{chore.category}</span>{chore.category === "bonus" ? `${money(chore.valueCents)} each time` : "Weekly responsibility"}</small></div>
-              <button className="edit-chore" onClick={() => openEdit(chore.id)} aria-label={`Edit ${chore.name}`}><Pencil /></button>
-              <button className="remove-chore" onClick={() => setChoreToRemove(chore.id)} aria-label={`Remove ${chore.name}`}><Trash2 /></button>
+              <button className="chore-name-button" onClick={() => openEdit(chore.id)} aria-label={`Edit ${chore.name}`}>
+                <strong>{chore.name}</strong>
+                <small><span className={`category-badge ${chore.category}`}>{chore.category}</span>{chore.category === "bonus" ? `${money(chore.valueCents)} each time` : "Weekly responsibility"}</small>
+              </button>
             </div>
             {days.map((day) => {
               const dayKey = dateKey(day);
@@ -180,7 +181,11 @@ export function ChoresApp() {
             <ChoreCategoryPicker value={category} onChange={setCategory} />
             <label><span>Chore name</span><input type="text" value={name} onChange={(event) => setName(event.target.value)} autoComplete="off" autoCapitalize="sentences" enterKeyHint="done" autoFocus /></label>
             {category === "bonus" && <label><span>Bonus money each time</span><div className="money-input"><b>$</b><input type="text" inputMode="decimal" value={value} onChange={(event) => setValue(event.target.value)} autoComplete="off" enterKeyHint="done" /></div></label>}
-            <div className="dialog-actions"><button type="button" className="button secondary" onClick={() => setChoreToEdit(null)}>Cancel</button><button className="button primary" type="submit" disabled={!name.trim()}>Save chore</button></div>
+            <div className="dialog-actions">
+              <button type="button" className="button quiet-danger" onClick={() => { setChoreToRemove(choreToEdit); setChoreToEdit(null); }}><Trash2 /> Remove chore</button>
+              <button type="button" className="button secondary" onClick={() => setChoreToEdit(null)}>Cancel</button>
+              <button className="button primary" type="submit" disabled={!name.trim()}>Save chore</button>
+            </div>
           </form>
         </div>
       )}

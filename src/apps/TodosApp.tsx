@@ -95,13 +95,16 @@ export function TodosApp() {
                     <button className="todo-check" onClick={() => void toggleTodo(todo.id)} aria-label={`${todo.completed ? "Reopen" : "Finish"} ${todo.title}`} aria-pressed={todo.completed}>
                       {todo.completed && <Check strokeWidth={4} />}
                     </button>
-                    <button className="todo-copy" onClick={() => openEdit(todo)} aria-label={`Edit ${todo.title}`}>
+                    <div className="todo-copy">
                       <strong>{todo.title}</strong>
                       <div className="todo-meta">
                         <span className={`priority-badge ${todo.priority}`}>{todo.priority}</span>
                         {todo.dueDate && <span className="due-date"><CalendarDays /> {friendlyDate(todo.dueDate)}</span>}
                       </div>
-                    </button>
+                    </div>
+                    <div className="todo-card-actions">
+                      <button onClick={() => openEdit(todo)} aria-label={`Edit ${todo.title}`}><Pencil /></button>
+                    </div>
                   </article>
                 ))}
                 {personTodos.length === 0 && <div className="todo-empty"><Check /><span>All clear</span></div>}
