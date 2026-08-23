@@ -5,6 +5,11 @@ app_url=http://127.0.0.1:4173
 connector_status=/sys/class/drm/card1-HDMI-A-1/status
 display_output=HDMI-A-1
 
+# Chromium can restore the prior app window from its long-lived kiosk profile
+# without navigating to the current release. A unique query value forces a real
+# page load each time the kiosk starts. Vite's hashed assets remain cacheable.
+launch_url="${app_url}/?kiosk_launch=$(/usr/bin/date +%s)"
+
 # Labwc creates a temporary headless output when it starts before the TV. If
 # Chromium launches on that output, it can stay invisible after HDMI connects.
 # Wait for the real portrait display so the kiosk lands on HDMI-A-1.
@@ -44,7 +49,7 @@ fi
 /usr/bin/pkill -x wf-panel-pi || true
 
 exec /usr/bin/chromium \
-  --app="$app_url" \
+  --app="$launch_url" \
   --window-position=0,0 \
   --window-size=1080,1920 \
   --force-device-scale-factor=1 \
