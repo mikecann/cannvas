@@ -62,6 +62,13 @@ while [ "$audio_attempt" -le 20 ]; do
     sink_properties=api.alsa.card=0 \
     >/tmp/cannvas-audio-setup.log 2>&1 || true
 
+  # Select immediately in case the sink only became loadable on this final
+  # attempt. Waiting for the next loop would miss that last successful load.
+  if /usr/bin/pactl set-default-sink cannvas_hdmi >/dev/null 2>&1; then
+    audio_ready=1
+    break
+  fi
+
   audio_attempt=$((audio_attempt + 1))
   sleep 0.25
 done

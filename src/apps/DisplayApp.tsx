@@ -42,7 +42,7 @@ export function DisplayApp({
 }) {
   const { calendarEvents, calendarStatus, newsHeadlines } = useCannvasData();
   const [now, setNow] = useState(new Date());
-  const [videoMuted, setVideoMuted] = useState(true);
+  const [videoAudio, setVideoAudio] = useState(() => ({ session: displaySession, muted: true }));
   const [calendarCanExpand, setCalendarCanExpand] = useState(false);
   const calendarWidgetRef = useRef<HTMLElement>(null);
   const [weatherVersion, setWeatherVersion] = useState(Date.now());
@@ -51,11 +51,10 @@ export function DisplayApp({
   });
   const [videoIndex, setVideoIndex] = useState(() => Math.floor(Math.random() * Math.max(1, videos.length)));
 
-  useEffect(() => {
-    // A new display session can begin while this component is still mounted,
-    // such as when its own idle timer expires. Every session starts silently.
-    setVideoMuted(true);
-  }, [displaySession]);
+  // Derive this during render so a new session is muted before the video can
+  // commit or produce even a brief audio blip. The stored choice only belongs
+  // to the display session in which the user made it.
+  const videoMuted = videoAudio.session === displaySession ? videoAudio.muted : true;
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
@@ -198,7 +197,7 @@ export function DisplayApp({
               event.stopPropagation();
               onActivity();
             }}
-            onClick={() => setVideoMuted((muted) => !muted)}
+            onClick={() => setVideoAudio({ session: displaySession, muted: !videoMuted })}
           >
             {videoMuted ? <VolumeX aria-hidden="true" /> : <Volume2 aria-hidden="true" />}
           </button>
