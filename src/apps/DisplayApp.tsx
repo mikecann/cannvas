@@ -1,4 +1,4 @@
-import { CheckCircle2, Clock3 } from "lucide-react";
+import { CheckCircle2, Clock3, Volume2, VolumeX } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useCannvasData } from "../data/DataProvider";
 import { addCalendarDays, calendarDateKey, calendarEventTime, eventsForDate } from "../lib/calendar";
@@ -29,9 +29,20 @@ async function crawlVideos(root = VIDEO_ROOT, depth = 0, visited = new Set<strin
   return [...videos, ...nested.flat()];
 }
 
-export function DisplayApp({ onOpenCalendar, onOpenWeather }: { onOpenCalendar: () => void; onOpenWeather: () => void }) {
+export function DisplayApp({
+  displaySession,
+  onActivity,
+  onOpenCalendar,
+  onOpenWeather,
+}: {
+  displaySession: number;
+  onActivity: () => void;
+  onOpenCalendar: () => void;
+  onOpenWeather: () => void;
+}) {
   const { calendarEvents, calendarStatus, newsHeadlines } = useCannvasData();
   const [now, setNow] = useState(new Date());
+  const [videoAudio, setVideoAudio] = useState(() => ({ session: displaySession, muted: true }));
   const [calendarCanExpand, setCalendarCanExpand] = useState(false);
   const calendarWidgetRef = useRef<HTMLElement>(null);
   const [weatherVersion, setWeatherVersion] = useState(Date.now());
@@ -39,6 +50,11 @@ export function DisplayApp({ onOpenCalendar, onOpenWeather }: { onOpenCalendar: 
     try { return JSON.parse(localStorage.getItem(VIDEO_CACHE_KEY) ?? "[]") as string[]; } catch { return []; }
   });
   const [videoIndex, setVideoIndex] = useState(() => Math.floor(Math.random() * Math.max(1, videos.length)));
+
+  // Derive this during render so a new session is muted before the video can
+  // commit or produce even a brief audio blip. The stored choice only belongs
+  // to the display session in which the user made it.
+  const videoMuted = videoAudio.session === displaySession ? videoAudio.muted : true;
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
@@ -90,7 +106,7 @@ export function DisplayApp({ onOpenCalendar, onOpenWeather }: { onOpenCalendar: 
     <section className="display-app">
       <div className="display-media">
         {currentVideo ? (
-          <video key={currentVideo} src={currentVideo} autoPlay muted playsInline onEnded={() => setVideoIndex((value) => value + 1)} onError={() => setVideoIndex((value) => value + 1)} />
+          <video key={currentVideo} src={currentVideo} autoPlay muted={videoMuted} playsInline onEnded={() => setVideoIndex((value) => value + 1)} onError={() => setVideoIndex((value) => value + 1)} />
         ) : (
           <div className="display-gradient"><span>C</span></div>
         )}
@@ -169,9 +185,24 @@ export function DisplayApp({ onOpenCalendar, onOpenWeather }: { onOpenCalendar: 
             ))}
           </div>
         </aside>
+        {currentVideo && (
+          <button
+            type="button"
+            className={`display-audio-toggle${videoMuted ? "" : " is-playing"}`}
+            aria-label={videoMuted ? "Turn video sound on" : "Mute video"}
+            aria-pressed={!videoMuted}
+            onPointerDown={(event) => {
+              // Keep this tap from waking the previous app, but still restart
+              // the idle clock so sound is muted again after inactivity.
+              event.stopPropagation();
+              onActivity();
+            }}
+            onClick={() => setVideoAudio({ session: displaySession, muted: !videoMuted })}
+          >
+            {videoMuted ? <VolumeX aria-hidden="true" /> : <Volume2 aria-hidden="true" />}
+          </button>
+        )}
       </div>
-
-      <div className="wake-hint">Tap anywhere to return</div>
     </section>
   );
 }

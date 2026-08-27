@@ -54,6 +54,7 @@ const DEFAULT_IDLE_TIMEOUT = 5 * 60 * 1000;
 export function App() {
   const { isReady } = useCannvasData();
   const [activeApp, setActiveApp] = useState<AppId>("whiteboard");
+  const [displaySession, setDisplaySession] = useState(0);
   const [moreOpen, setMoreOpen] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const moreWrap = useRef<HTMLDivElement>(null);
@@ -65,6 +66,9 @@ export function App() {
     // A focused field can be unmounted without firing focusout. Hide the native
     // keyboard explicitly so it never covers the idle display.
     dismissNativeKeyboard();
+    // This also fires when the display is already active. Give DisplayApp an
+    // explicit reset signal so an idle timeout always mutes the video again.
+    setDisplaySession((session) => session + 1);
     setActiveApp("display");
   }, []);
 
@@ -139,7 +143,7 @@ export function App() {
         {isReady && activeApp === "home-automation" && <HomeAutomationApp />}
         {isReady && activeApp === "sammy-tablets" && <SammyTabletTickerApp />}
         {isReady && activeApp === "inventory" && <KioskInventoryApp />}
-        {isReady && activeApp === "display" && <DisplayApp onOpenCalendar={() => openApp("calendar")} onOpenWeather={() => openApp("weather")} />}
+        {isReady && activeApp === "display" && <DisplayApp displaySession={displaySession} onActivity={resetIdleTimer} onOpenCalendar={() => openApp("calendar")} onOpenWeather={() => openApp("weather")} />}
       </div>
 
       {keyboardVisible && activeApp !== "display" && (
