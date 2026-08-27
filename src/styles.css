@@ -706,11 +706,19 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 }
 
 @media (max-width: 800px) {
-  .app-dock { max-width: calc(100vw - 24px); bottom: 12px; }
-  .dock-item { min-width: 96px; }
+  .app-dock { max-width: calc(100vw - 24px); bottom: 12px; gap: 1px; padding-inline: 6px; }
+  .dock-item { min-width: clamp(38px, 9.7vw, 78px); padding-inline: 2px; }
+  .dock-divider { margin-inline: 2px; }
   .whiteboard-header { align-items: flex-start; }
   .whiteboard-date-controls { flex-wrap: wrap; justify-content: center; }
   .whiteboard-date-controls .date-picker { margin-left: 0; }
   .date-picker { min-width: 150px; }
   .reward-card { min-width: 220px; }
+}
+
+@media (max-width: 520px) {
+  .dock-item { padding: 4px 2px; }
+  .dock-item > span:last-child { display: none; }
+  .dock-icon { width: 30px; height: 30px; border-radius: 10px; }
+  .dock-divider { margin-inline: 1px; }
 }

@@ -227,7 +227,7 @@ function RadarScrubber({
         onPointerMove={continueScrubbing}
         onKeyDown={(event) => {
           if (event.key === "ArrowLeft") onChange(Math.max(0, frameIndex - 1));
-          if (event.key === "ArrowRight") onChange(Math.min(frames.length - 1, frameIndex + 1));
+          if (event.key === "ArrowRight") onChange(Math.max(0, Math.min(frames.length - 1, frameIndex + 1)));
         }}
       >
         <span className="weather-radar-scrubber-fill" style={{ width: `${progress * 100}%` }} />
@@ -452,8 +452,9 @@ export function WeatherApp() {
   const currentHourIndex = useMemo(() => {
     if (!forecast) return 0;
     const currentTime = new Date(forecast.current.time).getTime();
-    const firstFuture = forecast.hourly.time.findIndex((time) => new Date(time).getTime() >= currentTime);
-    return Math.max(0, firstFuture);
+    const firstAfterNow = forecast.hourly.time.findIndex((time) => new Date(time).getTime() > currentTime);
+    if (firstAfterNow === -1) return Math.max(0, forecast.hourly.time.length - 1);
+    return Math.max(0, firstAfterNow - 1);
   }, [forecast]);
 
   if (!forecast) {
@@ -550,7 +551,7 @@ export function WeatherApp() {
           <article className="weather-card"><div><Sun /><span>UV index</span></div><strong>{round(forecast.hourly.uv_index[detailIndex])}</strong><p>{uvLabel(forecast.hourly.uv_index[detailIndex])}</p><i className="uv-scale" /></article>
           <article className="weather-card"><div><Eye /><span>Visibility</span></div><strong>{round(forecast.hourly.visibility[detailIndex] / 1000)} <small>km</small></strong><p>{forecast.hourly.visibility[detailIndex] >= 10000 ? "Clear view" : "Reduced visibility"}</p></article>
           <article className="weather-card"><div><Gauge /><span>Pressure</span></div><strong>{round(forecast.current.pressure_msl)} <small>hPa</small></strong><p>Sea-level pressure</p></article>
-          <article className="weather-card weather-sun-card"><div><Sunset /><span>Sunset</span></div><strong>{new Date(forecast.daily.sunset[0]).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" })}</strong><p><Sunrise /> Sunrise {new Date(forecast.daily.sunrise[1] ?? forecast.daily.sunrise[0]).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" })}</p></article>
+          <article className="weather-card weather-sun-card"><div><Sunset /><span>Sunset</span></div><strong>{new Date(forecast.daily.sunset[0]).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" })}</strong><p><Sunrise /> Sunrise {new Date(forecast.daily.sunrise[0]).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" })}</p></article>
         </div>
 
         <footer className="weather-attribution">Forecast by Open-Meteo · Radar by RainViewer · Map by OpenStreetMap</footer>

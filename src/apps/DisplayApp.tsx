@@ -150,24 +150,17 @@ export function DisplayApp({ onOpenCalendar, onOpenWeather }: { onOpenCalendar: 
       </aside>
 
       <div className="display-widgets">
-        <aside
+        <button
+          type="button"
           className="weather-panel yr-weather-panel"
           aria-label="Open detailed Busselton weather"
-          role="button"
-          tabIndex={0}
           onPointerDown={(event) => event.stopPropagation()}
           onClick={onOpenWeather}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              onOpenWeather();
-            }
-          }}
         >
           <div className="yr-weather-frame">
             <img src={`${YR_METEOGRAM}?bust=${weatherVersion}`} alt="Busselton weather forecast from Yr" />
           </div>
-        </aside>
+        </button>
         <aside className="weather-panel news-panel">
           <div className="news-header"><span>BBC News</span></div>
           <div className="news-headlines">

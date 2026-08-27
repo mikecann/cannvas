@@ -182,7 +182,7 @@ export function ChoresApp() {
             <label><span>Chore name</span><input type="text" value={name} onChange={(event) => setName(event.target.value)} autoComplete="off" autoCapitalize="sentences" enterKeyHint="done" autoFocus /></label>
             {category === "bonus" && <label><span>Bonus money each time</span><div className="money-input"><b>$</b><input type="text" inputMode="decimal" value={value} onChange={(event) => setValue(event.target.value)} autoComplete="off" enterKeyHint="done" /></div></label>}
             <div className="dialog-actions">
-              <button type="button" className="button quiet-danger" onClick={() => { setChoreToRemove(choreToEdit); setChoreToEdit(null); }}><Trash2 /> Remove chore</button>
+              <button type="button" className="button quiet-danger" onClick={() => setChoreToRemove(choreToEdit)}><Trash2 /> Remove chore</button>
               <button type="button" className="button secondary" onClick={() => setChoreToEdit(null)}>Cancel</button>
               <button className="button primary" type="submit" disabled={!name.trim()}>Save chore</button>
             </div>
@@ -210,7 +210,7 @@ export function ChoresApp() {
         </div>
       )}
 
-      <ConfirmDialog open={choreToRemove !== null} title="Remove this chore?" confirmLabel="Remove chore" onCancel={() => setChoreToRemove(null)} onConfirm={() => { if (choreToRemove) void removeChore(choreToRemove); setChoreToRemove(null); }}>
+      <ConfirmDialog open={choreToRemove !== null} title="Remove this chore?" confirmLabel="Remove chore" onCancel={() => setChoreToRemove(null)} onConfirm={() => { if (choreToRemove) void removeChore(choreToRemove); setChoreToRemove(null); setChoreToEdit(null); }}>
         This removes the chore from Joshua's board. Existing weekly totals may change.
       </ConfirmDialog>
     </section>
