@@ -39,6 +39,18 @@ until /usr/bin/curl --fail --silent --output /dev/null "$app_url"; do
   sleep 1
 done
 
+# PipeWire cannot use the vc4 HDMI card's raw PCM format. Its user config
+# creates a converted cannvas_hdmi sink through ALSA's hdmi plugin. Select it
+# before Chromium starts so every video stream opens on the TV speakers.
+audio_attempt=1
+while [ "$audio_attempt" -le 20 ]; do
+  if /usr/bin/pactl set-default-sink cannvas_hdmi >/dev/null 2>&1; then
+    break
+  fi
+  audio_attempt=$((audio_attempt + 1))
+  sleep 0.25
+done
+
 # A true fullscreen Labwc window is rendered above Squeekboard, which hides the
 # touch keyboard. Use a borderless, screen-sized app window instead. The Labwc
 # rule in deploy/labwc-rc.xml removes its decoration.
