@@ -157,9 +157,9 @@ export function DisplayApp({ onOpenCalendar, onOpenWeather }: { onOpenCalendar: 
           onPointerDown={(event) => event.stopPropagation()}
           onClick={onOpenWeather}
         >
-          <div className="yr-weather-frame">
+          <span className="yr-weather-frame">
             <img src={`${YR_METEOGRAM}?bust=${weatherVersion}`} alt="Busselton weather forecast from Yr" />
-          </div>
+          </span>
         </button>
         <aside className="weather-panel news-panel">
           <div className="news-header"><span>BBC News</span></div>

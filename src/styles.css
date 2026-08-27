@@ -669,7 +669,7 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .display-widgets .weather-panel { position: relative; inset: auto; width: auto; }
 .yr-weather-panel { padding: 10px; border-radius: 8px; cursor: pointer; }
 .yr-weather-panel:active { transform: scale(.99); }
-.yr-weather-frame { width: 100%; height: 178px; overflow: hidden; }
+.yr-weather-frame { display: block; width: 100%; height: 178px; overflow: hidden; }
 .yr-weather-frame img { width: 100%; height: calc(100% / .7954); display: block; transform: translateY(-20.46%); filter: invert(100%) grayscale(100%); }
 .news-panel { min-height: 198px; padding: 10px; border-radius: 8px; display: flex; flex-direction: column; }
 .news-header { margin-bottom: 9px; display: flex; align-items: center; justify-content: flex-end; }
@@ -718,7 +718,10 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 
 @media (max-width: 520px) {
   .dock-item { padding: 4px 2px; }
-  .dock-item > span:last-child { display: none; }
+  .dock-item > span:last-child {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
   .dock-icon { width: 30px; height: 30px; border-radius: 10px; }
   .dock-divider { margin-inline: 1px; }
 }
