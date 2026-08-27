@@ -1,4 +1,4 @@
-import { CheckCircle2, Clock3 } from "lucide-react";
+import { CheckCircle2, Clock3, Volume2, VolumeX } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useCannvasData } from "../data/DataProvider";
 import { addCalendarDays, calendarDateKey, calendarEventTime, eventsForDate } from "../lib/calendar";
@@ -32,6 +32,7 @@ async function crawlVideos(root = VIDEO_ROOT, depth = 0, visited = new Set<strin
 export function DisplayApp({ onOpenCalendar, onOpenWeather }: { onOpenCalendar: () => void; onOpenWeather: () => void }) {
   const { calendarEvents, calendarStatus, newsHeadlines } = useCannvasData();
   const [now, setNow] = useState(new Date());
+  const [videoMuted, setVideoMuted] = useState(true);
   const [calendarCanExpand, setCalendarCanExpand] = useState(false);
   const calendarWidgetRef = useRef<HTMLElement>(null);
   const [weatherVersion, setWeatherVersion] = useState(Date.now());
@@ -90,7 +91,7 @@ export function DisplayApp({ onOpenCalendar, onOpenWeather }: { onOpenCalendar: 
     <section className="display-app">
       <div className="display-media">
         {currentVideo ? (
-          <video key={currentVideo} src={currentVideo} autoPlay muted playsInline onEnded={() => setVideoIndex((value) => value + 1)} onError={() => setVideoIndex((value) => value + 1)} />
+          <video key={currentVideo} src={currentVideo} autoPlay muted={videoMuted} playsInline onEnded={() => setVideoIndex((value) => value + 1)} onError={() => setVideoIndex((value) => value + 1)} />
         ) : (
           <div className="display-gradient"><span>C</span></div>
         )}
@@ -100,6 +101,19 @@ export function DisplayApp({ onOpenCalendar, onOpenWeather }: { onOpenCalendar: 
         <p className="display-date">{now.toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" })}</p>
         <div className="display-time">{now.toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit", hour12: false })}</div>
       </div>
+
+      {currentVideo && (
+        <button
+          type="button"
+          className={`display-audio-toggle${videoMuted ? "" : " is-playing"}`}
+          aria-label={videoMuted ? "Turn video sound on" : "Mute video"}
+          aria-pressed={!videoMuted}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={() => setVideoMuted((muted) => !muted)}
+        >
+          {videoMuted ? <VolumeX aria-hidden="true" /> : <Volume2 aria-hidden="true" />}
+        </button>
+      )}
 
       <aside
         ref={calendarWidgetRef}

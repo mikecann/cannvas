@@ -646,6 +646,10 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .display-content { position: absolute; z-index: 2; left: 56px; top: 50px; text-shadow: 0 3px 18px rgba(0,0,0,.4); }
 .display-date { margin-bottom: 2px; font-size: 1.4rem; font-weight: 600; }
 .display-time { font: 600 clamp(7rem, 18vw, 13rem)/.9 "Fraunces", serif; letter-spacing: -.08em; }
+.display-audio-toggle { position: absolute; z-index: 4; top: 308px; right: 36px; width: 58px; height: 58px; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.38); border-radius: 50%; color: white; background: rgba(16,22,29,.58); backdrop-filter: blur(18px); box-shadow: 0 12px 32px rgba(0,0,0,.22); cursor: pointer; }
+.display-audio-toggle svg { width: 27px; height: 27px; }
+.display-audio-toggle.is-playing { border-color: rgba(255,255,255,.72); background: var(--orange); }
+.display-audio-toggle:active { transform: scale(.94); }
 .calendar-home-widget { position: absolute; z-index: 3; top: 42px; right: 36px; width: 410px; max-height: 250px; padding: 0; overflow: hidden; color: white; text-shadow: 0 1px 2px rgba(0,0,0,.95), 0 0 5px rgba(0,0,0,.72); cursor: pointer; transition: max-height .22s ease; }
 .calendar-home-widget.has-more { -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 34px), transparent 100%); mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 34px), transparent 100%); }
 .calendar-home-widget section { margin-top: 3px; }
