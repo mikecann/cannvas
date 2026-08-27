@@ -102,19 +102,6 @@ export function DisplayApp({ onOpenCalendar, onOpenWeather }: { onOpenCalendar: 
         <div className="display-time">{now.toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit", hour12: false })}</div>
       </div>
 
-      {currentVideo && (
-        <button
-          type="button"
-          className={`display-audio-toggle${videoMuted ? "" : " is-playing"}`}
-          aria-label={videoMuted ? "Turn video sound on" : "Mute video"}
-          aria-pressed={!videoMuted}
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={() => setVideoMuted((muted) => !muted)}
-        >
-          {videoMuted ? <VolumeX aria-hidden="true" /> : <Volume2 aria-hidden="true" />}
-        </button>
-      )}
-
       <aside
         ref={calendarWidgetRef}
         className={`calendar-home-widget${calendarCanExpand ? " has-more" : ""}`}
@@ -183,9 +170,19 @@ export function DisplayApp({ onOpenCalendar, onOpenWeather }: { onOpenCalendar: 
             ))}
           </div>
         </aside>
+        {currentVideo && (
+          <button
+            type="button"
+            className={`display-audio-toggle${videoMuted ? "" : " is-playing"}`}
+            aria-label={videoMuted ? "Turn video sound on" : "Mute video"}
+            aria-pressed={!videoMuted}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => setVideoMuted((muted) => !muted)}
+          >
+            {videoMuted ? <VolumeX aria-hidden="true" /> : <Volume2 aria-hidden="true" />}
+          </button>
+        )}
       </div>
-
-      <div className="wake-hint">Tap anywhere to return</div>
     </section>
   );
 }
