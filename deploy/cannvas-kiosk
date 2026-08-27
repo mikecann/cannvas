@@ -39,17 +39,36 @@ until /usr/bin/curl --fail --silent --output /dev/null "$app_url"; do
   sleep 1
 done
 
-# PipeWire cannot use the vc4 HDMI card's raw PCM format. Its user config
-# creates a converted cannvas_hdmi sink through ALSA's hdmi plugin. Select it
-# before Chromium starts so every video stream opens on the TV speakers.
+# PipeWire cannot use the vc4 HDMI card's raw PCM format. Its user config tries
+# to create a converted cannvas_hdmi sink through ALSA's hdmi plugin. On a cold
+# boot the TV can appear after PipeWire starts, so retry loading the module here
+# as well. Select it before Chromium starts so video streams use the TV speakers.
 audio_attempt=1
+audio_ready=0
 while [ "$audio_attempt" -le 20 ]; do
   if /usr/bin/pactl set-default-sink cannvas_hdmi >/dev/null 2>&1; then
+    audio_ready=1
     break
   fi
+
+  # Loading an already-present sink fails harmlessly. This recovers the more
+  # important case where PipeWire's startup load ran before HDMI was ready.
+  /usr/bin/pactl load-module module-alsa-sink \
+    device=hdmi:0 \
+    sink_name=cannvas_hdmi \
+    format=s16le \
+    rate=48000 \
+    channels=2 \
+    sink_properties=api.alsa.card=0 \
+    >/tmp/cannvas-audio-setup.log 2>&1 || true
+
   audio_attempt=$((audio_attempt + 1))
   sleep 0.25
 done
+
+if [ "$audio_ready" -ne 1 ]; then
+  echo "Cannvas: could not create or select the cannvas_hdmi audio sink" >&2
+fi
 
 # A true fullscreen Labwc window is rendered above Squeekboard, which hides the
 # touch keyboard. Use a borderless, screen-sized app window instead. The Labwc
