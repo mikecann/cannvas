@@ -515,6 +515,8 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .weather-radar-card { overflow: hidden; }
 .weather-radar-map { height: 420px; position: relative; z-index: 1; background: #172330; }
 .weather-radar-map .leaflet-container { background: #172330; }
+.weather-radar-map .weather-base-map { filter: invert(1) hue-rotate(180deg) brightness(.54) saturate(.55) contrast(1.25); }
+.weather-radar-map .leaflet-tile-pane > .leaflet-layer { transition: opacity .22s ease-out; }
 .weather-radar-map .leaflet-control-zoom { overflow: hidden; border: 1px solid rgba(255,255,255,.26); border-radius: 14px; box-shadow: none; }
 .weather-radar-map .leaflet-control-zoom a { width: 45px; height: 45px; color: white; border-color: rgba(255,255,255,.2); background: rgba(22,35,50,.82); font-size: 25px; line-height: 45px; }
 .weather-radar-map .leaflet-control-attribution { color: rgba(255,255,255,.55); background: rgba(13,23,35,.74); font-size: 8px; }
@@ -525,13 +527,23 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .weather-radar-key i { width: 7px; height: 28px; margin-right: -3px; border-radius: 4px; background: linear-gradient(#4aa4ff, #6cd9ee); }
 .weather-radar-key i:nth-of-type(2) { margin-left: 5px; background: linear-gradient(#ff2db5, #7552d7); }
 .weather-radar-error { position: absolute; z-index: 600; inset: 0; display: grid; place-items: center; color: rgba(255,255,255,.8); background: rgba(18,33,48,.88); font-weight: 700; }
-.weather-radar-controls { min-height: 72px; padding: 10px 14px; display: grid; grid-template-columns: 48px 54px minmax(0, 1fr) 48px; align-items: center; gap: 8px; }
+.weather-radar-controls { min-height: 94px; padding: 10px 14px; display: grid; grid-template-columns: 48px 54px minmax(0, 1fr) 48px; align-items: center; gap: 8px; }
 .weather-radar-controls button { width: 46px; height: 46px; display: grid; place-items: center; border: 0; border-radius: 50%; color: white; background: rgba(255,255,255,.12); }
 .weather-radar-controls button:disabled { opacity: .3; }
 .weather-radar-controls button:active:not(:disabled) { transform: scale(.94); }
 .weather-radar-controls .weather-radar-play { width: 52px; height: 52px; background: rgba(255,255,255,.22); }
 .weather-radar-controls svg { width: 24px; }
-.weather-radar-controls input { width: 100%; height: 30px; accent-color: white; }
+.weather-radar-scrub-area { min-width: 0; padding: 5px 9px 0; }
+.weather-radar-scrubber { height: 44px; position: relative; cursor: ew-resize; touch-action: none; }
+.weather-radar-scrubber::before { content: ""; position: absolute; left: 0; right: 0; top: 20px; height: 6px; border-radius: 4px; background: rgba(255,255,255,.18); }
+.weather-radar-scrubber-fill { height: 6px; position: absolute; left: 0; top: 20px; border-radius: 4px; background: rgba(255,255,255,.88); pointer-events: none; }
+.weather-radar-scrubber-thumb { width: 24px; height: 24px; position: absolute; top: 11px; z-index: 2; transform: translateX(-50%); border: 4px solid white; border-radius: 50%; background: #377fbd; box-shadow: 0 3px 10px rgba(4,22,42,.36); pointer-events: none; }
+.weather-radar-scrubber i { width: 3px; height: 12px; position: absolute; top: 17px; transform: translateX(-50%); border-radius: 3px; background: rgba(255,255,255,.34); pointer-events: none; }
+.weather-radar-scrubber i.passed { background: rgba(31,76,116,.65); }
+.weather-radar-scrubber i.forecast { background: #ffd86e; }
+.weather-radar-range { min-height: 20px; margin-top: -2px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; color: rgba(235,244,252,.5); font-size: .62rem; font-weight: 750; }
+.weather-radar-range strong { min-width: 68px; padding: 3px 7px; border-radius: 8px; color: white; background: rgba(255,255,255,.12); text-align: center; font-size: .66rem; }
+.weather-radar-range span:last-child { text-align: right; }
 .weather-radar-note { margin: 0; padding: 0 18px 14px; color: rgba(235,244,252,.62); font-size: .7rem; line-height: 1.35; }
 .weather-daily-card { padding-bottom: 8px; }
 .weather-daily-list { padding: 0 18px; }
