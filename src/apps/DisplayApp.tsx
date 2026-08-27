@@ -29,7 +29,7 @@ async function crawlVideos(root = VIDEO_ROOT, depth = 0, visited = new Set<strin
   return [...videos, ...nested.flat()];
 }
 
-export function DisplayApp({ onOpenCalendar }: { onOpenCalendar: () => void }) {
+export function DisplayApp({ onOpenCalendar, onOpenWeather }: { onOpenCalendar: () => void; onOpenWeather: () => void }) {
   const { calendarEvents, calendarStatus, newsHeadlines } = useCannvasData();
   const [now, setNow] = useState(new Date());
   const [calendarCanExpand, setCalendarCanExpand] = useState(false);
@@ -150,11 +150,17 @@ export function DisplayApp({ onOpenCalendar }: { onOpenCalendar: () => void }) {
       </aside>
 
       <div className="display-widgets">
-        <aside className="weather-panel yr-weather-panel">
-          <div className="yr-weather-frame">
+        <button
+          type="button"
+          className="weather-panel yr-weather-panel"
+          aria-label="Open detailed Busselton weather"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={onOpenWeather}
+        >
+          <span className="yr-weather-frame">
             <img src={`${YR_METEOGRAM}?bust=${weatherVersion}`} alt="Busselton weather forecast from Yr" />
-          </div>
-        </aside>
+          </span>
+        </button>
         <aside className="weather-panel news-panel">
           <div className="news-header"><span>BBC News</span></div>
           <div className="news-headlines">

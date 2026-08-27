@@ -10,6 +10,7 @@ import {
   ListTodo,
   PackageSearch,
   PencilLine,
+  CloudSun,
 } from "lucide-react";
 import { CalendarApp } from "./apps/CalendarApp";
 import { ChoresApp } from "./apps/ChoresApp";
@@ -19,6 +20,7 @@ import { KioskInventoryApp } from "./apps/KioskInventoryApp";
 import { SammyTabletTickerApp } from "./apps/SammyTabletTickerApp";
 import { TodosApp } from "./apps/TodosApp";
 import { WhiteboardApp } from "./apps/WhiteboardApp";
+import { WeatherApp } from "./apps/WeatherApp";
 import { useCannvasData } from "./data/DataProvider";
 import { dismissNativeKeyboard, installNativeKeyboard } from "./lib/nativeKeyboard";
 
@@ -27,6 +29,7 @@ type AppId =
   | "chores"
   | "todos"
   | "calendar"
+  | "weather"
   | "home-automation"
   | "sammy-tablets"
   | "inventory"
@@ -37,6 +40,7 @@ const primaryApps = [
   { id: "chores" as const, label: "Joshua's chores", icon: CheckSquare2 },
   { id: "todos" as const, label: "To-do's", icon: ListTodo },
   { id: "calendar" as const, label: "Calendar", icon: CalendarDays },
+  { id: "weather" as const, label: "Weather", icon: CloudSun },
   { id: "home-automation" as const, label: "Home controls", icon: HousePlug },
 ];
 
@@ -131,10 +135,11 @@ export function App() {
         {isReady && activeApp === "chores" && <ChoresApp />}
         {isReady && activeApp === "todos" && <TodosApp />}
         {isReady && activeApp === "calendar" && <CalendarApp />}
+        {isReady && activeApp === "weather" && <WeatherApp />}
         {isReady && activeApp === "home-automation" && <HomeAutomationApp />}
         {isReady && activeApp === "sammy-tablets" && <SammyTabletTickerApp />}
         {isReady && activeApp === "inventory" && <KioskInventoryApp />}
-        {isReady && activeApp === "display" && <DisplayApp onOpenCalendar={() => openApp("calendar")} />}
+        {isReady && activeApp === "display" && <DisplayApp onOpenCalendar={() => openApp("calendar")} onOpenWeather={() => openApp("weather")} />}
       </div>
 
       {keyboardVisible && activeApp !== "display" && (
