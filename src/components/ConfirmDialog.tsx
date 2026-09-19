@@ -4,6 +4,7 @@ type ConfirmDialogProps = PropsWithChildren<{
   open: boolean;
   title: string;
   confirmLabel: string;
+  confirmDisabled?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }>;
@@ -12,6 +13,7 @@ export function ConfirmDialog({
   open,
   title,
   confirmLabel,
+  confirmDisabled = false,
   onCancel,
   onConfirm,
   children,
@@ -32,7 +34,7 @@ export function ConfirmDialog({
         <div className="dialog-copy">{children}</div>
         <div className="dialog-actions">
           <button className="button secondary" onClick={onCancel}>Keep it</button>
-          <button className="button danger" onClick={onConfirm}>{confirmLabel}</button>
+          <button className="button danger" onClick={onConfirm} disabled={confirmDisabled}>{confirmLabel}</button>
         </div>
       </section>
     </div>

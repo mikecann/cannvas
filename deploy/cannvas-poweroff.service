@@ -1,0 +1,7 @@
+[Unit]
+Description=Safely power off Cannvas
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl poweroff --no-block
+
