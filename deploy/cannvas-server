@@ -270,9 +270,9 @@ class CannvasHandler(SimpleHTTPRequestHandler):
             self.send_json(500, {"error": "Home Assistant request failed"})
 
     def proxy_video(self, include_body: bool = True) -> None:
-        # Bruce exposes only Joshua's web-ready folder. Keeping that service
-        # behind this loopback proxy avoids CORS and keeps the browser isolated
-        # from the rest of the home network.
+        # Bruce exposes a video-only, browser-compatible view of PhotoArchive.
+        # Keeping that service behind this loopback proxy avoids CORS and keeps
+        # the browser isolated from the rest of the home network.
         suffix = self.path.removeprefix("/videos") or "/"
         request_headers = {}
         if range_header := self.headers.get("Range"):

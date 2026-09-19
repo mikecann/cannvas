@@ -6,7 +6,7 @@ import { addCalendarDays, calendarDateKey, calendarEventTime, eventsForDate } fr
 // The mirror proxies Bruce's private media service so the browser only needs
 // access to the same loopback origin as the rest of Cannvas.
 const VIDEO_ROOT = "/videos/";
-const VIDEO_CACHE_KEY = "cannvas-video-list-v3";
+const VIDEO_CACHE_KEY = "cannvas-video-list-v4";
 const VIDEO_PATTERN = /<a href="([^"]+)"/g;
 const YR_METEOGRAM = "https://www.yr.no/en/content/2-2075265/meteogram.svg";
 
