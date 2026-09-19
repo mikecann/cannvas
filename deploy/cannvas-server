@@ -378,7 +378,7 @@ class CannvasHandler(SimpleHTTPRequestHandler):
                 # root-owned Cannvas power-off helper. This remains compatible
                 # with NoNewPrivileges=true on the web service.
                 subprocess.run(
-                    ["/usr/bin/systemctl", "start", "cannvas-poweroff.service", "--no-block"],
+                    ["/usr/bin/systemctl", "start", "cannvas-poweroff.service"],
                     check=True,
                     timeout=5,
                 )

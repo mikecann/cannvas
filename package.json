@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": ">=22.18.0"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
@@ -12,6 +15,7 @@
     "convex:dev": "convex dev",
     "convex:deploy": "convex deploy",
     "deploy:cloudflare": "wrangler deploy",
+    "test": "node --test tests/*.test.mjs deploy/*.test.mjs",
     "test:media": "node --test deploy/*.test.mjs",
     "typecheck": "tsc -b --pretty false"
   },
