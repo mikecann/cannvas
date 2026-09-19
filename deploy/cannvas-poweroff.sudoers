@@ -1,2 +1,0 @@
-# The local Cannvas web service may request only a non-blocking system shutdown.
-pi ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff --no-block

@@ -374,10 +374,11 @@ class CannvasHandler(SimpleHTTPRequestHandler):
                 if body.get("confirm") != "poweroff":
                     raise ValueError("Power-off confirmation is required")
 
-                # The server runs as the unprivileged kiosk user. Sudoers grants
-                # only this exact non-blocking systemd command, nothing broader.
+                # Polkit lets the unprivileged kiosk user start only the
+                # root-owned Cannvas power-off helper. This remains compatible
+                # with NoNewPrivileges=true on the web service.
                 subprocess.run(
-                    ["/usr/bin/sudo", "-n", "/usr/bin/systemctl", "poweroff", "--no-block"],
+                    ["/usr/bin/systemctl", "start", "cannvas-poweroff.service", "--no-block"],
                     check=True,
                     timeout=5,
                 )
