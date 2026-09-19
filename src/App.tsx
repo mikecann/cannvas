@@ -24,6 +24,7 @@ import { WhiteboardApp } from "./apps/WhiteboardApp";
 import { WeatherApp } from "./apps/WeatherApp";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { useCannvasData } from "./data/DataProvider";
+import { POWER_OFF_RECOVERY_MESSAGE, schedulePowerOffRecovery } from "./lib/actionTiming";
 import { dismissNativeKeyboard, installNativeKeyboard } from "./lib/nativeKeyboard";
 
 type AppId =
@@ -139,10 +140,12 @@ export function App() {
   const powerOff = async () => {
     setPowerOffPending(true);
     setPowerOffError("");
-    const recoveryTimer = window.setTimeout(() => {
-      setPowerOffPending(false);
-      setPowerOffError("Cannvas is still online. Please try again.");
-    }, 15_000);
+    const recoveryTimer = schedulePowerOffRecovery({
+      recover: () => {
+        setPowerOffPending(false);
+        setPowerOffError(POWER_OFF_RECOVERY_MESSAGE);
+      },
+    });
     try {
       const response = await fetch("/api/system/poweroff", {
         method: "POST",

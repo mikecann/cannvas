@@ -24,6 +24,7 @@ import {
 import * as L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { scheduleHomeActionRefresh } from "../lib/actionTiming";
 
 type HomeAssistantAttributes = {
   device_class?: string;
@@ -359,22 +360,15 @@ export function HomeAutomationApp() {
       });
       const body = await response.json() as { error?: string };
       if (!response.ok) throw new Error(body.error || "The control did not respond");
-      if (isRoutine) {
-        // A routine does not expose a useful on/off state. Keep its action
-        // locked through the refresh window so a quick second tap cannot run
-        // the same scene or script twice.
-        deferPendingRelease = true;
-        window.setTimeout(() => {
-          void refresh();
-          setPending((current) => {
-            const next = new Set(current);
-            next.delete(entity.entityId);
-            return next;
-          });
-        }, 1_000);
-      } else {
-        window.setTimeout(() => void refresh(), 500);
-      }
+      deferPendingRelease = scheduleHomeActionRefresh({
+        isRoutine,
+        refresh,
+        releasePending: () => setPending((current) => {
+          const next = new Set(current);
+          next.delete(entity.entityId);
+          return next;
+        }),
+      });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "The control did not respond");
       void refresh();
