@@ -29,8 +29,8 @@ VIDEO_URL = os.environ.get("CANNVAS_VIDEO_URL", "http://bruce.local:6113").rstri
 DEFAULT_URL = "http://homeassistant.local:8123"
 ENTITY_ID = re.compile(r"^[a-z_]+\.[a-z0-9_]+$")
 ALLOWED_ACTIONS = {
-    "turn_on": {"light", "switch", "fan", "input_boolean"},
-    "turn_off": {"light", "switch", "fan", "input_boolean"},
+    "turn_on": {"light", "switch", "fan", "input_boolean", "media_player", "scene", "script"},
+    "turn_off": {"light", "switch", "fan", "input_boolean", "media_player"},
 }
 _UNIFI_LOCK = Lock()
 _UNIFI_OPENER: Any = None
