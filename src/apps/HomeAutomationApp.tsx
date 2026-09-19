@@ -338,10 +338,12 @@ export function HomeAutomationApp() {
   const runAction = async (entity: HomeAssistantEntity) => {
     if (pending.has(entity.entityId) || ["unavailable", "unknown"].includes(entity.state.toLowerCase())) return;
     const action = controlAction(entity);
+    const isRoutine = ["scene", "script"].includes(entity.domain);
+    let deferPendingRelease = false;
     setPending((current) => new Set(current).add(entity.entityId));
     // Scenes and scripts report their last-run time instead of an on/off state,
     // so only optimistic-update controls that behave like switches.
-    if (!["scene", "script"].includes(entity.domain)) {
+    if (!isRoutine) {
       setStatus((current) => current ? {
         ...current,
         entities: current.entities?.map((item) => item.entityId === entity.entityId
@@ -357,16 +359,33 @@ export function HomeAutomationApp() {
       });
       const body = await response.json() as { error?: string };
       if (!response.ok) throw new Error(body.error || "The control did not respond");
-      window.setTimeout(() => void refresh(), 500);
+      if (isRoutine) {
+        // A routine does not expose a useful on/off state. Keep its action
+        // locked through the refresh window so a quick second tap cannot run
+        // the same scene or script twice.
+        deferPendingRelease = true;
+        window.setTimeout(() => {
+          void refresh();
+          setPending((current) => {
+            const next = new Set(current);
+            next.delete(entity.entityId);
+            return next;
+          });
+        }, 1_000);
+      } else {
+        window.setTimeout(() => void refresh(), 500);
+      }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "The control did not respond");
       void refresh();
     } finally {
-      setPending((current) => {
-        const next = new Set(current);
-        next.delete(entity.entityId);
-        return next;
-      });
+      if (!deferPendingRelease) {
+        setPending((current) => {
+          const next = new Set(current);
+          next.delete(entity.entityId);
+          return next;
+        });
+      }
     }
   };
 

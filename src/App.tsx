@@ -139,6 +139,10 @@ export function App() {
   const powerOff = async () => {
     setPowerOffPending(true);
     setPowerOffError("");
+    const recoveryTimer = window.setTimeout(() => {
+      setPowerOffPending(false);
+      setPowerOffError("Cannvas is still online. Please try again.");
+    }, 15_000);
     try {
       const response = await fetch("/api/system/poweroff", {
         method: "POST",
@@ -147,6 +151,7 @@ export function App() {
       });
       if (!response.ok) throw new Error("Cannvas did not accept the power-off request");
     } catch (error) {
+      window.clearTimeout(recoveryTimer);
       setPowerOffPending(false);
       setPowerOffError(error instanceof Error ? error.message : "Cannvas could not power off");
     }
