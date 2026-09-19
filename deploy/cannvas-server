@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import re
 import ssl
+import subprocess
 from threading import Lock
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -365,6 +366,28 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         super().do_HEAD()
 
     def do_POST(self) -> None:
+        if self.path == "/api/system/poweroff":
+            try:
+                body = self.read_json()
+                if self.headers.get("Content-Type", "").partition(";")[0].strip().lower() != "application/json":
+                    raise ValueError("Expected a JSON request")
+                if body.get("confirm") != "poweroff":
+                    raise ValueError("Power-off confirmation is required")
+
+                # The server runs as the unprivileged kiosk user. Sudoers grants
+                # only this exact non-blocking systemd command, nothing broader.
+                subprocess.run(
+                    ["/usr/bin/sudo", "-n", "/usr/bin/systemctl", "poweroff", "--no-block"],
+                    check=True,
+                    timeout=5,
+                )
+                self.send_json(202, {"ok": True})
+            except ValueError as error:
+                self.send_json(400, {"error": str(error)})
+            except (OSError, subprocess.SubprocessError):
+                self.send_json(500, {"error": "Cannvas could not power off"})
+            return
+
         if self.path == "/api/home-assistant/config":
             try:
                 body = self.read_json()
