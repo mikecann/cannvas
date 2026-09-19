@@ -1,10 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  CONTROL_REFRESH_DELAY_MS,
-  POWER_OFF_RECOVERY_MESSAGE,
-  POWER_OFF_RECOVERY_MS,
-  ROUTINE_ACTION_COOLDOWN_MS,
   scheduleHomeActionRefresh,
   schedulePowerOffRecovery,
 } from "../src/lib/actionTiming.ts";
@@ -36,7 +32,8 @@ test("routine actions stay pending for the cooldown before they refresh", () => 
   });
 
   assert.equal(deferred, true);
-  assert.equal(timer.scheduled.delay, ROUTINE_ACTION_COOLDOWN_MS);
+  // Pin the safety contract instead of mirroring the implementation constant.
+  assert.equal(timer.scheduled.delay, 1_000);
   assert.equal(refreshes, 0);
   assert.equal(releases, 0);
 
@@ -59,7 +56,7 @@ test("switch-like actions refresh sooner and let the caller release pending", ()
   });
 
   assert.equal(deferred, false);
-  assert.equal(timer.scheduled.delay, CONTROL_REFRESH_DELAY_MS);
+  assert.equal(timer.scheduled.delay, 500);
   timer.scheduled.callback();
   assert.equal(refreshes, 1);
   assert.equal(releases, 0);
@@ -67,24 +64,21 @@ test("switch-like actions refresh sooner and let the caller release pending", ()
 
 test("power-off recovery becomes available after fifteen seconds", () => {
   const timer = captureSchedule();
-  let pending = true;
-  let error = "";
+  let recoveries = 0;
 
   const timerId = schedulePowerOffRecovery({
     recover: () => {
-      pending = false;
-      error = POWER_OFF_RECOVERY_MESSAGE;
+      recoveries += 1;
     },
     schedule: timer.schedule,
   });
 
   assert.equal(timerId, 42);
-  assert.equal(timer.scheduled.delay, POWER_OFF_RECOVERY_MS);
-  assert.equal(pending, true);
-  assert.equal(error, "");
+  // Fifteen seconds is the deliberate escape hatch from a stuck shutdown UI.
+  assert.equal(timer.scheduled.delay, 15_000);
+  assert.equal(recoveries, 0);
 
   timer.scheduled.callback();
 
-  assert.equal(pending, false);
-  assert.equal(error, "Cannvas is still online. Please try again.");
+  assert.equal(recoveries, 1);
 });
