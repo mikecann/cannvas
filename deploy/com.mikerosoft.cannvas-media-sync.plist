@@ -16,7 +16,7 @@
   <key>EnvironmentVariables</key>
   <dict>
     <key>CANNVAS_MEDIA_SCAN_CONCURRENCY</key>
-    <string>24</string>
+    <string>8</string>
   </dict>
   <key>ProcessType</key>
   <string>Background</string>
