@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const sourceRoot = resolve(process.env.CANNVAS_MEDIA_SOURCE_ROOT ?? "/Volumes/CannMedia/PhotoArchive");
 const cacheRoot = resolve(process.env.CANNVAS_MEDIA_ROOT ?? "/Volumes/CannMedia/CannvasVideoCache");
 const maxConversions = Number(process.env.CANNVAS_MEDIA_MAX_CONVERSIONS ?? Number.POSITIVE_INFINITY);
+const scanConcurrency = Math.max(1, Number(process.env.CANNVAS_MEDIA_SCAN_CONCURRENCY ?? 8));
 const videoExtensions = new Set([".m4v", ".mov", ".mp4", ".webm"]);
 
 export function isBrowserCompatibleCodec(codecs) {
@@ -149,6 +150,9 @@ async function convertVideo(source, direct, converted) {
 
 export async function syncVideos() {
   await mkdir(cacheRoot, { recursive: true });
+  const sources = [];
+  for await (const source of walkVideos(sourceRoot)) sources.push(source);
+
   const pending = [];
   let direct = 0;
   let cached = 0;
@@ -157,37 +161,46 @@ export async function syncVideos() {
   let excludedLandscape = 0;
   let excludedUnknown = 0;
 
-  for await (const source of walkVideos(sourceRoot)) {
-    const paths = cachePaths(source);
-    const media = await inspectMedia(source);
-    inspected += 1;
+  let nextSource = 0;
+  async function inspectNext() {
+    while (nextSource < sources.length) {
+      const source = sources[nextSource];
+      nextSource += 1;
+      const paths = cachePaths(source);
+      const media = await inspectMedia(source);
+      inspected += 1;
 
-    if (!isEligibleVideo(media)) {
-      await removeGeneratedArtifacts(paths);
-      if (!Number.isFinite(media.durationSeconds)
-        || !Number.isFinite(media.width)
-        || !Number.isFinite(media.height)) excludedUnknown += 1;
-      else if (media.durationSeconds < 10) excludedShort += 1;
-      else excludedLandscape += 1;
-      continue;
-    }
+      if (!isEligibleVideo(media)) {
+        await removeGeneratedArtifacts(paths);
+        if (!Number.isFinite(media.durationSeconds)
+          || !Number.isFinite(media.width)
+          || !Number.isFinite(media.height)) excludedUnknown += 1;
+        else if (media.durationSeconds < 10) excludedShort += 1;
+        else excludedLandscape += 1;
+        continue;
+      }
 
-    if (await hasCurrentConversion(source, paths.converted)) {
-      cached += 1;
-      continue;
-    }
-    if (await hasCurrentDirectLink(source, paths.direct)) {
-      direct += 1;
-      continue;
-    }
+      if (await hasCurrentConversion(source, paths.converted)) {
+        cached += 1;
+        continue;
+      }
+      if (await hasCurrentDirectLink(source, paths.direct)) {
+        direct += 1;
+        continue;
+      }
 
-    if (isBrowserCompatibleCodec(media.codecs)) {
-      await linkDirect(source, paths.direct, paths.converted);
-      direct += 1;
-    } else {
-      pending.push({ source, ...paths });
+      if (isBrowserCompatibleCodec(media.codecs)) {
+        await linkDirect(source, paths.direct, paths.converted);
+        direct += 1;
+      } else {
+        pending.push({ source, ...paths });
+      }
     }
   }
+  await Promise.all(Array.from(
+    { length: Math.min(scanConcurrency, sources.length) },
+    () => inspectNext(),
+  ));
 
   console.log(`Cannvas media scan complete: ${direct} direct, ${cached} cached, ${pending.length} conversions pending, ${excludedShort} short excluded, ${excludedLandscape} landscape excluded, ${excludedUnknown} unknown excluded, ${inspected} inspected`);
 
