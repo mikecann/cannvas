@@ -13,6 +13,14 @@ export function isBrowserCompatibleCodec(codecs) {
   return /H\.264|AVC|VP8|VP9/i.test(codecs) && !/HEVC|H\.265/i.test(codecs);
 }
 
+export function isEligibleVideo({ durationSeconds, width, height }) {
+  return Number.isFinite(durationSeconds)
+    && durationSeconds >= 10
+    && Number.isFinite(width)
+    && Number.isFinite(height)
+    && height > width;
+}
+
 export function cachePaths(source) {
   const relativeSource = relative(sourceRoot, source);
   return {
@@ -57,6 +65,24 @@ async function removeIfPresent(path) {
   if (await pathExists(path)) await unlink(path);
 }
 
+async function removeGeneratedArtifacts({ direct, converted }) {
+  await removeIfPresent(direct);
+  await removeIfPresent(converted);
+
+  const directory = dirname(converted);
+  let entries;
+  try {
+    entries = await readdir(directory);
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    throw error;
+  }
+  const partialPrefix = `${basename(converted)}.partial-`;
+  await Promise.all(entries
+    .filter((name) => name.startsWith(partialPrefix))
+    .map((name) => removeIfPresent(join(directory, name))));
+}
+
 async function hasCurrentConversion(source, converted) {
   const output = await pathExists(converted);
   if (!output?.isFile() || output.size === 0) return false;
@@ -69,9 +95,26 @@ async function hasCurrentDirectLink(source, direct) {
   return resolve(dirname(direct), await readlink(direct)) === source;
 }
 
-async function inspectCodecs(source) {
-  const { stdout } = await run("/usr/bin/mdls", ["-raw", "-name", "kMDItemCodecs", source]);
-  return stdout.trim();
+function metadataNumber(output, key) {
+  const match = output.match(new RegExp(`^${key}\\s*=\\s*([^\\n]+)$`, "m"));
+  if (!match || match[1].trim() === "(null)") return Number.NaN;
+  return Number(match[1].trim());
+}
+
+async function inspectMedia(source) {
+  const { stdout } = await run("/usr/bin/mdls", [
+    "-name", "kMDItemCodecs",
+    "-name", "kMDItemDurationSeconds",
+    "-name", "kMDItemPixelHeight",
+    "-name", "kMDItemPixelWidth",
+    source,
+  ]);
+  return {
+    codecs: stdout.match(/kMDItemCodecs\s*=([\s\S]*?)(?=^kMDItem|$)/m)?.[1]?.trim() ?? "",
+    durationSeconds: metadataNumber(stdout, "kMDItemDurationSeconds"),
+    height: metadataNumber(stdout, "kMDItemPixelHeight"),
+    width: metadataNumber(stdout, "kMDItemPixelWidth"),
+  };
 }
 
 async function linkDirect(source, direct, converted) {
@@ -110,9 +153,25 @@ export async function syncVideos() {
   let direct = 0;
   let cached = 0;
   let inspected = 0;
+  let excludedShort = 0;
+  let excludedLandscape = 0;
+  let excludedUnknown = 0;
 
   for await (const source of walkVideos(sourceRoot)) {
     const paths = cachePaths(source);
+    const media = await inspectMedia(source);
+    inspected += 1;
+
+    if (!isEligibleVideo(media)) {
+      await removeGeneratedArtifacts(paths);
+      if (!Number.isFinite(media.durationSeconds)
+        || !Number.isFinite(media.width)
+        || !Number.isFinite(media.height)) excludedUnknown += 1;
+      else if (media.durationSeconds < 10) excludedShort += 1;
+      else excludedLandscape += 1;
+      continue;
+    }
+
     if (await hasCurrentConversion(source, paths.converted)) {
       cached += 1;
       continue;
@@ -122,9 +181,7 @@ export async function syncVideos() {
       continue;
     }
 
-    const codecs = await inspectCodecs(source);
-    inspected += 1;
-    if (isBrowserCompatibleCodec(codecs)) {
+    if (isBrowserCompatibleCodec(media.codecs)) {
       await linkDirect(source, paths.direct, paths.converted);
       direct += 1;
     } else {
@@ -132,7 +189,7 @@ export async function syncVideos() {
     }
   }
 
-  console.log(`Cannvas media scan complete: ${direct} direct, ${cached} cached, ${pending.length} conversions pending, ${inspected} inspected`);
+  console.log(`Cannvas media scan complete: ${direct} direct, ${cached} cached, ${pending.length} conversions pending, ${excludedShort} short excluded, ${excludedLandscape} landscape excluded, ${excludedUnknown} unknown excluded, ${inspected} inspected`);
 
   let converted = 0;
   let failed = 0;

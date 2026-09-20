@@ -2,11 +2,12 @@ import { CheckCircle2, Clock3, Volume2, VolumeX } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useCannvasData } from "../data/DataProvider";
 import { addCalendarDays, calendarDateKey, calendarEventTime, eventsForDate } from "../lib/calendar";
+import { shuffledVideos } from "../lib/videoPlaylist";
 
 // The mirror proxies Bruce's private media service so the browser only needs
 // access to the same loopback origin as the rest of Cannvas.
 const VIDEO_ROOT = "/videos/";
-const VIDEO_CACHE_KEY = "cannvas-video-list-v4";
+const VIDEO_CACHE_KEY = "cannvas-video-list-v5";
 const VIDEO_PATTERN = /<a href="([^"]+)"/g;
 const YR_METEOGRAM = "https://www.yr.no/en/content/2-2075265/meteogram.svg";
 
@@ -47,9 +48,9 @@ export function DisplayApp({
   const calendarWidgetRef = useRef<HTMLElement>(null);
   const [weatherVersion, setWeatherVersion] = useState(Date.now());
   const [videos, setVideos] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem(VIDEO_CACHE_KEY) ?? "[]") as string[]; } catch { return []; }
+    try { return shuffledVideos(JSON.parse(localStorage.getItem(VIDEO_CACHE_KEY) ?? "[]") as string[]); } catch { return []; }
   });
-  const [videoIndex, setVideoIndex] = useState(() => Math.floor(Math.random() * Math.max(1, videos.length)));
+  const [videoIndex, setVideoIndex] = useState(0);
 
   // Derive this during render so a new session is muted before the video can
   // commit or produce even a brief audio blip. The stored choice only belongs
@@ -70,8 +71,10 @@ export function DisplayApp({
   useEffect(() => {
     void crawlVideos().then((found) => {
       if (found.length > 0) {
-        setVideos(found);
-        localStorage.setItem(VIDEO_CACHE_KEY, JSON.stringify(found));
+        const randomized = shuffledVideos(found);
+        setVideos(randomized);
+        setVideoIndex(0);
+        localStorage.setItem(VIDEO_CACHE_KEY, JSON.stringify(randomized));
       }
     }).catch(() => undefined);
   }, []);
