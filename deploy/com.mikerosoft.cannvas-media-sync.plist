@@ -13,6 +13,11 @@
   <true/>
   <key>StartInterval</key>
   <integer>21600</integer>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>CANNVAS_MEDIA_SCAN_CONCURRENCY</key>
+    <string>24</string>
+  </dict>
   <key>ProcessType</key>
   <string>Background</string>
   <key>LowPriorityIO</key>
