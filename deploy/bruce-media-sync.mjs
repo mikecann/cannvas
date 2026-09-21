@@ -9,6 +9,7 @@ const cacheRoot = resolve(process.env.CANNVAS_MEDIA_ROOT ?? "/Volumes/CannMedia/
 const maxConversions = Number(process.env.CANNVAS_MEDIA_MAX_CONVERSIONS ?? Number.POSITIVE_INFINITY);
 const scanConcurrency = Math.max(1, Number(process.env.CANNVAS_MEDIA_SCAN_CONCURRENCY ?? 8));
 const videoExtensions = new Set([".m4v", ".mov", ".mp4", ".webm"]);
+const failureBackoffs = [60_000, 5 * 60_000, 15 * 60_000, 30 * 60_000];
 
 export function isBrowserCompatibleCodec(codecs) {
   return /H\.264|AVC|VP8|VP9/i.test(codecs) && !/HEVC|H\.265/i.test(codecs);
@@ -20,6 +21,15 @@ export function isEligibleVideo({ durationSeconds, width, height }) {
     && Number.isFinite(width)
     && Number.isFinite(height)
     && height > width;
+}
+
+export function conversionFailureBackoffMs(consecutiveFailures) {
+  if (!Number.isFinite(consecutiveFailures) || consecutiveFailures < 1) return 0;
+  return failureBackoffs[Math.min(Math.floor(consecutiveFailures), failureBackoffs.length) - 1];
+}
+
+export function isGeneratedPartialName(name) {
+  return /\.m4v\.partial-\d+\.m4v$/i.test(name);
 }
 
 export function cachePaths(source) {
@@ -47,10 +57,24 @@ function run(command, args) {
     child.stdout.on("data", (chunk) => { stdout += chunk; });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
     child.on("error", rejectRun);
-    child.on("close", (code) => code === 0
-      ? resolveRun({ stdout, stderr })
-      : rejectRun(new Error(`${basename(command)} exited with ${code}`)));
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolveRun({ stdout, stderr });
+        return;
+      }
+      const details = stderr.trim().replace(/\s+/g, " ").slice(0, 1_000);
+      rejectRun(new Error(`${basename(command)} exited with ${code}${details ? `: ${details}` : ""}`));
+    });
   });
+}
+
+function wait(milliseconds) {
+  return new Promise((resolveWait) => setTimeout(resolveWait, milliseconds));
+}
+
+function formatWait(milliseconds) {
+  if (milliseconds < 60_000) return `${Math.ceil(milliseconds / 1_000)} seconds`;
+  return `${Math.ceil(milliseconds / 60_000)} minutes`;
 }
 
 async function pathExists(path) {
@@ -82,6 +106,19 @@ async function removeGeneratedArtifacts({ direct, converted }) {
   await Promise.all(entries
     .filter((name) => name.startsWith(partialPrefix))
     .map((name) => removeIfPresent(join(directory, name))));
+}
+
+async function removeStalePartials(directory) {
+  let removed = 0;
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) removed += await removeStalePartials(path);
+    else if (entry.isFile() && isGeneratedPartialName(entry.name)) {
+      await unlink(path);
+      removed += 1;
+    }
+  }
+  return removed;
 }
 
 async function hasCurrentConversion(source, converted) {
@@ -150,6 +187,8 @@ async function convertVideo(source, direct, converted) {
 
 export async function syncVideos() {
   await mkdir(cacheRoot, { recursive: true });
+  const stalePartials = await removeStalePartials(cacheRoot);
+  if (stalePartials > 0) console.log(`Cannvas media cleanup: removed ${stalePartials} stale partial files`);
   const sources = [];
   for await (const source of walkVideos(sourceRoot)) sources.push(source);
 
@@ -206,14 +245,22 @@ export async function syncVideos() {
 
   let converted = 0;
   let failed = 0;
+  let consecutiveFailures = 0;
   for (const item of pending) {
     if (converted >= maxConversions) break;
     try {
       await convertVideo(item.source, item.direct, item.converted);
       converted += 1;
+      consecutiveFailures = 0;
       if (converted % 25 === 0) console.log(`Cannvas media conversion progress: ${converted}/${pending.length}`);
-    } catch {
+    } catch (error) {
       failed += 1;
+      consecutiveFailures += 1;
+      const backoff = conversionFailureBackoffMs(consecutiveFailures);
+      const sourceName = relative(sourceRoot, item.source);
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Cannvas media conversion failed for ${sourceName}: ${message}. Deferring this video until the next scan and pausing ${formatWait(backoff)} before continuing.`);
+      await wait(backoff);
     }
   }
 
