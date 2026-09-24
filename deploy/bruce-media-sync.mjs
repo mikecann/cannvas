@@ -15,6 +15,14 @@ export function isBrowserCompatibleCodec(codecs) {
   return /H\.264|AVC|VP8|VP9/i.test(codecs) && !/HEVC|H\.265/i.test(codecs);
 }
 
+// iOS names screen recordings RPReplay_Final<epoch> (iOS 11 to 17) or
+// ScreenRecording_<date> (iOS 18+), and macOS uses "Screen Recording <date>".
+// On Bruce this matches Photos' own screen-recording flag exactly, and checking
+// the name skips the metadata lookup entirely.
+export function isScreenRecording(source) {
+  return /^(RPReplay_Final|ScreenRecording_|Screen Recording )/i.test(basename(source));
+}
+
 export function isEligibleVideo({ durationSeconds, width, height }) {
   return Number.isFinite(durationSeconds)
     && durationSeconds >= 10
@@ -196,6 +204,7 @@ export async function syncVideos() {
   let direct = 0;
   let cached = 0;
   let inspected = 0;
+  let excludedScreen = 0;
   let excludedShort = 0;
   let excludedLandscape = 0;
   let excludedUnknown = 0;
@@ -206,6 +215,11 @@ export async function syncVideos() {
       const source = sources[nextSource];
       nextSource += 1;
       const paths = cachePaths(source);
+      if (isScreenRecording(source)) {
+        await removeGeneratedArtifacts(paths);
+        excludedScreen += 1;
+        continue;
+      }
       const media = await inspectMedia(source);
       inspected += 1;
 
@@ -241,7 +255,7 @@ export async function syncVideos() {
     () => inspectNext(),
   ));
 
-  console.log(`Cannvas media scan complete: ${direct} direct, ${cached} cached, ${pending.length} conversions pending, ${excludedShort} short excluded, ${excludedLandscape} landscape excluded, ${excludedUnknown} unknown excluded, ${inspected} inspected`);
+  console.log(`Cannvas media scan complete: ${direct} direct, ${cached} cached, ${pending.length} conversions pending, ${excludedScreen} screen recordings excluded, ${excludedShort} short excluded, ${excludedLandscape} landscape excluded, ${excludedUnknown} unknown excluded, ${inspected} inspected`);
 
   let converted = 0;
   let failed = 0;
