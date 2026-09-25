@@ -103,20 +103,24 @@ export const savePersonalListId = internalMutation({
   },
 });
 
-export const saveLastPolledAt = internalMutation({
-  args: { lastPolledAt: v.number() },
+// Poll problems are stored on the connection so a stalled sync is visible in
+// the dashboard instead of only in old logs.
+export const recordPoll = internalMutation({
+  args: { lastPolledAt: v.optional(v.number()), error: v.optional(v.string()) },
   returns: v.null(),
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("googleTasksConnections")
       .withIndex("by_key", (q) => q.eq("key", "primary"))
       .unique();
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        lastPolledAt: args.lastPolledAt,
-        updatedAt: Date.now(),
-      });
-    }
+    if (!existing) return null;
+    const now = Date.now();
+    await ctx.db.patch(existing._id, {
+      ...(args.lastPolledAt !== undefined ? { lastPolledAt: args.lastPolledAt } : {}),
+      lastPollError: args.error?.slice(0, 1000),
+      lastPollErrorAt: args.error ? now : undefined,
+      updatedAt: now,
+    });
     return null;
   },
 });
