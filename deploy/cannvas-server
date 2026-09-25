@@ -16,11 +16,14 @@ from pathlib import Path
 import re
 import ssl
 import subprocess
+from datetime import datetime, timedelta, timezone
 from threading import Lock
+import time
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import HTTPRedirectHandler, HTTPSHandler, HTTPCookieProcessor, Request, build_opener, urlopen
+from zoneinfo import ZoneInfo
 
 
 CONFIG_PATH = Path(os.environ.get("CANNVAS_HOME_ASSISTANT_CONFIG", "/var/lib/cannvas/home-assistant.json"))
@@ -239,6 +242,191 @@ def public_entity(entity: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# Solar comes from the Solis inverter through Home Assistant's ha-solarman
+# integration. The grid sensor follows the Solis meter: positive means export.
+SOLAR_ZONE = ZoneInfo("Australia/Perth")
+SOLAR_STEP = timedelta(minutes=5)
+SOLAR_HISTORY_TTL = 60
+SOLAR_ENTITIES = {
+    "solar": "sensor.solis_load_power",
+    "house": "sensor.solis_house_load_power",
+    "grid": "sensor.solis_grid_power",
+    "pv": "sensor.solis_pv_power",
+    "imported": "sensor.solis_total_grid_import",
+    "exported": "sensor.solis_total_grid_export",
+    "status": "sensor.solis_inverter_status",
+    "temperature": "sensor.solis_inverter_temperature",
+}
+SOLAR_SERIES = ("solar", "house", "grid")
+SOLAR_TOTALS = ("imported", "exported")
+_SOLAR_LOCK = Lock()
+_SOLAR_CACHE: dict[str, Any] = {"key": None, "points": {}, "fetched_at": 0.0, "fetched_until": None}
+
+
+def number(value: Any) -> float | None:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    return result if result == result else None
+
+
+def parse_time(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+# A None value marks "unknown"/"unavailable" so an outage ends the previous
+# reading instead of stretching it across the gap.
+Points = list[tuple[float, float | None]]
+
+
+def solar_history(config: dict[str, str], start: datetime, end: datetime) -> dict[str, Points]:
+    ids = [SOLAR_ENTITIES[key] for key in (*SOLAR_SERIES, *SOLAR_TOTALS)]
+    query = urlencode({
+        "filter_entity_id": ",".join(ids),
+        "end_time": end.isoformat(),
+        "minimal_response": "",
+        "no_attributes": "",
+    })
+    result = home_assistant_request(config, f"/api/history/period/{start.isoformat()}?{query}")
+    keys = {entity: key for key, entity in SOLAR_ENTITIES.items()}
+    points: dict[str, Points] = {}
+    for rows in result or []:
+        if not rows:
+            continue
+        key = keys.get(rows[0].get("entity_id", ""))
+        if not key:
+            continue
+        series = points.setdefault(key, [])
+        for row in rows:
+            value = number(row.get("state", row.get("s")))
+            stamp = row.get("last_changed") or row.get("lc") or row.get("last_updated") or row.get("lu")
+            if stamp is None:
+                continue
+            seconds = float(stamp) if isinstance(stamp, (int, float)) else parse_time(stamp).timestamp()
+            series.append((seconds, value))
+    return points
+
+
+def refresh_solar_history(config: dict[str, str], now: datetime) -> dict[str, Points]:
+    """Keep today's change points, fetching only what changed since the last call.
+
+    The Home Assistant request happens outside the lock so a slow response
+    never queues up other requests behind it.
+    """
+    day = now.astimezone(SOLAR_ZONE).date()
+    # A new day or a different Home Assistant server starts a fresh history.
+    key = (day, config["url"])
+    with _SOLAR_LOCK:
+        cache = dict(_SOLAR_CACHE)
+    if cache["key"] != key:
+        midnight = datetime.combine(day, datetime.min.time(), SOLAR_ZONE)
+        points = solar_history(config, midnight, now)
+        with _SOLAR_LOCK:
+            _SOLAR_CACHE.update(key=key, points=points, fetched_at=time.monotonic(), fetched_until=now)
+    elif time.monotonic() - cache["fetched_at"] >= SOLAR_HISTORY_TTL:
+        fresh = solar_history(config, cache["fetched_until"], now)
+        with _SOLAR_LOCK:
+            if _SOLAR_CACHE["key"] == key:
+                for name, rows in fresh.items():
+                    series = _SOLAR_CACHE["points"].setdefault(name, [])
+                    last = series[-1][0] if series else 0
+                    series.extend(row for row in rows if row[0] > last)
+                _SOLAR_CACHE.update(fetched_at=time.monotonic(), fetched_until=now)
+    with _SOLAR_LOCK:
+        return {name: list(rows) for name, rows in _SOLAR_CACHE["points"].items()}
+
+
+def bucket_averages(points: Points, start: float, end: float, step: float) -> list[float | None]:
+    """Time-weighted averages. HA only records changes, so each value holds until the next one."""
+    count = max(0, int((end - start) // step) + 1)
+    totals = [0.0] * count
+    covered = [0.0] * count
+    for index, (stamp, value) in enumerate(points):
+        if value is None:
+            continue
+        until = points[index + 1][0] if index + 1 < len(points) else end
+        begin, finish = max(stamp, start), min(until, end)
+        while begin < finish:
+            bucket = int((begin - start) // step)
+            edge = min(finish, start + (bucket + 1) * step)
+            totals[bucket] += value * (edge - begin)
+            covered[bucket] += edge - begin
+            begin = edge
+    return [round(totals[i] / covered[i], 3) if covered[i] else None for i in range(count)]
+
+
+def integrate_kwh(points: Points, start: float, end: float) -> float:
+    total = 0.0
+    for index, (stamp, value) in enumerate(points):
+        if value is None:
+            continue
+        until = points[index + 1][0] if index + 1 < len(points) else end
+        total += value * max(0.0, min(until, end) - max(stamp, start))
+    return total / 3600
+
+
+def solar_status(config: dict[str, str]) -> dict[str, Any]:
+    now = datetime.now(timezone.utc)
+    states = {
+        key: home_assistant_request(config, f"/api/states/{entity}")
+        for key, entity in SOLAR_ENTITIES.items()
+    }
+    value = {key: number(state.get("state")) for key, state in states.items()}
+    points = refresh_solar_history(config, now)
+    midnight = datetime.combine(now.astimezone(SOLAR_ZONE).date(), datetime.min.time(), SOLAR_ZONE)
+
+    def since_midnight(key: str) -> float | None:
+        first = next((row[1] for row in points.get(key, []) if row[1] is not None), None)
+        current = value[key]
+        return round(max(0.0, current - first), 2) if first is not None and current is not None else None
+
+    series = {
+        key: bucket_averages(points.get(key, []), midnight.timestamp(), now.timestamp(), SOLAR_STEP.total_seconds())
+        for key in SOLAR_SERIES
+    }
+    # The inverter keeps its clock (and its "today" counter) in UTC, which
+    # resets at 8am in Perth. Integrate the power history instead.
+    solar_points = points.get("solar", [])
+    generated = round(integrate_kwh(solar_points, midnight.timestamp(), now.timestamp()), 2) if any(row[1] is not None for row in solar_points) else None
+    imported, exported = since_midnight("imported"), since_midnight("exported")
+    consumed = round(generated + imported - exported, 2) if None not in (generated, imported, exported) else None
+    peak = max(((row[1], row[0]) for row in solar_points if row[1] is not None), default=None)
+    grid = value["grid"]
+    return {
+        "configured": True,
+        "connected": True,
+        # last_reported moves on every poll even when the value is unchanged, so
+        # it shows whether the integration is still alive.
+        "updatedAt": max((state.get("last_reported") or state.get("last_updated", "") for state in states.values()), default=None),
+        "status": states["status"].get("state"),
+        "now": {
+            "solarKw": value["solar"],
+            "houseKw": value["house"],
+            # The UI treats positive grid power as buying from the grid.
+            "gridKw": -grid if grid is not None else None,
+            "pvKw": value["pv"],
+            "temperatureC": value["temperature"],
+        },
+        "today": {
+            "generatedKwh": generated,
+            "consumedKwh": consumed,
+            "importedKwh": imported,
+            "exportedKwh": exported,
+            "selfPoweredPct": round(100 * (1 - imported / consumed)) if consumed and imported is not None else None,
+            "peakSolarKw": peak[0] if peak else None,
+            "peakSolarAt": datetime.fromtimestamp(peak[1], timezone.utc).isoformat() if peak else None,
+        },
+        "series": {
+            "start": midnight.isoformat(),
+            "stepMinutes": int(SOLAR_STEP.total_seconds() // 60),
+            "solar": series["solar"],
+            "house": series["house"],
+            "grid": [-point if point is not None else None for point in series["grid"]],
+        },
+    }
+
+
 class CannvasHandler(SimpleHTTPRequestHandler):
     def send_json(self, status: int, value: Any) -> None:
         body = json.dumps(value).encode("utf-8")
@@ -270,9 +458,9 @@ class CannvasHandler(SimpleHTTPRequestHandler):
             self.send_json(500, {"error": "Home Assistant request failed"})
 
     def proxy_video(self, include_body: bool = True) -> None:
-        # Bruce exposes only Joshua's web-ready folder. Keeping that service
-        # behind this loopback proxy avoids CORS and keeps the browser isolated
-        # from the rest of the home network.
+        # Bruce exposes a video-only, browser-compatible view of PhotoArchive.
+        # Keeping that service behind this loopback proxy avoids CORS and keeps
+        # the browser isolated from the rest of the home network.
         suffix = self.path.removeprefix("/videos") or "/"
         request_headers = {}
         if range_header := self.headers.get("Range"):
@@ -329,6 +517,17 @@ class CannvasHandler(SimpleHTTPRequestHandler):
                 self.send_json(200, unifi_status(config))
             except Exception:
                 self.send_json(200, {"configured": True, "connected": False})
+            return
+
+        if self.path == "/api/solar":
+            config = load_config()
+            if not config:
+                self.send_json(200, {"configured": False})
+                return
+            try:
+                self.send_json(200, solar_status(config))
+            except Exception as error:  # The response deliberately avoids leaking network or token details.
+                self.home_assistant_error(error)
             return
 
         if self.path == "/api/home-assistant/status":

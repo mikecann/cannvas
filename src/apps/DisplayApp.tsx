@@ -1,12 +1,14 @@
-import { CheckCircle2, Clock3, Volume2, VolumeX } from "lucide-react";
+import { CheckCircle2, Clock3, Home, Sun, UtilityPole, Volume2, VolumeX } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useCannvasData } from "../data/DataProvider";
 import { addCalendarDays, calendarDateKey, calendarEventTime, eventsForDate } from "../lib/calendar";
+import { FLOW_THRESHOLD_KW, formatKw, isSolarFresh, useSolar } from "../lib/solar";
+import { shuffledVideos } from "../lib/videoPlaylist";
 
 // The mirror proxies Bruce's private media service so the browser only needs
 // access to the same loopback origin as the rest of Cannvas.
 const VIDEO_ROOT = "/videos/";
-const VIDEO_CACHE_KEY = "cannvas-video-list-v3";
+const VIDEO_CACHE_KEY = "cannvas-video-list-v5";
 const VIDEO_PATTERN = /<a href="([^"]+)"/g;
 const YR_METEOGRAM = "https://www.yr.no/en/content/2-2075265/meteogram.svg";
 
@@ -34,11 +36,13 @@ export function DisplayApp({
   onActivity,
   onOpenCalendar,
   onOpenWeather,
+  onOpenSolar,
 }: {
   displaySession: number;
   onActivity: () => void;
   onOpenCalendar: () => void;
   onOpenWeather: () => void;
+  onOpenSolar: () => void;
 }) {
   const { calendarEvents, calendarStatus, newsHeadlines } = useCannvasData();
   const [now, setNow] = useState(new Date());
@@ -47,9 +51,9 @@ export function DisplayApp({
   const calendarWidgetRef = useRef<HTMLElement>(null);
   const [weatherVersion, setWeatherVersion] = useState(Date.now());
   const [videos, setVideos] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem(VIDEO_CACHE_KEY) ?? "[]") as string[]; } catch { return []; }
+    try { return shuffledVideos(JSON.parse(localStorage.getItem(VIDEO_CACHE_KEY) ?? "[]") as string[]); } catch { return []; }
   });
-  const [videoIndex, setVideoIndex] = useState(() => Math.floor(Math.random() * Math.max(1, videos.length)));
+  const [videoIndex, setVideoIndex] = useState(0);
 
   // Derive this during render so a new session is muted before the video can
   // commit or produce even a brief audio blip. The stored choice only belongs
@@ -70,13 +74,21 @@ export function DisplayApp({
   useEffect(() => {
     void crawlVideos().then((found) => {
       if (found.length > 0) {
-        setVideos(found);
-        localStorage.setItem(VIDEO_CACHE_KEY, JSON.stringify(found));
+        // Keep the clip that started from the cached list at the front, so the
+        // fresh listing doesn't cut it off a few seconds into playback.
+        const playing = playingVideo.current;
+        const randomized = shuffledVideos(found);
+        const ordered = playing && randomized.includes(playing) ? [playing, ...randomized.filter((video) => video !== playing)] : randomized;
+        setVideos(ordered);
+        setVideoIndex(0);
+        localStorage.setItem(VIDEO_CACHE_KEY, JSON.stringify(ordered));
       }
     }).catch(() => undefined);
   }, []);
 
   const currentVideo = videos[videoIndex % Math.max(1, videos.length)];
+  const playingVideo = useRef(currentVideo);
+  playingVideo.current = currentVideo;
   const todayKey = calendarDateKey(now);
   const todayEvents = useMemo(() => eventsForDate(calendarEvents, todayKey), [calendarEvents, todayKey]);
   const upcomingEvents = useMemo(() => {
@@ -166,6 +178,7 @@ export function DisplayApp({
       </aside>
 
       <div className="display-widgets">
+        <SolarHomeWidget onOpen={onOpenSolar} />
         <button
           type="button"
           className="weather-panel yr-weather-panel"
@@ -204,5 +217,27 @@ export function DisplayApp({
         )}
       </div>
     </section>
+  );
+}
+
+function SolarHomeWidget({ onOpen }: { onOpen: () => void }) {
+  const state = useSolar(15000);
+  if (state.kind !== "ready" || !state.solar.configured || !state.solar.now || !isSolarFresh(state.solar)) return null;
+  const { now } = state.solar;
+  const gridKw = now.gridKw;
+  return (
+    <button
+      type="button"
+      className="solar-home-widget"
+      aria-label="Open solar details"
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={onOpen}
+    >
+      <span className="solar"><Sun aria-hidden="true" />{formatKw(now.solarKw)}</span>
+      <span><Home aria-hidden="true" />{formatKw(now.houseKw)}</span>
+      <span className={gridKw == null ? undefined : gridKw > FLOW_THRESHOLD_KW ? "buying" : gridKw < -FLOW_THRESHOLD_KW ? "selling" : undefined}>
+        <UtilityPole aria-hidden="true" />{gridKw == null ? "–" : Math.abs(gridKw) > FLOW_THRESHOLD_KW ? formatKw(gridKw) : "0 W"}
+      </span>
+    </button>
   );
 }

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.mikerosoft.cannvas-media-sync</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/bruce/.nvm/versions/node/v24.14.1/bin/node</string>
+    <string>/Users/bruce/Library/Application Support/cannvas-media/sync.mjs</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StartInterval</key>
+  <integer>21600</integer>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>CANNVAS_MEDIA_SCAN_CONCURRENCY</key>
+    <string>8</string>
+  </dict>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>LowPriorityIO</key>
+  <true/>
+  <key>Nice</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>/Users/bruce/Library/Logs/cannvas-media-sync.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/bruce/Library/Logs/cannvas-media-sync-error.log</string>
+</dict>
+</plist>
