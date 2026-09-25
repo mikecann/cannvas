@@ -119,7 +119,6 @@ export function DisplayApp({
       </div>
 
       <div className="display-content">
-        <SolarHomeWidget onOpen={onOpenSolar} />
         <p className="display-date">{now.toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" })}</p>
         <div className="display-time">{now.toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit", hour12: false })}</div>
       </div>
@@ -173,6 +172,7 @@ export function DisplayApp({
       </aside>
 
       <div className="display-widgets">
+        <SolarHomeWidget onOpen={onOpenSolar} />
         <button
           type="button"
           className="weather-panel yr-weather-panel"
