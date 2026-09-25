@@ -1,6 +1,7 @@
 import { Home, PlugZap, Sun, UtilityPole } from "lucide-react";
 import { type ReactNode, useMemo } from "react";
-import { FLOW_THRESHOLD_KW, formatKw, formatKwh, isSolarFresh, type SolarStatus, useSolar } from "../lib/solar";
+import { FLOW_THRESHOLD_KW, formatKw, formatKwh, isSolarFresh, type SolarStatus } from "../lib/solar";
+import { useSolar } from "../lib/useSolar";
 
 export function SolarApp() {
   const state = useSolar(5000);
