@@ -11,8 +11,10 @@
       "custom_domain": true
     }
   ],
+  // Built by `pnpm build:public`. Never point this at ./dist, which is the
+  // kiosk build and contains the device token.
   "assets": {
-    "directory": "./dist",
+    "directory": "./dist-public",
     "binding": "ASSETS",
     "not_found_handling": "404-page",
     "html_handling": "none",

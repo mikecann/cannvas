@@ -35,16 +35,16 @@ jobs:
       - name: Run regression tests
         run: pnpm test
 
-      - name: Deploy Convex and build website
+      # Only the public site is built here. The kiosk build carries the
+      # device token and is built on a Mac with `pnpm build:mirror`.
+      - name: Deploy Convex and build public website
         run: >-
           pnpm exec convex deploy
-          --cmd "pnpm build"
+          --cmd "pnpm build:public"
           --cmd-url-env-var-name VITE_CONVEX_URL
           --message "GitHub ${GITHUB_SHA}"
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
-          VITE_CALENDAR_ACCESS_TOKEN: ${{ secrets.VITE_CALENDAR_ACCESS_TOKEN }}
-          VITE_CANNVAS_TODO_ACCESS_TOKEN: ${{ secrets.VITE_CANNVAS_TODO_ACCESS_TOKEN }}
 
       - name: Deploy website to Cloudflare
         run: pnpm deploy:cloudflare
