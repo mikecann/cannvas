@@ -2,7 +2,7 @@
 """Serve Cannvas and proxy its private local integrations.
 
 The browser only talks to this loopback server. Home Assistant and Inventory
-credentials stay in mode-0600 files on the mirror instead of being compiled
+credentials stay in mode-0600 files on the Pi instead of being compiled
 into the public JavaScript bundle.
 """
 
@@ -16,13 +16,14 @@ from pathlib import Path
 import re
 import ssl
 import subprocess
+import sys
 from datetime import datetime, timedelta, timezone
 from threading import Lock
 import time
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlencode, urlparse
-from urllib.request import HTTPRedirectHandler, HTTPSHandler, HTTPCookieProcessor, Request, build_opener, urlopen
+from urllib.request import HTTPRedirectHandler, HTTPSHandler, HTTPCookieProcessor, Request, build_opener
 from zoneinfo import ZoneInfo
 
 
@@ -30,6 +31,14 @@ CONFIG_PATH = Path(os.environ.get("CANNVAS_HOME_ASSISTANT_CONFIG", "/var/lib/can
 UNIFI_CONFIG_PATH = Path(os.environ.get("CANNVAS_UNIFI_CONFIG", "/var/lib/cannvas/unifi.json"))
 INVENTORY_CONFIG_PATH = Path(os.environ.get("CANNVAS_INVENTORY_CONFIG", "/var/lib/cannvas/inventory.json"))
 VIDEO_URL = os.environ.get("CANNVAS_VIDEO_URL", "http://bruce.local:6113").rstrip("/")
+# Only the web build is served. Releases keep it in www/ next to this script so
+# the script, units and other deployment files are never reachable over HTTP.
+WEB_ROOT = Path(os.environ.get("CANNVAS_WEB_ROOT") or Path(__file__).resolve().parent / "www")
+# The kiosk page pings /api/heartbeat. The watchdog reads this tmpfs file, which
+# holds CLOCK_BOOTTIME seconds so NTP clock jumps after boot cannot fake an outage.
+HEARTBEAT_PATH = Path(os.environ.get("CANNVAS_HEARTBEAT_PATH", "/run/cannvas/heartbeat"))
+LISTEN_HOST = "127.0.0.1"
+LISTEN_PORT = int(os.environ.get("CANNVAS_PORT", "4173"))
 DEFAULT_URL = "http://homeassistant.local:8123"
 ENTITY_ID = re.compile(r"^[a-z_]+\.[a-z0-9_]+$")
 ALLOWED_ACTIONS = {
@@ -42,12 +51,15 @@ _UNIFI_SIGNATURE: tuple[str, str, str] | None = None
 
 
 class RejectRedirects(HTTPRedirectHandler):
-    # Never forward the mirror credential beyond the configured Convex host.
+    # Never forward a bearer token beyond the configured host. A redirect
+    # surfaces as an HTTPError instead of being followed.
     def redirect_request(self, request: Request, file_pointer: Any, code: int, message: str, headers: Any, new_url: str) -> None:
         return None
 
 
 _INVENTORY_OPENER = build_opener(HTTPSHandler(), RejectRedirects())
+_HOME_ASSISTANT_OPENER = build_opener(RejectRedirects())
+_VIDEO_OPENER = build_opener()
 
 
 def load_config() -> dict[str, str] | None:
@@ -124,7 +136,7 @@ def validate_url(value: str) -> str:
     return url
 
 
-def home_assistant_request(config: dict[str, str], path: str, payload: dict[str, Any] | None = None) -> Any:
+def home_assistant_request(config: dict[str, str], path: str, payload: dict[str, Any] | None = None, timeout: float = 8) -> Any:
     body = json.dumps(payload).encode("utf-8") if payload is not None else None
     request = Request(
         f"{config['url']}{path}",
@@ -135,7 +147,7 @@ def home_assistant_request(config: dict[str, str], path: str, payload: dict[str,
         },
         method="POST" if body is not None else "GET",
     )
-    with urlopen(request, timeout=8) as response:
+    with _HOME_ASSISTANT_OPENER.open(request, timeout=timeout) as response:
         raw = response.read()
         return json.loads(raw) if raw else None
 
@@ -170,26 +182,35 @@ def unifi_status(config: dict[str, str]) -> dict[str, Any]:
     context.verify_mode = ssl.CERT_NONE
     signature = (config["url"], config["username"], config["password"])
     site = re.sub(r"[^a-zA-Z0-9_-]", "", config["site"])
-    with _UNIFI_LOCK:
-        if _UNIFI_OPENER is None or _UNIFI_SIGNATURE != signature:
-            _UNIFI_OPENER = unifi_login(config, context)
-            _UNIFI_SIGNATURE = signature
 
-        try:
-            with _UNIFI_OPENER.open(f"{config['url']}/proxy/network/api/s/{site}/stat/sta", timeout=8) as response:
-                clients = json.loads(response.read()).get("data", [])
-            with _UNIFI_OPENER.open(f"{config['url']}/proxy/network/api/s/{site}/stat/health", timeout=8) as response:
-                health = json.loads(response.read()).get("data", [])
-        except HTTPError as error:
-            if error.code not in {401, 403}:
-                raise
-            # UniFi sessions expire. Re-authenticate once, then let any second
-            # failure surface as an offline state to the dashboard.
-            _UNIFI_OPENER = unifi_login(config, context)
-            with _UNIFI_OPENER.open(f"{config['url']}/proxy/network/api/s/{site}/stat/sta", timeout=8) as response:
-                clients = json.loads(response.read()).get("data", [])
-            with _UNIFI_OPENER.open(f"{config['url']}/proxy/network/api/s/{site}/stat/health", timeout=8) as response:
-                health = json.loads(response.read()).get("data", [])
+    def fetch(opener: Any) -> tuple[list[Any], list[Any]]:
+        with opener.open(f"{config['url']}/proxy/network/api/s/{site}/stat/sta", timeout=8) as response:
+            clients = json.loads(response.read()).get("data", [])
+        with opener.open(f"{config['url']}/proxy/network/api/s/{site}/stat/health", timeout=8) as response:
+            health = json.loads(response.read()).get("data", [])
+        return clients, health
+
+    def login() -> Any:
+        global _UNIFI_OPENER, _UNIFI_SIGNATURE
+        # Log in outside the lock. Two concurrent logins are harmless; a slow
+        # controller must not queue every other request behind it.
+        opener = unifi_login(config, context)
+        with _UNIFI_LOCK:
+            _UNIFI_OPENER, _UNIFI_SIGNATURE = opener, signature
+        return opener
+
+    with _UNIFI_LOCK:
+        opener = _UNIFI_OPENER if _UNIFI_SIGNATURE == signature else None
+    if opener is None:
+        opener = login()
+    try:
+        clients, health = fetch(opener)
+    except HTTPError as error:
+        if error.code not in {401, 403}:
+            raise
+        # UniFi sessions expire. Re-authenticate once, then let any second
+        # failure surface as an offline state to the dashboard.
+        clients, health = fetch(login())
 
     wan = next((row for row in health if row.get("subsystem") == "wan"), {})
     public_clients = []
@@ -280,6 +301,12 @@ def parse_time(value: str) -> datetime:
 Points = list[tuple[float, float | None]]
 
 
+# /api/states is about 180 KB and answers in well under 100 ms on the LAN.
+# 5 s leaves room for a busy Home Assistant without letting the kiosk hang.
+SOLAR_STATES_TIMEOUT = 5
+SOLAR_HISTORY_TIMEOUT = 6
+
+
 def solar_history(config: dict[str, str], start: datetime, end: datetime) -> dict[str, Points]:
     ids = [SOLAR_ENTITIES[key] for key in (*SOLAR_SERIES, *SOLAR_TOTALS)]
     query = urlencode({
@@ -288,7 +315,7 @@ def solar_history(config: dict[str, str], start: datetime, end: datetime) -> dic
         "minimal_response": "",
         "no_attributes": "",
     })
-    result = home_assistant_request(config, f"/api/history/period/{start.isoformat()}?{query}")
+    result = home_assistant_request(config, f"/api/history/period/{start.isoformat()}?{query}", timeout=SOLAR_HISTORY_TIMEOUT)
     keys = {entity: key for key, entity in SOLAR_ENTITIES.items()}
     points: dict[str, Points] = {}
     for rows in result or []:
@@ -368,10 +395,13 @@ def integrate_kwh(points: Points, start: float, end: float) -> float:
 
 def solar_status(config: dict[str, str]) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
-    states = {
-        key: home_assistant_request(config, f"/api/states/{entity}")
-        for key, entity in SOLAR_ENTITIES.items()
+    # One request for every state, filtered here, instead of one per sensor.
+    by_id = {
+        entity.get("entity_id"): entity
+        for entity in home_assistant_request(config, "/api/states", timeout=SOLAR_STATES_TIMEOUT) or []
+        if isinstance(entity, dict)
     }
+    states = {key: by_id.get(entity) or {} for key, entity in SOLAR_ENTITIES.items()}
     value = {key: number(state.get("state")) for key, state in states.items()}
     points = refresh_solar_history(config, now)
     midnight = datetime.combine(now.astimezone(SOLAR_ZONE).date(), datetime.min.time(), SOLAR_ZONE)
@@ -398,7 +428,7 @@ def solar_status(config: dict[str, str]) -> dict[str, Any]:
         "connected": True,
         # last_reported moves on every poll even when the value is unchanged, so
         # it shows whether the integration is still alive.
-        "updatedAt": max((state.get("last_reported") or state.get("last_updated", "") for state in states.values()), default=None),
+        "updatedAt": max((state.get("last_reported") or state.get("last_updated", "") for state in states.values()), default=None) or None,
         "status": states["status"].get("state"),
         "now": {
             "solarKw": value["solar"],
@@ -427,7 +457,89 @@ def solar_status(config: dict[str, str]) -> dict[str, Any]:
     }
 
 
+VIDEO_RETRY_SECONDS = 60
+_VIDEO_LOCK = Lock()
+_HEARTBEAT_LOCK = Lock()
+_VIDEO_DOWN_UNTIL = 0.0
+IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
+
+
+def video_unavailable_for() -> float:
+    with _VIDEO_LOCK:
+        return _VIDEO_DOWN_UNTIL - time.monotonic()
+
+
+def mark_video_unavailable() -> bool:
+    """Open the circuit. Returns True when this call opened it, so only the first failure logs."""
+    global _VIDEO_DOWN_UNTIL
+    with _VIDEO_LOCK:
+        now = time.monotonic()
+        opened = _VIDEO_DOWN_UNTIL <= now
+        _VIDEO_DOWN_UNTIL = now + VIDEO_RETRY_SECONDS
+        return opened
+
+
+def write_heartbeat() -> None:
+    clock = getattr(time, "CLOCK_BOOTTIME", time.CLOCK_MONOTONIC)
+    temporary = HEARTBEAT_PATH.with_suffix(".new")
+    # Two pings at once would otherwise share the temporary file.
+    with _HEARTBEAT_LOCK:
+        temporary.write_text(f"{time.clock_gettime(clock):.0f}\n", encoding="utf-8")
+        temporary.replace(HEARTBEAT_PATH)
+
+
 class CannvasHandler(SimpleHTTPRequestHandler):
+    server_version = "Cannvas"
+    sys_version = ""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self.cache_control: str | None = None
+        self.quiet = False
+        super().__init__(*args, directory=str(WEB_ROOT), **kwargs)
+
+    # Static files -----------------------------------------------------------
+
+    def end_headers(self) -> None:
+        if self.cache_control:
+            self.send_header("Cache-Control", self.cache_control)
+        super().end_headers()
+
+    def list_directory(self, path: str | os.PathLike[str]) -> None:
+        self.send_error(404)
+        return None
+
+    def serve_static(self, path: str, include_body: bool) -> None:
+        # Vite puts content hashes in /assets/ file names, so those never change.
+        # Everything else, including index.html, must be revalidated.
+        self.cache_control = IMMUTABLE_CACHE if path.startswith("/assets/") else "no-cache"
+        if include_body:
+            super().do_GET()
+        else:
+            super().do_HEAD()
+
+    # Request checks ---------------------------------------------------------
+
+    def allowed_hosts(self) -> set[str]:
+        port = self.server.server_address[1]
+        return {f"127.0.0.1:{port}", f"localhost:{port}"}
+
+    def request_is_local(self) -> bool:
+        # Chromium on this Pi is the only intended client. Checking Host stops
+        # DNS rebinding; checking Origin stops other sites posting to the API.
+        hosts = self.allowed_hosts()
+        if (self.headers.get("Host") or "").lower() not in hosts:
+            return False
+        origin = self.headers.get("Origin")
+        return origin is None or origin.lower() in {f"http://{host}" for host in hosts}
+
+    def reject_foreign(self) -> bool:
+        if self.request_is_local():
+            return False
+        self.send_plain(403, "Forbidden")
+        return True
+
+    # Responses --------------------------------------------------------------
+
     def send_json(self, status: int, value: Any) -> None:
         body = json.dumps(value).encode("utf-8")
         self.send_response(status)
@@ -436,6 +548,18 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
+
+    def send_plain(self, status: int, message: str = "", headers: dict[str, str] | None = None) -> None:
+        body = message.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
     def read_json(self) -> dict[str, Any]:
         try:
@@ -457,182 +581,283 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         else:
             self.send_json(500, {"error": "Home Assistant request failed"})
 
+    # Video proxy ------------------------------------------------------------
+
     def proxy_video(self, include_body: bool = True) -> None:
         # Bruce exposes a video-only, browser-compatible view of PhotoArchive.
         # Keeping that service behind this loopback proxy avoids CORS and keeps
         # the browser isolated from the rest of the home network.
+        remaining = video_unavailable_for()
+        if remaining > 0:
+            # Bruce failed recently. Answer at once instead of letting every
+            # video attempt wait for another connection timeout.
+            self.quiet = True
+            self.send_plain(503, "Bruce video service is unavailable", {"Retry-After": str(int(remaining) + 1)})
+            return
+
         suffix = self.path.removeprefix("/videos") or "/"
         request_headers = {}
         if range_header := self.headers.get("Range"):
             request_headers["Range"] = range_header
         request = Request(f"{VIDEO_URL}{suffix}", headers=request_headers)
         try:
-            with urlopen(request, timeout=20) as response:
-                self.send_response(response.status)
-                for header in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "Last-Modified"):
-                    if value := response.headers.get(header):
-                        self.send_header(header, value)
-                self.send_header("Cache-Control", "no-store" if suffix.endswith("/") else "private, max-age=3600")
-                self.end_headers()
-                if include_body:
-                    while chunk := response.read(1024 * 1024):
-                        self.wfile.write(chunk)
+            response = _VIDEO_OPENER.open(request, timeout=20)
         except HTTPError as error:
-            self.send_error(error.code)
-        except (URLError, TimeoutError):
-            self.send_error(502, "Bruce video service is unavailable")
+            # Bruce answered, so it is up. Keep Content-Range so a 416 still
+            # tells the browser how long the file is.
+            headers = {"Content-Range": value} if (value := error.headers.get("Content-Range")) else {}
+            error.close()
+            self.send_plain(error.code, "", headers)
+            return
+        except (URLError, TimeoutError, OSError):
+            if mark_video_unavailable():
+                self.log_message("Bruce video service is unavailable; answering 503 for %ss", VIDEO_RETRY_SECONDS)
+            self.quiet = True
+            self.send_plain(502, "Bruce video service is unavailable")
+            return
+
+        with response:
+            self.send_response(response.status)
+            for header in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "Last-Modified"):
+                if value := response.headers.get(header):
+                    self.send_header(header, value)
+            self.send_header("Cache-Control", "no-store" if suffix.endswith("/") else "private, max-age=3600")
+            self.end_headers()
+            if not include_body:
+                return
+            try:
+                while chunk := response.read(1024 * 1024):
+                    self.wfile.write(chunk)
+            except (BrokenPipeError, ConnectionResetError):
+                # Chromium drops the connection whenever it seeks or skips a video.
+                self.close_connection = True
+            except (TimeoutError, OSError):
+                # Bruce stalled mid-file. The headers are gone, so just end the response.
+                self.close_connection = True
+
+    # Routes -----------------------------------------------------------------
+
+    def get_inventory(self, query: str) -> None:
+        config = load_inventory_config()
+        if not config:
+            self.send_json(200, {"configured": False, "items": []})
+            return
+        try:
+            cursor = parse_qs(query).get("cursor", [None])[0]
+            result = inventory_request(config, cursor)
+            self.send_json(200, {"configured": True, **result})
+        except HTTPError as error:
+            if error.code in {401, 403}:
+                self.send_json(401, {"error": "Cannvas Inventory access needs attention"})
+            else:
+                self.send_json(502, {"error": "Cannvas Inventory is temporarily unavailable"})
+        except Exception:
+            self.send_json(502, {"error": "Cannvas Inventory is temporarily unavailable"})
+
+    def get_unifi_status(self, query: str) -> None:
+        config = load_unifi_config()
+        if not config:
+            self.send_json(200, {"configured": False})
+            return
+        try:
+            self.send_json(200, unifi_status(config))
+        except Exception:
+            self.send_json(200, {"configured": True, "connected": False})
+
+    def get_solar(self, query: str) -> None:
+        config = load_config()
+        if not config:
+            self.send_json(200, {"configured": False})
+            return
+        try:
+            self.send_json(200, solar_status(config))
+        except Exception as error:  # The response deliberately avoids leaking network or token details.
+            self.home_assistant_error(error)
+
+    def get_home_assistant_status(self, query: str) -> None:
+        config = load_config()
+        if not config:
+            self.send_json(200, {"configured": False, "defaultUrl": DEFAULT_URL})
+            return
+        try:
+            ha_config = home_assistant_request(config, "/api/config")
+            states = home_assistant_request(config, "/api/states")
+            network_config = load_unifi_config()
+            try:
+                network = unifi_status(network_config) if network_config else {"configured": False}
+            except Exception:
+                network = {"configured": True, "connected": False}
+            self.send_json(200, {
+                "configured": True,
+                "connected": True,
+                "locationName": ha_config.get("location_name", "Home"),
+                "version": ha_config.get("version"),
+                "url": config["url"],
+                "entities": [public_entity(entity) for entity in states if isinstance(entity, dict)],
+                "network": network,
+            })
+        except Exception as error:  # The response deliberately avoids leaking network or token details.
+            self.home_assistant_error(error)
+
+    def heartbeat(self, query: str = "") -> None:
+        try:
+            write_heartbeat()
+        except OSError:
+            self.send_json(503, {"error": "Heartbeat could not be recorded"})
+            return
+        self.send_response(204)
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+
+    def health(self, query: str = "") -> None:
+        # Answers from this process alone, so deploys don't depend on Home Assistant.
+        self.send_json(200, {"ok": True})
+
+    def post_poweroff(self) -> None:
+        try:
+            body = self.read_json()
+            if body.get("confirm") != "poweroff":
+                raise ValueError("Power-off confirmation is required")
+
+            # Polkit lets the unprivileged kiosk user start only the
+            # root-owned Cannvas power-off helper. This remains compatible
+            # with NoNewPrivileges=true on the web service.
+            subprocess.run(
+                ["/usr/bin/systemctl", "start", "cannvas-poweroff.service"],
+                check=True,
+                timeout=5,
+            )
+            self.send_json(202, {"ok": True})
+        except ValueError as error:
+            self.send_json(400, {"error": str(error)})
+        except (OSError, subprocess.SubprocessError):
+            self.send_json(500, {"error": "Cannvas could not power off"})
+
+    def post_home_assistant_config(self) -> None:
+        try:
+            body = self.read_json()
+            config = {"url": validate_url(str(body.get("url", ""))), "token": str(body.get("token", "")).strip()}
+            if len(config["token"]) < 20:
+                raise ValueError("Enter a valid long-lived access token")
+            # Validate before replacing the last working configuration.
+            home_assistant_request(config, "/api/")
+            CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            temporary = CONFIG_PATH.with_suffix(".new")
+            temporary.write_text(json.dumps(config), encoding="utf-8")
+            os.chmod(temporary, 0o600)
+            temporary.replace(CONFIG_PATH)
+            self.send_json(200, {"configured": True})
+        except ValueError as error:
+            self.send_json(400, {"error": str(error)})
+        except Exception as error:
+            self.home_assistant_error(error)
+
+    def post_home_assistant_action(self) -> None:
+        config = load_config()
+        if not config:
+            self.send_json(409, {"error": "Home Assistant is not connected"})
+            return
+        try:
+            body = self.read_json()
+            entity_id = str(body.get("entityId", ""))
+            action = str(body.get("action", ""))
+            domain = entity_id.partition(".")[0]
+            if not ENTITY_ID.fullmatch(entity_id) or action not in ALLOWED_ACTIONS or domain not in ALLOWED_ACTIONS[action]:
+                raise ValueError("That Home Assistant action is not allowed")
+            result = home_assistant_request(config, f"/api/services/{domain}/{action}", {"entity_id": entity_id})
+            self.send_json(200, {"ok": True, "states": [public_entity(entity) for entity in result or []]})
+        except ValueError as error:
+            self.send_json(400, {"error": str(error)})
+        except Exception as error:
+            self.home_assistant_error(error)
+
+    def post_heartbeat(self) -> None:
+        self.heartbeat()
+
+    GET_ROUTES = {
+        "/api/inventory": get_inventory,
+        "/api/unifi/status": get_unifi_status,
+        "/api/solar": get_solar,
+        "/api/home-assistant/status": get_home_assistant_status,
+        "/api/heartbeat": heartbeat,
+        "/api/health": health,
+    }
+    POST_ROUTES = {
+        "/api/system/poweroff": post_poweroff,
+        "/api/home-assistant/config": post_home_assistant_config,
+        "/api/home-assistant/action": post_home_assistant_action,
+        "/api/heartbeat": post_heartbeat,
+    }
 
     def do_GET(self) -> None:
-        parsed_path = urlparse(self.path)
-        if parsed_path.path == "/videos" or parsed_path.path.startswith("/videos/"):
+        if self.reject_foreign():
+            return
+        parsed = urlparse(self.path)
+        if parsed.path == "/videos" or parsed.path.startswith("/videos/"):
             self.proxy_video()
-            return
-
-        if parsed_path.path == "/api/inventory":
-            config = load_inventory_config()
-            if not config:
-                self.send_json(200, {"configured": False, "items": []})
-                return
-            try:
-                cursor = parse_qs(parsed_path.query).get("cursor", [None])[0]
-                result = inventory_request(config, cursor)
-                self.send_json(200, {"configured": True, **result})
-            except HTTPError as error:
-                if error.code in {401, 403}:
-                    self.send_json(401, {"error": "Cannvas Inventory access needs attention"})
-                else:
-                    self.send_json(502, {"error": "Cannvas Inventory is temporarily unavailable"})
-            except (URLError, TimeoutError, json.JSONDecodeError):
-                self.send_json(502, {"error": "Cannvas Inventory is temporarily unavailable"})
-            except Exception:
-                self.send_json(502, {"error": "Cannvas Inventory is temporarily unavailable"})
-            return
-
-        if self.path == "/api/unifi/status":
-            config = load_unifi_config()
-            if not config:
-                self.send_json(200, {"configured": False})
-                return
-            try:
-                self.send_json(200, unifi_status(config))
-            except Exception:
-                self.send_json(200, {"configured": True, "connected": False})
-            return
-
-        if self.path == "/api/solar":
-            config = load_config()
-            if not config:
-                self.send_json(200, {"configured": False})
-                return
-            try:
-                self.send_json(200, solar_status(config))
-            except Exception as error:  # The response deliberately avoids leaking network or token details.
-                self.home_assistant_error(error)
-            return
-
-        if self.path == "/api/home-assistant/status":
-            config = load_config()
-            if not config:
-                self.send_json(200, {"configured": False, "defaultUrl": DEFAULT_URL})
-                return
-            try:
-                ha_config = home_assistant_request(config, "/api/config")
-                states = home_assistant_request(config, "/api/states")
-                network_config = load_unifi_config()
-                try:
-                    network = unifi_status(network_config) if network_config else {"configured": False}
-                except Exception:
-                    network = {"configured": True, "connected": False}
-                self.send_json(200, {
-                    "configured": True,
-                    "connected": True,
-                    "locationName": ha_config.get("location_name", "Home"),
-                    "version": ha_config.get("version"),
-                    "url": config["url"],
-                    "entities": [public_entity(entity) for entity in states if isinstance(entity, dict)],
-                    "network": network,
-                })
-            except Exception as error:  # The response deliberately avoids leaking network or token details.
-                self.home_assistant_error(error)
-            return
-        super().do_GET()
+        elif route := self.GET_ROUTES.get(parsed.path):
+            route(self, parsed.query)
+        elif parsed.path == "/api" or parsed.path.startswith("/api/"):
+            self.send_json(404, {"error": "Not found"})
+        else:
+            self.serve_static(parsed.path, include_body=True)
 
     def do_HEAD(self) -> None:
-        parsed_path = urlparse(self.path)
-        if parsed_path.path == "/videos" or parsed_path.path.startswith("/videos/"):
-            self.proxy_video(include_body=False)
+        if self.reject_foreign():
             return
-        super().do_HEAD()
+        parsed = urlparse(self.path)
+        if parsed.path == "/videos" or parsed.path.startswith("/videos/"):
+            self.proxy_video(include_body=False)
+        elif parsed.path == "/api" or parsed.path.startswith("/api/"):
+            self.send_plain(405, "")
+        else:
+            self.serve_static(parsed.path, include_body=False)
 
     def do_POST(self) -> None:
-        if self.path == "/api/system/poweroff":
-            try:
-                body = self.read_json()
-                if self.headers.get("Content-Type", "").partition(";")[0].strip().lower() != "application/json":
-                    raise ValueError("Expected a JSON request")
-                if body.get("confirm") != "poweroff":
-                    raise ValueError("Power-off confirmation is required")
-
-                # Polkit lets the unprivileged kiosk user start only the
-                # root-owned Cannvas power-off helper. This remains compatible
-                # with NoNewPrivileges=true on the web service.
-                subprocess.run(
-                    ["/usr/bin/systemctl", "start", "cannvas-poweroff.service"],
-                    check=True,
-                    timeout=5,
-                )
-                self.send_json(202, {"ok": True})
-            except ValueError as error:
-                self.send_json(400, {"error": str(error)})
-            except (OSError, subprocess.SubprocessError):
-                self.send_json(500, {"error": "Cannvas could not power off"})
+        if self.reject_foreign():
             return
-
-        if self.path == "/api/home-assistant/config":
-            try:
-                body = self.read_json()
-                config = {"url": validate_url(str(body.get("url", ""))), "token": str(body.get("token", "")).strip()}
-                if len(config["token"]) < 20:
-                    raise ValueError("Enter a valid long-lived access token")
-                # Validate before replacing the last working configuration.
-                home_assistant_request(config, "/api/")
-                CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-                temporary = CONFIG_PATH.with_suffix(".new")
-                temporary.write_text(json.dumps(config), encoding="utf-8")
-                os.chmod(temporary, 0o600)
-                temporary.replace(CONFIG_PATH)
-                self.send_json(200, {"configured": True})
-            except ValueError as error:
-                self.send_json(400, {"error": str(error)})
-            except Exception as error:
-                self.home_assistant_error(error)
+        # Browsers cannot send application/json cross-origin without a CORS
+        # preflight, which this server never approves.
+        if self.headers.get("Content-Type", "").partition(";")[0].strip().lower() != "application/json":
+            self.send_json(415, {"error": "Expected a JSON request"})
             return
+        route = self.POST_ROUTES.get(urlparse(self.path).path)
+        if route:
+            route(self)
+        else:
+            self.send_json(404, {"error": "Not found"})
 
-        if self.path == "/api/home-assistant/action":
-            config = load_config()
-            if not config:
-                self.send_json(409, {"error": "Home Assistant is not connected"})
-                return
-            try:
-                body = self.read_json()
-                entity_id = str(body.get("entityId", ""))
-                action = str(body.get("action", ""))
-                domain = entity_id.partition(".")[0]
-                if not ENTITY_ID.fullmatch(entity_id) or action not in ALLOWED_ACTIONS or domain not in ALLOWED_ACTIONS[action]:
-                    raise ValueError("That Home Assistant action is not allowed")
-                result = home_assistant_request(config, f"/api/services/{domain}/{action}", {"entity_id": entity_id})
-                self.send_json(200, {"ok": True, "states": [public_entity(entity) for entity in result or []]})
-            except ValueError as error:
-                self.send_json(400, {"error": str(error)})
-            except Exception as error:
-                self.home_assistant_error(error)
+    # Logging ----------------------------------------------------------------
+
+    def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+        # Successful requests are routine. Only failures reach the journal.
+        if self.quiet:
             return
-
-        self.send_error(404)
+        try:
+            status = int(code)
+        except (TypeError, ValueError):
+            status = 0
+        if 200 <= status < 300 or status == 304:
+            return
+        super().log_request(code, size)
 
     def log_message(self, format: str, *args: object) -> None:
         print(f"cannvas server: {format % args}", flush=True)
 
 
+class CannvasServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        # Clients hang up mid-response all the time (video seeks, reloads).
+        if isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError, TimeoutError)):
+            return
+        super().handle_error(request, client_address)
+
+
+def main() -> None:
+    CannvasServer((LISTEN_HOST, LISTEN_PORT), CannvasHandler).serve_forever()
+
+
 if __name__ == "__main__":
-    ThreadingHTTPServer(("127.0.0.1", 4173), CannvasHandler).serve_forever()
+    main()

@@ -1,0 +1,38 @@
+[Unit]
+Description=Power off Cannvas cleanly when Home Assistant asks
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+ExecStart=/usr/local/bin/cannvas-ha-shutdown
+Restart=always
+RestartSec=10
+
+# Reads the Home Assistant token and asks polkit (over D-Bus) to start
+# cannvas-poweroff.service. It needs nothing else.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+MemoryMax=64M
+
+[Install]
+WantedBy=multi-user.target

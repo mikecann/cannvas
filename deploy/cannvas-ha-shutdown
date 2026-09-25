@@ -1,0 +1,154 @@
+#!/usr/bin/python3
+"""Power Cannvas off cleanly when Home Assistant asks.
+
+Home Assistant cuts the smart plug every night. Before it does, its automation
+turns on input_boolean.cannvas_shutdown. This service polls that helper with
+the Home Assistant token the web server already stores, starts
+cannvas-poweroff.service through the same polkit rule the on-screen power
+button uses, then turns the helper back off to acknowledge the request. If the
+power-off can't start, the helper stays on and the next poll retries.
+
+Nothing on the Pi listens for the request, so no new inbound access exists.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from email.utils import parsedate_to_datetime
+import json
+import os
+from pathlib import Path
+import subprocess
+import time
+from typing import Any
+from urllib.error import HTTPError
+from urllib.request import HTTPRedirectHandler, Request, build_opener
+
+CONFIG_PATH = Path(os.environ.get("CANNVAS_HOME_ASSISTANT_CONFIG", "/var/lib/cannvas/home-assistant.json"))
+ENTITY_ID = os.environ.get("CANNVAS_SHUTDOWN_ENTITY", "input_boolean.cannvas_shutdown")
+POLL_SECONDS = 10
+# A request older than this is left over from a night when the Pi was already
+# off or unreachable. Acting on it after the morning power-on would switch the
+# display straight back off.
+MAX_REQUEST_AGE = 600
+
+
+class RejectRedirects(HTTPRedirectHandler):
+    # Never forward the Home Assistant token to another host.
+    def redirect_request(self, *args: Any) -> None:
+        return None
+
+
+_OPENER = build_opener(RejectRedirects())
+
+
+def load_config() -> dict[str, str] | None:
+    try:
+        value = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(value, dict):
+        return None
+    url = str(value.get("url", "")).rstrip("/")
+    token = str(value.get("token", ""))
+    return {"url": url, "token": token} if url and token else None
+
+
+def request(config: dict[str, str], path: str, payload: dict[str, Any] | None = None) -> tuple[Any, datetime | None]:
+    body = json.dumps(payload).encode("utf-8") if payload is not None else None
+    http_request = Request(
+        f"{config['url']}{path}",
+        data=body,
+        headers={"Authorization": f"Bearer {config['token']}", "Content-Type": "application/json"},
+        method="POST" if body is not None else "GET",
+    )
+    with _OPENER.open(http_request, timeout=5) as response:
+        raw = response.read()
+        date = response.headers.get("Date")
+        return (json.loads(raw) if raw else None), (parsedate_to_datetime(date) if date else None)
+
+
+def request_age(state: dict[str, Any], server_now: datetime | None) -> float | None:
+    """Seconds since the helper turned on, measured on Home Assistant's clock.
+
+    The Pi has no real-time clock, so its own time can be months out until NTP
+    syncs after boot. Comparing two Home Assistant timestamps avoids that.
+    """
+    changed = state.get("last_changed")
+    if not changed or server_now is None:
+        return None
+    return (server_now - datetime.fromisoformat(str(changed).replace("Z", "+00:00"))).total_seconds()
+
+
+def log(message: str) -> None:
+    print(message, flush=True)
+
+
+def acknowledge(config: dict[str, str]) -> None:
+    try:
+        request(config, "/api/services/input_boolean/turn_off", {"entity_id": ENTITY_ID})
+    except Exception as error:
+        log(f"Could not acknowledge the shutdown request ({type(error).__name__})")
+
+
+def start_poweroff() -> bool:
+    try:
+        result = subprocess.run(["/usr/bin/systemctl", "start", "cannvas-poweroff.service"], check=False, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
+def main() -> None:
+    problem = ""
+
+    def report(message: str) -> None:
+        # Log each distinct problem once instead of every poll.
+        nonlocal problem
+        if message != problem:
+            log(message)
+            problem = message
+
+    while True:
+        config = load_config()
+        if not config:
+            report("Home Assistant is not configured; waiting")
+            time.sleep(60)
+            continue
+        try:
+            state, server_now = request(config, f"/api/states/{ENTITY_ID}")
+        except HTTPError as error:
+            report(f"{ENTITY_ID} is missing in Home Assistant" if error.code == 404 else f"Home Assistant answered {error.code}")
+            time.sleep(60)
+            continue
+        except Exception as error:  # Network trouble must never stop the loop.
+            report(f"Home Assistant is unreachable ({type(error).__name__})")
+            time.sleep(POLL_SECONDS)
+            continue
+        if problem:
+            log("Home Assistant is reachable again")
+            problem = ""
+
+        if isinstance(state, dict) and state.get("state") == "on":
+            try:
+                age = request_age(state, server_now)
+            except (TypeError, ValueError):
+                age = None
+            if age is None or age > MAX_REQUEST_AGE:
+                log(f"Ignoring a stale or unreadable shutdown request (age {'unknown' if age is None else f'{age:.0f}s'})")
+                acknowledge(config)
+            elif start_poweroff():
+                log("Home Assistant requested a shutdown before cutting power; powering off")
+                # The automation starts its countdown to cutting the power once
+                # it sees this. The power-off job is queued, so the network is
+                # still up for this request.
+                acknowledge(config)
+                time.sleep(300)
+            else:
+                # Leave the request on so the next poll retries.
+                log("Could not start cannvas-poweroff.service; retrying")
+        time.sleep(POLL_SECONDS)
+
+
+if __name__ == "__main__":
+    main()

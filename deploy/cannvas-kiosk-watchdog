@@ -1,0 +1,43 @@
+#!/bin/sh
+set -eu
+
+# Restart Chromium when the Cannvas page stops pinging /api/heartbeat.
+# cannvas-server stores the boot-clock second of the latest ping. Using the
+# boot clock keeps NTP jumps after boot from looking like a frozen page.
+heartbeat=${CANNVAS_HEARTBEAT_PATH:-/run/cannvas/heartbeat}
+stale_after=${CANNVAS_HEARTBEAT_STALE:-180}
+state="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/cannvas-kiosk-watchdog"
+
+# No ping since boot. The page may simply not send them, so never act on that.
+[ -r "$heartbeat" ] || exit 0
+
+last=$(cut -d. -f1 "$heartbeat")
+now=$(cut -d. -f1 /proc/uptime)
+age=$((now - last))
+if [ "$age" -le "$stale_after" ]; then
+  rm -f "$state"
+  exit 0
+fi
+
+# If the web server itself is down, a new Chromium would not help.
+/usr/bin/curl --fail --silent --output /dev/null --max-time 5 http://127.0.0.1:4173/ || exit 0
+
+# Leave a kiosk that is stopped (systemd restarts it) or still starting alone.
+[ "$(/usr/bin/systemctl --user is-active cannvas-kiosk.service)" = active ] || exit 0
+# systemd records this on CLOCK_MONOTONIC, so compare it with that clock.
+started=$(/usr/bin/systemctl --user show cannvas-kiosk.service -p ActiveEnterTimestampMonotonic --value)
+monotonic=$(/usr/bin/python3 -c 'import time; print(int(time.clock_gettime(time.CLOCK_MONOTONIC)))')
+if [ $((monotonic - started / 1000000)) -le "$stale_after" ]; then
+  exit 0
+fi
+
+# Restart once per silence. If the page never pings again after a restart,
+# the problem is not Chromium, and looping would only hide it.
+if [ -r "$state" ] && [ "$(cat "$state")" = "$last" ]; then
+  exit 0
+fi
+# <4> marks the line as a warning so it passes the unit's LogLevelMax.
+echo "<4>Cannvas page has not pinged for ${age}s; restarting the kiosk"
+# Record the silence only once the restart worked, so a failed restart is retried.
+/usr/bin/systemctl --user restart cannvas-kiosk.service
+echo "$last" >"$state"

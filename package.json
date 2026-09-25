@@ -15,7 +15,8 @@
     "convex:dev": "convex dev",
     "convex:deploy": "convex deploy",
     "deploy:cloudflare": "wrangler deploy",
-    "test": "node --test tests/*.test.mjs deploy/*.test.mjs",
+    "test": "node --test tests/*.test.mjs deploy/*.test.mjs && python3 -m unittest deploy/cannvas_server_test.py",
+    "test:server": "python3 -m unittest deploy/cannvas_server_test.py",
     "test:media": "node --test deploy/*.test.mjs",
     "typecheck": "tsc -b --pretty false"
   },

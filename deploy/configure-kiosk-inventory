@@ -2,7 +2,7 @@
 set -eu
 
 convex_site_url=${1:-}
-mirror_host=${2:-mirror}
+pi_host=${2:-cannvas}
 tailscale_bin=${TAILSCALE_BIN:-/Applications/Tailscale.app/Contents/MacOS/Tailscale}
 
 if [ -z "$convex_site_url" ]; then
@@ -30,13 +30,13 @@ if [ ! -x "$tailscale_bin" ]; then
   exit 1
 fi
 
-# The token exists only in this process, Convex, and the mirror's mode-0600 file.
+# The token exists only in this process, Convex, and the Pi's mode-0600 file.
 inventory_token=$(openssl rand -hex 32)
 pnpm exec convex env set --prod CANNVAS_KIOSK_INVENTORY_TOKEN "$inventory_token" >/dev/null
 jq -nc --arg url "$convex_site_url" --arg token "$inventory_token" \
   '{url:$url,token:$token}' \
-  | "$tailscale_bin" ssh "pi@$mirror_host" \
+  | "$tailscale_bin" ssh "pi@$pi_host" \
       'sudo install -o pi -g pi -m 0600 /dev/stdin /var/lib/cannvas/inventory.json'
 unset inventory_token
 
-echo "Cannvas Inventory access is configured for $mirror_host."
+echo "Cannvas Inventory access is configured for $pi_host."
