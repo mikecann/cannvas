@@ -294,16 +294,21 @@ SOLAR_TOTALS = ("imported", "exported")
 SOLAR_HISTORY = (*SOLAR_SERIES, "possible", *SOLAR_TOTALS)
 
 
-def kilo_divisor(state: dict[str, Any]) -> int:
-    """1000 for a sensor reporting W or Wh, 1 for kW or kWh."""
+def kilo_divisor(state: dict[str, Any], default: int = 1) -> int:
+    """1000 for a sensor reporting W or Wh, 1 for kW or kWh, `default` if it says neither."""
     attributes = state.get("attributes") if isinstance(state.get("attributes"), dict) else {}
-    return 1000 if attributes.get("unit_of_measurement") in {"W", "Wh"} else 1
+    unit = attributes.get("unit_of_measurement")
+    if unit in {"W", "Wh"}:
+        return 1000
+    return 1 if unit in {"kW", "kWh"} else default
 
 
 def in_kilo(state: dict[str, Any]) -> float | None:
     """A power or energy reading in kW or kWh, whatever unit Home Assistant uses."""
     value = number(state.get("state"))
     return round(value / kilo_divisor(state), 3) if value is not None else None
+
+
 _SOLAR_LOCK = Lock()
 _SOLAR_CACHE: dict[str, Any] = {"key": None, "points": {}, "fetched_at": 0.0, "fetched_until": None}
 
@@ -440,7 +445,9 @@ def solar_status(config: dict[str, str]) -> dict[str, Any]:
         for key in (*SOLAR_SERIES, "possible")
     }
     # History comes back in the sensor's own unit, which is W for the forecast.
-    possible_divisor = kilo_divisor(states["possible"])
+    # Forecast.Solar reports W. Keep that if the sensor is briefly missing, so
+    # cached history isn't shown 1000 times too big.
+    possible_divisor = kilo_divisor(states["possible"], default=1000)
     forecast_states = {key: by_id.get(entity) or {} for key, entity in SOLAR_FORECAST_ENTITIES.items()}
     peak_forecast = (by_id.get(SOLAR_FORECAST_PEAK) or {}).get("state")
     # The inverter keeps its clock (and its "today" counter) in UTC, which

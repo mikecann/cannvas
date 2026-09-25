@@ -47,8 +47,10 @@ export type SolarStatus = {
  */
 export function spareSolarKw(actualKw: number | null | undefined, potentialKw: number | null | undefined): number | null {
   if (actualKw == null || potentialKw == null) return null;
-  const spare = potentialKw - Math.max(0, actualKw);
-  return spare >= Math.max(0.3, potentialKw * 0.15) ? Math.round(spare * 100) / 100 : null;
+  // Compare in watts so a gap of exactly 300 W isn't lost to float rounding.
+  const spareW = Math.round((potentialKw - Math.max(0, actualKw)) * 1000);
+  const thresholdW = Math.round(Math.max(0.3, potentialKw * 0.15) * 1000);
+  return spareW >= thresholdW ? Math.round(spareW / 10) / 100 : null;
 }
 
 export type SolarState =

@@ -34,6 +34,15 @@ function deferred() {
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
+// Polls instead of sleeping a fixed time, so a slow CI machine can't flake it.
+async function waitFor(condition, timeoutMs = 2000) {
+  const started = Date.now();
+  while (!condition()) {
+    assert.ok(Date.now() - started < timeoutMs, "condition never became true");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 test("runs at once, then schedules the next run after the last one finishes", async () => {
   const clock = manualClock();
   let runs = 0;
@@ -126,9 +135,33 @@ test("a hung run times out, is aborted, and polling carries on", async () => {
     ...clock,
   });
   poller.start();
-  await new Promise((resolve) => setTimeout(resolve, 60));
-  assert.equal(signal.aborted, true);
-  assert.equal(clock.pending().length, 1);
+  await waitFor(() => signal?.aborted && clock.pending().length === 1);
+  poller.stop();
+});
+
+test("a timed-out task that ignores its signal is not overlapped", async () => {
+  const clock = manualClock();
+  const slow = deferred();
+  let started = 0;
+  const poller = createPoller({
+    // Ignores the signal, like a Convex action.
+    task: () => { started += 1; return started === 1 ? slow.promise : undefined; },
+    intervalMs: 1000,
+    timeoutMs: 20,
+    ...clock,
+  });
+  poller.start();
+  await waitFor(() => clock.pending().length === 1);
+  clock.fire();
+  await settle();
+  // Still running, so this run is skipped.
+  assert.equal(started, 1);
+  slow.resolve();
+  await settle();
+  await waitFor(() => clock.pending().length === 1);
+  clock.fire();
+  await settle();
+  assert.equal(started, 2);
   poller.stop();
 });
 

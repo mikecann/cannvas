@@ -23,6 +23,8 @@ test("treats missing or unreadable timestamps as stale", () => {
 
 test("reports spare solar only when the estimate is clearly higher", () => {
   assert.equal(spareSolarKw(1.2, 5.4), 4.2);
+  // Exactly on the 300 W threshold.
+  assert.equal(spareSolarKw(1.7, 2), 0.3);
   // Within the model's noise.
   assert.equal(spareSolarKw(2.19, 2.3), null);
   // Actual above the estimate happens too.

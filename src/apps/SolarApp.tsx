@@ -105,8 +105,11 @@ function FlowNode({ className, x, y, icon, label, value, note }: { className: st
 // Forecast.Solar is a weather model, so everything here is worded as an estimate.
 function SolarPotential({ solar }: { solar: SolarStatus }) {
   const forecast = solar.forecast;
-  if (!forecast || (forecast.potentialKw == null && forecast.todayKwh == null)) return null;
-  const spare = spareSolarKw(solar.now?.solarKw, forecast.potentialKw);
+  if (!forecast || (forecast.potentialKw == null && forecast.todayKwh == null && forecast.tomorrowKwh == null)) return null;
+  const actualKw = solar.now?.solarKw ?? null;
+  const spare = spareSolarKw(actualKw, forecast.potentialKw);
+  // Only claim the panels are keeping up when there's an actual reading to compare.
+  const comparable = actualKw != null && forecast.potentialKw != null;
   const outlook = [
     forecast.todayKwh != null ? `about ${formatKwh(forecast.todayKwh)} today` : null,
     forecast.tomorrowKwh != null ? `${formatKwh(forecast.tomorrowKwh)} tomorrow` : null,
@@ -116,7 +119,7 @@ function SolarPotential({ solar }: { solar: SolarStatus }) {
       <strong>
         {spare != null
           ? `About ${formatKw(spare)} of sun going unused`
-          : forecast.potentialKw != null
+          : comparable
             ? "Using about all the sun there is right now"
             : "Solar forecast"}
       </strong>

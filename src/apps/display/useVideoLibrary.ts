@@ -9,7 +9,9 @@ const RECRAWL_MS = 30 * 60_000;
 // While Bruce can't be reached, look again every minute. The Pi answers
 // straight away while Bruce is down, so this costs nothing.
 const UNREACHABLE_RETRY_MS = 60_000;
-// A big library takes a while to list, but a stalled Bruce must not hang it.
+// Each folder listing gets its own limit, so one stalled folder can't sink
+// the rest. The whole crawl still has an outer limit for the poller.
+const LISTING_TIMEOUT_MS = 20_000;
 const CRAWL_TIMEOUT_MS = 90_000;
 
 export type VideoLibrary = {
@@ -39,10 +41,16 @@ function writeCache(videos: string[]) {
 async function crawlVideos(signal: AbortSignal, root = VIDEO_ROOT, depth = 0, visited = new Set<string>()): Promise<string[]> {
   if (depth > 10 || visited.has(root)) return [];
   visited.add(root);
-  const response = await fetch(root, { signal });
+  const response = await fetch(root, { signal: AbortSignal.any([signal, AbortSignal.timeout(LISTING_TIMEOUT_MS)]) });
   if (!response.ok) throw new Error(`Video server returned ${response.status}`);
   const { videos, folders } = parseVideoListing(await response.text(), root, window.location.origin);
-  const nested = await Promise.all(folders.map((folder) => crawlVideos(signal, folder, depth + 1, visited)));
+  const nested = await Promise.all(folders.map((folder) => crawlVideos(signal, folder, depth + 1, visited)
+    // Only the top listing decides whether Bruce is reachable. A broken
+    // sub-folder is skipped, and the rest of the library still plays.
+    .catch((error: unknown) => {
+      console.warn(`Skipping video folder ${folder}`, error);
+      return [];
+    })));
   return [...videos, ...nested.flat()];
 }
 

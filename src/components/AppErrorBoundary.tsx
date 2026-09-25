@@ -27,7 +27,14 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
         <TriangleAlert />
         <strong>This app hit a snag</strong>
         <span>The rest of Cannvas is fine. Reloading the screen usually sorts it out.</span>
-        <button className="button secondary" onClick={() => window.location.reload()}>Reload the screen</button>
+        <button
+          className="button secondary"
+          // On the home screen a touch would otherwise wake the previous app first.
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={() => window.location.reload()}
+        >
+          Reload the screen
+        </button>
       </div>
     );
   }

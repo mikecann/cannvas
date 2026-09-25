@@ -13,14 +13,20 @@ export function WhiteboardSlide({ strokes }: { strokes: Stroke[] }) {
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = Math.round(rect.width * window.devicePixelRatio);
-    canvas.height = Math.round(rect.height * window.devicePixelRatio);
-    // Stroke widths were drawn for the full-size board, so scale them with it.
-    const scale = rect.width / 1024;
-    paintScaled(canvas, (context, width, height) => {
-      for (const stroke of strokes) drawStroke(context, { ...stroke, width: stroke.width * scale }, width, height);
-    });
+    const paint = () => {
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = Math.round(rect.width * window.devicePixelRatio);
+      canvas.height = Math.round(rect.height * window.devicePixelRatio);
+      // Stroke widths were drawn for the full-size board, so scale them with it.
+      const scale = rect.width / 1024;
+      paintScaled(canvas, (context, width, height) => {
+        for (const stroke of strokes) drawStroke(context, { ...stroke, width: stroke.width * scale }, width, height);
+      });
+    };
+    paint();
+    const observer = new ResizeObserver(paint);
+    observer.observe(canvas);
+    return () => observer.disconnect();
   }, [strokes]);
 
   return (

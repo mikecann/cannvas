@@ -39,7 +39,12 @@ export type Poller = {
 };
 
 /** Runs one task, rejecting (and aborting it) if it takes longer than timeoutMs. */
-export function runWithTimeout(task: PollTask, controller: AbortController, timeoutMs: number): Promise<number | void> {
+export function runWithTimeout(
+  task: PollTask,
+  controller: AbortController,
+  timeoutMs: number,
+  onStarted?: (settled: Promise<unknown>) => void,
+): Promise<number | void> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       controller.abort(new Error("Timed out"));
@@ -50,8 +55,9 @@ export function runWithTimeout(task: PollTask, controller: AbortController, time
       reject(controller.signal.reason);
     }, { once: true });
     // Through a promise, so a task that throws synchronously is handled too.
-    Promise.resolve()
-      .then(() => task(controller.signal))
+    const work = Promise.resolve().then(() => task(controller.signal));
+    onStarted?.(work.then(() => undefined, () => undefined));
+    work
       .then(
         (value) => { clearTimeout(timer); resolve(value); },
         (error: unknown) => { clearTimeout(timer); reject(error); },
@@ -78,29 +84,58 @@ export function createPoller({
     timer = undefined;
   };
 
+  // A timed-out task that ignored its signal may still be running. Skip runs
+  // until it settles, so requests still never overlap, but only for a while:
+  // a task that never settles must not stop polling for good.
+  let lingering: { settled: Promise<unknown>; since: number } | null = null;
+
   const loop = async () => {
     let delay = intervalMs;
     do {
       rerun = false;
-      controller = new AbortController();
+      if (lingering && Date.now() - lingering.since < timeoutMs * 3) {
+        delay = intervalMs;
+        continue;
+      }
+      lingering = null;
+      const runController = new AbortController();
+      controller = runController;
+      let settled: Promise<unknown> | undefined;
       try {
-        const next = await runWithTimeout(task, controller, timeoutMs);
+        const next = await runWithTimeout(task, runController, timeoutMs, (work) => { settled = work; });
         delay = typeof next === "number" && Number.isFinite(next) && next >= 0 ? next : intervalMs;
       } catch {
         delay = intervalMs;
+        if (runController.signal.aborted && settled) {
+          const entry = { settled, since: Date.now() };
+          lingering = entry;
+          void settled.then(() => {
+            if (lingering === entry) lingering = null;
+          });
+        }
       }
       controller = null;
     } while (rerun && active);
-    running = null;
-    if (active) {
-      clearTimer();
-      timer = schedule(tick, delay);
-    }
+    return delay;
+  };
+
+  // `running` is cleared in a later callback, never inside loop(), because a
+  // loop that skips its run finishes before loop() even returns.
+  const startLoop = () => {
+    const run: Promise<void> = loop().then((delay) => {
+      if (running === run) running = null;
+      if (active) {
+        clearTimer();
+        timer = schedule(tick, delay);
+      }
+    });
+    running = run;
+    return run;
   };
 
   const tick = () => {
     timer = undefined;
-    if (!running) running = loop();
+    if (!running) startLoop();
   };
 
   return {
@@ -125,8 +160,7 @@ export function createPoller({
         rerun = true;
         return running;
       }
-      running = loop();
-      return running;
+      return startLoop();
     },
   };
 }

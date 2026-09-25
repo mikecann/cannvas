@@ -246,6 +246,14 @@ class CannvasServerTest(unittest.TestCase):
         self.assertEqual(value["updatedAt"], "2026-09-25T01:00:00+00:00")
         self.assertIn("possible", value["series"])
 
+    def test_kilo_divisor_follows_the_unit(self) -> None:
+        divisor = self.module.kilo_divisor
+        self.assertEqual(divisor({"attributes": {"unit_of_measurement": "W"}}), 1000)
+        self.assertEqual(divisor({"attributes": {"unit_of_measurement": "kWh"}}, default=1000), 1)
+        # A missing sensor keeps the unit its history is known to use.
+        self.assertEqual(divisor({}, default=1000), 1000)
+        self.assertEqual(divisor({}), 1)
+
     def test_sun_without_home_assistant(self) -> None:
         response, body = self.request("GET", "/api/sun")
         self.assertEqual(response.status, 200)
