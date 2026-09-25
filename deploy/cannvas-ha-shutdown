@@ -3,9 +3,10 @@
 
 Home Assistant cuts the smart plug every night. Before it does, its automation
 turns on input_boolean.cannvas_shutdown. This service polls that helper with
-the Home Assistant token the web server already stores, turns the helper back
-off to acknowledge the request, then starts cannvas-poweroff.service through
-the same polkit rule the on-screen power button uses.
+the Home Assistant token the web server already stores, starts
+cannvas-poweroff.service through the same polkit rule the on-screen power
+button uses, then turns the helper back off to acknowledge the request. If the
+power-off can't start, the helper stays on and the next poll retries.
 
 Nothing on the Pi listens for the request, so no new inbound access exists.
 """
@@ -46,6 +47,8 @@ def load_config() -> dict[str, str] | None:
         value = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return None
+    if not isinstance(value, dict):
+        return None
     url = str(value.get("url", "")).rstrip("/")
     token = str(value.get("token", ""))
     return {"url": url, "token": token} if url and token else None
@@ -81,6 +84,21 @@ def log(message: str) -> None:
     print(message, flush=True)
 
 
+def acknowledge(config: dict[str, str]) -> None:
+    try:
+        request(config, "/api/services/input_boolean/turn_off", {"entity_id": ENTITY_ID})
+    except Exception as error:
+        log(f"Could not acknowledge the shutdown request ({type(error).__name__})")
+
+
+def start_poweroff() -> bool:
+    try:
+        result = subprocess.run(["/usr/bin/systemctl", "start", "cannvas-poweroff.service"], check=False, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
 def main() -> None:
     problem = ""
 
@@ -112,19 +130,23 @@ def main() -> None:
             problem = ""
 
         if isinstance(state, dict) and state.get("state") == "on":
-            age = request_age(state, server_now)
             try:
-                # Acknowledge first. The automation waits for this before
-                # starting its countdown to cutting the power.
-                request(config, "/api/services/input_boolean/turn_off", {"entity_id": ENTITY_ID})
-            except Exception as error:
-                log(f"Could not acknowledge the shutdown request ({type(error).__name__})")
+                age = request_age(state, server_now)
+            except (TypeError, ValueError):
+                age = None
             if age is None or age > MAX_REQUEST_AGE:
-                log(f"Ignoring a stale shutdown request (age {age}s)")
-            else:
+                log(f"Ignoring a stale or unreadable shutdown request (age {age}s)")
+                acknowledge(config)
+            elif start_poweroff():
                 log("Home Assistant requested a shutdown before cutting power; powering off")
-                subprocess.run(["/usr/bin/systemctl", "start", "cannvas-poweroff.service"], check=False, timeout=15)
+                # The automation starts its countdown to cutting the power once
+                # it sees this. The power-off job is queued, so the network is
+                # still up for this request.
+                acknowledge(config)
                 time.sleep(300)
+            else:
+                # Leave the request on so the next poll retries.
+                log("Could not start cannvas-poweroff.service; retrying")
         time.sleep(POLL_SECONDS)
 
 
