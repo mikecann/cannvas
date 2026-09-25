@@ -50,6 +50,13 @@ healthy() {
   return 1
 }
 
+restart_web() {
+  # A broken release crash-loops into systemd's start limit. Clear it so the
+  # restart that follows (including the one restoring the old release) runs.
+  systemctl reset-failed cannvas-web.service 2>/dev/null || true
+  systemctl restart cannvas-web.service
+}
+
 point_current_at() {
   # A rename is atomic, so the web server never sees a missing or half-made link.
   ln -sfn "$1" "$root/current.new"
@@ -84,7 +91,7 @@ activate() {
   target=$1
   before=$(readlink -f "$root/current")
   point_current_at "$target"
-  systemctl restart cannvas-web.service
+  restart_web
   if healthy; then
     ln -sfn "$before" "$root/previous"
     restart_kiosk
@@ -95,7 +102,7 @@ activate() {
   echo "$(basename "$target") failed its health check; restoring $(basename "$before")" >&2
   journalctl -u cannvas-web.service -n 20 --no-pager >&2 || true
   point_current_at "$before"
-  systemctl restart cannvas-web.service
+  restart_web
   healthy || echo "Warning: $(basename "$before") is not healthy either" >&2
   exit 1
 }
@@ -109,7 +116,7 @@ case "$action" in
     tar -xzf "$archive" -C "$release"
     rm -f "$archive"
     chown -R root:root "$release"
-    chmod -R go-w "$release"
+    chmod -R u+rwX,go+rX,go-w "$release"
     touch "$release"
     [ -f "$release/www/index.html" ] && [ -x "$release/cannvas-server" ] || { echo "Incomplete release" >&2; exit 1; }
     activate "$release"
@@ -150,6 +157,8 @@ case "$command" in
 
     stage=$(mktemp -d)
     trap 'rm -rf "$stage"' EXIT
+    # mktemp makes a private directory, and tar records its mode for the release.
+    chmod 0755 "$stage"
     mkdir "$stage/www"
     cp -R "$dist/." "$stage/www/"
     cp deploy/cannvas-server "$stage/"
