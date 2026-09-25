@@ -27,9 +27,9 @@ export function useNightDim(): number {
   const [awake, setAwake] = useState(false);
   const wakeTimer = useRef<number | undefined>(undefined);
 
-  usePolling(async () => {
+  usePolling(async (signal) => {
     try {
-      setSun(parseSun(await readJsonResponse<SunResponse>(await fetch("/api/sun"), "Sun times are unavailable")));
+      setSun(parseSun(await readJsonResponse<SunResponse>(await fetch("/api/sun", { signal }), "Sun times are unavailable")));
     } catch {
       setSun(null);
     }

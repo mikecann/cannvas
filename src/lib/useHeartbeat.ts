@@ -8,13 +8,14 @@ const HEARTBEAT_MS = 30_000;
  * if React stops rendering, the pings stop too.
  */
 export function useHeartbeat() {
-  usePolling(async () => {
+  usePolling(async (signal) => {
     try {
       await fetch("/api/heartbeat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: "{}",
         cache: "no-store",
+        signal,
       });
     } catch {
       // The server being down is the watchdog's business, not the page's.

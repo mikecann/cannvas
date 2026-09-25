@@ -29,27 +29,30 @@ import { WeatherRadar } from "./weather/WeatherRadar";
 
 export function WeatherApp() {
   const [forecast, setForecast] = useState<WeatherForecast | null>(() => readWeatherCache());
-  const [loading, setLoading] = useState(!forecast);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
 
-  const refresh = usePolling(async () => {
+  const refresh = usePolling(async (signal) => {
     try {
-      const response = await fetch(FORECAST_URL);
+      const response = await fetch(FORECAST_URL, { signal });
       if (!response.ok) throw new Error(`Forecast returned ${response.status}`);
       const data = await response.json() as WeatherForecast;
+      // A reply that lands after the app closed must not overwrite a newer cache.
+      if (signal.aborted) return;
       setForecast(data);
       setError(false);
       writeWeatherCache(data);
     } catch {
-      setError(true);
-    } finally {
-      setLoading(false);
+      if (!signal.aborted) setError(true);
     }
   }, WEATHER_REFRESH_MS);
 
+  // refresh() settles only after the run it asked for, even if a scheduled
+  // run was already going, so the button stays disabled until then.
   const retry = () => {
+    if (loading) return;
     setLoading(true);
-    void refresh();
+    void refresh().finally(() => setLoading(false));
   };
 
   const currentHourIndex = useMemo(() => {

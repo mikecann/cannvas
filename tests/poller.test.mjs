@@ -39,8 +39,8 @@ test("runs at once, then schedules the next run after the last one finishes", as
   let runs = 0;
   const poller = createPoller({ task: () => { runs += 1; }, intervalMs: 3000, ...clock });
   poller.start();
-  assert.equal(runs, 1);
   await settle();
+  assert.equal(runs, 1);
   assert.equal(clock.pending().length, 1);
   assert.equal(clock.pending()[0].delay, 3000);
   clock.fire();
@@ -74,6 +74,7 @@ test("a refresh during a run queues exactly one more run", async () => {
   poller.start();
   const first = poller.refresh();
   const second = poller.refresh();
+  await settle();
   assert.equal(started, 1);
   gates[0].resolve();
   await settle();
@@ -113,4 +114,38 @@ test("stopping during a run does not schedule another", async () => {
   gate.resolve();
   await settle();
   assert.equal(clock.pending().length, 0);
+});
+
+test("a hung run times out, is aborted, and polling carries on", async () => {
+  const clock = manualClock();
+  let signal;
+  const poller = createPoller({
+    task: (runSignal) => { signal = runSignal; return new Promise(() => {}); },
+    intervalMs: 1000,
+    timeoutMs: 20,
+    ...clock,
+  });
+  poller.start();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.equal(signal.aborted, true);
+  assert.equal(clock.pending().length, 1);
+  poller.stop();
+});
+
+test("stopping aborts the run in progress", async () => {
+  const clock = manualClock();
+  let signal;
+  const poller = createPoller({ task: (runSignal) => { signal = runSignal; return new Promise(() => {}); }, intervalMs: 1000, ...clock });
+  poller.start();
+  await settle();
+  poller.stop();
+  assert.equal(signal.aborted, true);
+});
+
+test("a task that throws straight away is handled, running or not", async () => {
+  const poller = createPoller({ task: () => { throw new Error("boom"); }, intervalMs: 1000, ...manualClock() });
+  await poller.refresh();
+  poller.start();
+  await poller.refresh();
+  poller.stop();
 });

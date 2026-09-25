@@ -98,11 +98,12 @@ export function WeatherRadar() {
   const [playing, setPlaying] = useState(false);
   const [radarError, setRadarError] = useState(false);
 
-  usePolling(async () => {
+  usePolling(async (signal) => {
     try {
-      const response = await fetch("https://api.rainviewer.com/public/weather-maps.json");
+      const response = await fetch("https://api.rainviewer.com/public/weather-maps.json", { signal });
       if (!response.ok) throw new Error(`Radar returned ${response.status}`);
       const data = await response.json() as RadarResponse;
+      if (signal.aborted) return;
       const past = data.radar.past ?? [];
       const nowcast = (data.radar.nowcast ?? []).map((frame) => ({ ...frame, forecast: true }));
       const nextFrames = [...past, ...nowcast];
@@ -111,7 +112,7 @@ export function WeatherRadar() {
       setFrameIndex(Math.max(0, nextFrames.length - 1));
       setRadarError(nextFrames.length === 0);
     } catch {
-      setRadarError(true);
+      if (!signal.aborted) setRadarError(true);
     }
   }, WEATHER_REFRESH_MS);
 
@@ -138,8 +139,9 @@ export function WeatherRadar() {
       fillOpacity: 1,
     }).bindTooltip("Busselton", { permanent: true, direction: "right", offset: [8, 0] }).addTo(map);
     mapRef.current = map;
-    window.setTimeout(() => map.invalidateSize(), 0);
+    const sizeTimer = window.setTimeout(() => map.invalidateSize(), 0);
     return () => {
+      window.clearTimeout(sizeTimer);
       map.remove();
       mapRef.current = null;
       radarLayerRef.current = null;

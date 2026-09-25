@@ -39,7 +39,7 @@ import {
 } from "../lib/homeAssistant";
 import { errorText, readJsonResponse } from "../lib/http";
 import { usePolling } from "../lib/usePolling";
-import { FAMILY } from "./home/family";
+import { FAMILY, familyPersonFor } from "./home/family";
 import { HomeLocationMap } from "./home/HomeLocationMap";
 import { HomeNetworkSection } from "./home/HomeNetworkSection";
 import { HomeSettingsDialog } from "./home/HomeSettingsDialog";
@@ -79,21 +79,22 @@ export function HomeAutomationApp() {
   const [pending, setPending] = useState<Set<string>>(() => new Set());
   const [showSettings, setShowSettings] = useState(false);
 
-  const refresh = usePolling(async () => {
+  const refresh = usePolling(async (signal) => {
     try {
-      const response = await fetch("/api/home-assistant/status", { cache: "no-store" });
+      const response = await fetch("/api/home-assistant/status", { cache: "no-store", signal });
       const body = await readJsonResponse<HomeAssistantStatus>(response, "Could not reach Home Assistant");
       setStatus(body);
       setNetwork(body.network);
       setError("");
     } catch (requestError) {
+      if (signal.aborted) return;
       setError(errorText(requestError, "Could not reach Home Assistant"));
     }
   }, STATUS_REFRESH_MS);
 
-  usePolling(async () => {
+  usePolling(async (signal) => {
     try {
-      const response = await fetch("/api/unifi/status", { cache: "no-store" });
+      const response = await fetch("/api/unifi/status", { cache: "no-store", signal });
       setNetwork(await readJsonResponse<NetworkStatus>(response, "UniFi is unavailable"));
     } catch {
       // Keep the last good reading during a brief controller or Wi-Fi blip.
@@ -104,7 +105,7 @@ export function HomeAutomationApp() {
   const people = useMemo(() => entities.filter((entity) => entity.domain === "person"), [entities]);
   const family = useMemo(() => FAMILY.map((member) => ({
     ...member,
-    person: people.find((person) => member.matches.some((match) => `${person.entityId} ${person.name}`.toLowerCase().includes(match))),
+    person: familyPersonFor(people, member),
   })), [people]);
   const peopleHome = people.filter(isHome).length;
   const controls = useMemo(() => entities
