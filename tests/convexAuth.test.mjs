@@ -18,7 +18,10 @@ test("an unset expected token never matches", () => {
 
 test("bearer headers need the scheme and the exact token", () => {
   assert.equal(bearerTokenMatches("Bearer secret", "secret"), true);
-  assert.equal(bearerTokenMatches("bearer secret", "secret"), false);
+  assert.equal(bearerTokenMatches("bearer secret", "secret"), true);
+  assert.equal(bearerTokenMatches("BEARER  secret", "secret"), true);
+  assert.equal(bearerTokenMatches("Basic secret", "secret"), false);
+  assert.equal(bearerTokenMatches("Bearer secret extra", "secret"), false);
   assert.equal(bearerTokenMatches("Bearer secret2", "secret"), false);
   assert.equal(bearerTokenMatches("secret", "secret"), false);
   assert.equal(bearerTokenMatches(null, "secret"), false);

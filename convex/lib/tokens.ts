@@ -10,7 +10,8 @@ export function tokensMatch(provided: string, expected: string): boolean {
   return difference === 0;
 }
 
+// The auth scheme is case-insensitive (RFC 9110), so accept "bearer" too.
 export function bearerTokenMatches(header: string | null, expected: string): boolean {
-  if (!header?.startsWith("Bearer ")) return false;
-  return tokensMatch(header.slice("Bearer ".length), expected);
+  const match = header?.trim().match(/^bearer +(\S+)$/i);
+  return !!match && tokensMatch(match[1], expected);
 }
