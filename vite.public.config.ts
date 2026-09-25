@@ -53,7 +53,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, import.meta.dirname, "VITE_");
   const secrets = KIOSK_ONLY_ENV
     .map((name) => (env[name] ?? process.env[name] ?? "").trim())
-    .filter((value) => value.length >= 8);
+    .filter(Boolean);
   return {
     plugins: [react(), guardPublicBuild(secrets)],
     // Belt and braces: even if public code referenced a kiosk token by
