@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   backupContentKey,
+  jsonLength,
   boardsNeedingBackup,
   toBackupState,
   toBackupStrokes,
@@ -35,6 +36,18 @@ test("the device backup leaves boards out and keeps only known fields", () => {
   // Convex rejects explicit undefined in validated objects, so leave it out.
   assert.equal("dueDate" in payload.todos[0], false);
   assert.equal("previousDueDate" in payload.tabletCompletions[0], false);
+});
+
+test("unknown chore categories become standard", () => {
+  const payload = toBackupState(deviceState({
+    chores: [{ id: "x", name: "X", valueCents: 1, category: "weekly", color: "#fff", position: 0 }],
+  }));
+  assert.equal(payload.chores[0].category, "standard");
+});
+
+test("backup size counts UTF-8 bytes", () => {
+  assert.equal(jsonLength("é"), 4);
+  assert.equal(jsonLength("🙂"), 6);
 });
 
 test("a board edit alone does not change the device backup content", () => {

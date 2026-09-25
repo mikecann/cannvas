@@ -29,7 +29,8 @@ export function toBackupState(state: BackupSource) {
     revision: state.revision,
     updatedAt: state.updatedAt,
     chores: state.chores.map(({ id, name, valueCents, category, color, position }) => ({
-      id, name, valueCents, category: category ?? "standard", color, position,
+      // The server only accepts these two. Anything else would block every backup.
+      id, name, valueCents, category: category === "bonus" ? "bonus" as const : "standard" as const, color, position,
     })),
     completions: state.completions.map(({ choreId, date }) => ({ choreId, date })),
     todos: state.todos.map(({ id, title, assignee, priority, dueDate, completed, createdAt }) =>
@@ -75,8 +76,9 @@ export function boardsNeedingBackup(
     .sort();
 }
 
+// UTF-8 bytes, which is what counts against Convex's document limit.
 export function jsonLength(value: unknown) {
-  return JSON.stringify(value).length;
+  return new TextEncoder().encode(JSON.stringify(value)).length;
 }
 
 export function backupRetryDelayMs(failures: number) {

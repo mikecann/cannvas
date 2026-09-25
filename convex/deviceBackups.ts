@@ -18,7 +18,8 @@ export function assertRevision(revision: number) {
 }
 
 export function assertBackupSize(value: unknown, label: string) {
-  if (JSON.stringify(value).length > MAX_BACKUP_JSON_LENGTH) {
+  // UTF-8 bytes, which is what counts against the document limit.
+  if (new TextEncoder().encode(JSON.stringify(value)).length > MAX_BACKUP_JSON_LENGTH) {
     throw new ConvexError(`${label} is too large to back up.`);
   }
 }
