@@ -1,18 +1,13 @@
-import { paginationOptsValidator, type GenericMutationCtx } from "convex/server";
+import { getAuthUserId } from "@convex-dev/auth/server";
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import type { DataModel } from "./_generated/dataModel";
-import { mutation, query } from "./_generated/server";
-import { requireInventoryUser } from "./inventoryAuth";
+import type { MutationCtx } from "./_generated/server";
+import { getInventoryAccess, inventoryMutation, inventoryQuery, publicQuery } from "./fluent";
 import { MAX_INVENTORY_PHOTOS } from "./inventoryConstants";
+import { buildSearchText } from "./lib/inventorySearch";
+import { inventoryEnrichmentStatus, inventoryRole, inventoryStatus } from "./lib/validators";
 
-const inventoryStatus = v.union(
-  v.literal("active"),
-  v.literal("disposed"),
-  v.literal("donated"),
-  v.literal("sold"),
-  v.literal("lost"),
-);
 const attribute = v.object({ label: v.string(), value: v.string() });
 const source = v.object({ title: v.string(), url: v.string() });
 const itemSummary = v.object({
@@ -26,12 +21,7 @@ const itemSummary = v.object({
   currentLocationId: v.id("inventoryLocations"),
   currentLocationName: v.string(),
   status: inventoryStatus,
-  enrichmentStatus: v.union(
-    v.literal("queued"),
-    v.literal("processing"),
-    v.literal("ready"),
-    v.literal("failed"),
-  ),
+  enrichmentStatus: inventoryEnrichmentStatus,
   updatedAt: v.number(),
   photoUrl: v.union(v.string(), v.null()),
 });
@@ -43,12 +33,7 @@ const publicGiveawayItem = v.object({
   condition: v.string(),
   quantity: v.number(),
   boxOnly: v.boolean(),
-  enrichmentStatus: v.union(
-    v.literal("queued"),
-    v.literal("processing"),
-    v.literal("ready"),
-    v.literal("failed"),
-  ),
+  enrichmentStatus: inventoryEnrichmentStatus,
   updatedAt: v.number(),
   photoUrls: v.array(v.string()),
 });
@@ -63,27 +48,7 @@ function cleanLocationName(name: string) {
   return name.trim().replace(/\s+/g, " ");
 }
 
-function buildSearchText(item: {
-  title: string;
-  description: string;
-  category: string;
-  tags: string[];
-  condition: string;
-  attributes: Array<{ label: string; value: string }>;
-  currentLocationName: string;
-}) {
-  return [
-    item.title,
-    item.description,
-    item.category,
-    item.condition,
-    item.currentLocationName,
-    ...item.tags,
-    ...item.attributes.flatMap(({ label, value }) => [label, value]),
-  ].join(" ");
-}
-
-async function findOrCreateLocation(ctx: GenericMutationCtx<DataModel>, name: string) {
+async function findOrCreateLocation(ctx: MutationCtx, name: string) {
   const cleanName = cleanLocationName(name);
   if (!cleanName) throw new Error("Choose or enter a location.");
   const normalizedName = normalizeLocation(cleanName);
@@ -112,43 +77,39 @@ async function findOrCreateLocation(ctx: GenericMutationCtx<DataModel>, name: st
   return { id, name: cleanName };
 }
 
-export const accessStatus = query({
-  args: {},
-  returns: v.object({
+export const accessStatus = publicQuery
+  .input({})
+  .returns(v.object({
     hasAccess: v.boolean(),
-    role: v.union(v.literal("owner"), v.literal("member"), v.null()),
-  }),
-  handler: async (ctx) => {
-    const userId = await requireInventoryUser(ctx).catch(() => null);
+    role: v.union(inventoryRole, v.null()),
+  }))
+  .handler(async (ctx) => {
+    // Public so the sign-in screen can tell "not signed in" from "no access".
+    const userId = await getAuthUserId(ctx);
     if (!userId) return { hasAccess: false, role: null };
-    const access = await ctx.db
-      .query("inventoryAccess")
-      .withIndex("by_user_id", (q) => q.eq("userId", userId))
-      .unique();
+    const access = await getInventoryAccess(ctx.db, userId);
     return { hasAccess: Boolean(access), role: access?.role ?? null };
-  },
-});
+  })
+  .public();
 
-export const generateUploadUrl = mutation({
-  args: {},
-  returns: v.string(),
-  handler: async (ctx) => {
-    await requireInventoryUser(ctx);
+export const generateUploadUrl = inventoryMutation
+  .input({})
+  .returns(v.string())
+  .handler(async (ctx) => {
     return ctx.storage.generateUploadUrl();
-  },
-});
+  })
+  .public();
 
-export const locationSuggestions = query({
-  args: {},
-  returns: v.array(
+export const locationSuggestions = inventoryQuery
+  .input({})
+  .returns(v.array(
     v.object({
       _id: v.id("inventoryLocations"),
       name: v.string(),
       usageCount: v.number(),
     }),
-  ),
-  handler: async (ctx) => {
-    await requireInventoryUser(ctx);
+  ))
+  .handler(async (ctx) => {
     const [popular, recent] = await Promise.all([
       ctx.db
         .query("inventoryLocations")
@@ -165,16 +126,16 @@ export const locationSuggestions = query({
     return [...unique.values()]
       .slice(0, 16)
       .map(({ _id, name, usageCount }) => ({ _id, name, usageCount }));
-  },
-});
+  })
+  .public();
 
 // This is deliberately the only unauthenticated inventory read. It exposes a
 // small, explicit projection of active items in the approved Giveaway location
 // without leaking household locations, history, attributes, or AI sources.
-export const publicGiveaway = query({
-  args: {},
-  returns: v.array(publicGiveawayItem),
-  handler: async (ctx) => {
+export const publicGiveaway = publicQuery
+  .input({})
+  .returns(v.array(publicGiveawayItem))
+  .handler(async (ctx) => {
     const locations = await Promise.all(
       PUBLIC_GIVEAWAY_LOCATIONS.map((normalizedName) =>
         ctx.db
@@ -216,18 +177,18 @@ export const publicGiveaway = query({
         photoUrls: photoUrls.flatMap((url) => url ? [url] : []),
       };
     }));
-  },
-});
+  })
+  .public();
 
-export const create = mutation({
-  args: {
+export const create = inventoryMutation
+  .input({
     storageIds: v.array(v.id("_storage")),
     locationName: v.string(),
     boxOnly: v.boolean(),
-  },
-  returns: v.id("inventoryItems"),
-  handler: async (ctx, args) => {
-    const userId = await requireInventoryUser(ctx);
+  })
+  .returns(v.id("inventoryItems"))
+  .handler(async (ctx, args) => {
+    const userId = ctx.userId;
     if (args.storageIds.length === 0) throw new Error("Take at least one photo.");
     if (args.storageIds.length > 8) throw new Error("Add at most eight photos at a time.");
     const location = await findOrCreateLocation(ctx, args.locationName);
@@ -272,19 +233,18 @@ export const create = mutation({
     });
     await ctx.scheduler.runAfter(0, internal.inventoryAi.enrich, { itemId, generation: 1 });
     return itemId;
-  },
-});
+  })
+  .public();
 
-export const list = query({
-  args: {
+export const list = inventoryQuery
+  .input({
     paginationOpts: paginationOptsValidator,
     search: v.optional(v.string()),
     status: v.optional(inventoryStatus),
     locationId: v.optional(v.id("inventoryLocations")),
-  },
-  returns: v.object({ page: v.array(itemSummary), isDone: v.boolean(), continueCursor: v.string() }),
-  handler: async (ctx, args) => {
-    await requireInventoryUser(ctx);
+  })
+  .returns(v.object({ page: v.array(itemSummary), isDone: v.boolean(), continueCursor: v.string() }))
+  .handler(async (ctx, args) => {
     const status = args.status ?? "active";
     const search = args.search?.trim();
     const locationId = args.locationId;
@@ -334,12 +294,12 @@ export const list = query({
       }),
     );
     return { page, isDone: result.isDone, continueCursor: result.continueCursor };
-  },
-});
+  })
+  .public();
 
-export const get = query({
-  args: { itemId: v.id("inventoryItems") },
-  returns: v.union(v.null(), v.object({
+export const get = inventoryQuery
+  .input({ itemId: v.id("inventoryItems") })
+  .returns(v.union(v.null(), v.object({
     item: v.object({
       _id: v.id("inventoryItems"), title: v.string(), description: v.string(), category: v.string(),
       tags: v.array(v.string()), condition: v.string(), quantity: v.number(), attributes: v.array(attribute),
@@ -350,9 +310,8 @@ export const get = query({
     photos: v.array(v.object({ _id: v.id("inventoryPhotos"), url: v.union(v.string(), v.null()), capturedAt: v.number() })),
     events: v.array(v.object({ _id: v.id("inventoryEvents"), type: v.string(), note: v.optional(v.string()),
       fromLocationName: v.optional(v.string()), toLocationName: v.optional(v.string()), occurredAt: v.number() })),
-  })),
-  handler: async (ctx, args) => {
-    await requireInventoryUser(ctx);
+  })))
+  .handler(async (ctx, args) => {
     const item = await ctx.db.get(args.itemId);
     if (!item) return null;
     const [photos, events] = await Promise.all([
@@ -376,17 +335,17 @@ export const get = query({
         toLocationName: event.toLocationName, occurredAt: event.occurredAt,
       })),
     };
-  },
-});
+  })
+  .public();
 
-export const updateDetails = mutation({
-  args: {
+export const updateDetails = inventoryMutation
+  .input({
     itemId: v.id("inventoryItems"), title: v.string(), description: v.string(), category: v.string(),
     tags: v.array(v.string()), condition: v.string(), quantity: v.number(), attributes: v.array(attribute),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const userId = await requireInventoryUser(ctx);
+  })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const userId = ctx.userId;
     const item = await ctx.db.get(args.itemId);
     if (!item) throw new Error("Item not found.");
     const details = {
@@ -404,14 +363,14 @@ export const updateDetails = mutation({
     });
     await ctx.db.insert("inventoryEvents", { itemId: args.itemId, type: "edited", actorId: userId, occurredAt: Date.now() });
     return null;
-  },
-});
+  })
+  .public();
 
-export const move = mutation({
-  args: { itemId: v.id("inventoryItems"), locationName: v.string(), note: v.optional(v.string()) },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const userId = await requireInventoryUser(ctx);
+export const move = inventoryMutation
+  .input({ itemId: v.id("inventoryItems"), locationName: v.string(), note: v.optional(v.string()) })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const userId = ctx.userId;
     const item = await ctx.db.get(args.itemId);
     if (!item) throw new Error("Item not found.");
     const location = await findOrCreateLocation(ctx, args.locationName);
@@ -427,14 +386,14 @@ export const move = mutation({
       note: args.note?.trim() || undefined, occurredAt: Date.now(),
     });
     return null;
-  },
-});
+  })
+  .public();
 
-export const setStatus = mutation({
-  args: { itemId: v.id("inventoryItems"), status: inventoryStatus, note: v.optional(v.string()) },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const userId = await requireInventoryUser(ctx);
+export const setStatus = inventoryMutation
+  .input({ itemId: v.id("inventoryItems"), status: inventoryStatus, note: v.optional(v.string()) })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const userId = ctx.userId;
     const item = await ctx.db.get(args.itemId);
     if (!item) throw new Error("Item not found.");
     const now = Date.now();
@@ -445,14 +404,14 @@ export const setStatus = mutation({
       actorId: userId, note: args.note?.trim() || undefined, occurredAt: now,
     });
     return null;
-  },
-});
+  })
+  .public();
 
-export const addPhotos = mutation({
-  args: { itemId: v.id("inventoryItems"), storageIds: v.array(v.id("_storage")), rerunEnrichment: v.boolean() },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const userId = await requireInventoryUser(ctx);
+export const addPhotos = inventoryMutation
+  .input({ itemId: v.id("inventoryItems"), storageIds: v.array(v.id("_storage")), rerunEnrichment: v.boolean() })
+  .returns(v.null())
+  .handler(async (ctx, args) => {
+    const userId = ctx.userId;
     if (args.storageIds.length === 0 || args.storageIds.length > 8) throw new Error("Add between one and eight photos.");
     const item = await ctx.db.get(args.itemId);
     if (!item) throw new Error("Item not found.");
@@ -493,5 +452,5 @@ export const addPhotos = mutation({
       });
     }
     return null;
-  },
-});
+  })
+  .public();

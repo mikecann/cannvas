@@ -12,6 +12,7 @@ import {
   PencilLine,
   Power,
   CloudSun,
+  CloudOff,
   Sun,
 } from "lucide-react";
 import { CalendarApp } from "./apps/CalendarApp";
@@ -59,7 +60,7 @@ const moreApps = [
 const DEFAULT_IDLE_TIMEOUT = 5 * 60 * 1000;
 
 export function App() {
-  const { isReady } = useCannvasData();
+  const { isReady, backupStatus } = useCannvasData();
   const [activeApp, setActiveApp] = useState<AppId>("whiteboard");
   const [displaySession, setDisplaySession] = useState(0);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -185,6 +186,14 @@ export function App() {
         {isReady && activeApp === "inventory" && <KioskInventoryApp />}
         {isReady && activeApp === "display" && <DisplayApp displaySession={displaySession} onActivity={resetIdleTimer} onOpenCalendar={() => openApp("calendar")} onOpenWeather={() => openApp("weather")} onOpenSolar={() => openApp("solar")} />}
       </div>
+
+      {backupStatus.state === "error" && activeApp !== "display" && (
+        // Placeholder styling. Everything is still saved on the screen itself.
+        <div className="backup-error-badge" role="status" title={backupStatus.message}>
+          <CloudOff />
+          <span>Backup paused</span>
+        </div>
+      )}
 
       {keyboardVisible && activeApp !== "display" && (
         <button

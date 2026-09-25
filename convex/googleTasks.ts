@@ -7,13 +7,25 @@ const GOOGLE_API_BASE = "https://tasks.googleapis.com/tasks/v1";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const PERSONAL_LIST_TITLE = "Personal";
 const MAX_GOOGLE_DELETIONS_PER_POLL = 5;
+const MAX_POLL_PAGES = 50;
+// poll re-confirms the Personal list every two minutes. A push trusts the
+// cached ID only if it was confirmed recently.
+const LIST_ID_FRESH_MS = 15 * 60_000;
 
 type Connection = {
   refreshToken: string;
   accessToken?: string;
   accessTokenExpiresAt?: number;
   dadListId?: string;
+  dadListCheckedAt?: number;
   lastPolledAt?: number;
+  pollCursor?: {
+    pageToken: string;
+    updatedMin?: string;
+    startedAt: number;
+    skippedDeletions?: number;
+    allowDeletions?: number;
+  };
 };
 type GoogleTaskList = { id: string; title: string };
 type GoogleTask = {
@@ -108,11 +120,10 @@ async function findPersonalList(ctx: ActionCtx, connection: Connection, accessTo
   }
 
   // Always resolve by title so an older cached "Cannvas - Dad" ID is replaced.
-  if (connection.dadListId !== personal.id) {
-    await ctx.runMutation(internal.googleTasksStore.savePersonalListId, {
-      dadListId: personal.id,
-    });
-  }
+  // Saving also records when the ID was last confirmed.
+  await ctx.runMutation(internal.googleTasksStore.savePersonalListId, {
+    dadListId: personal.id,
+  });
   return personal.id;
 }
 
@@ -136,37 +147,66 @@ export const setupPersonalList = internalAction({
   },
 });
 
+const MAX_BUSY_RETRIES = 20;
+const BUSY_RETRY_MS = 20_000;
+
 export const pushTodo = internalAction({
   args: {
     todoId: v.id("todos"),
     notes: v.optional(v.string()),
+    busyRetries: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     const connection = await ctx.runQuery(internal.googleTasksStore.getConnection, {});
     if (!connection) return null;
-    const todo = await ctx.runQuery(internal.todos.getForSync, {
+    const leaseId = crypto.randomUUID();
+    const claim = await ctx.runMutation(internal.todos.claimForSync, {
       todoId: args.todoId,
+      leaseId,
     });
-    if (!todo) return null;
+    if (claim.status === "missing") return null;
+    if (claim.status === "busy") {
+      // Another push is talking to Google for this to-do. Try again shortly
+      // so notes passed only to this run are not dropped.
+      const busyRetries = (args.busyRetries ?? 0) + 1;
+      if (busyRetries <= MAX_BUSY_RETRIES) {
+        await ctx.scheduler.runAfter(BUSY_RETRY_MS, internal.googleTasks.pushTodo, { ...args, busyRetries });
+      } else {
+        await ctx.runMutation(internal.todos.markPushAbandoned, {
+          todoId: args.todoId,
+          droppedNotes: args.notes !== undefined,
+        });
+      }
+      return null;
+    }
+    const todo = claim.todo;
+    const pushed = { todoId: todo.id, leaseId, pushedUpdatedAt: todo.updatedAt };
 
     try {
-      const accessToken = await getAccessToken(ctx, connection);
-      const targetListId = await findPersonalList(ctx, connection, accessToken);
-
       if (todo.assignee !== "dad") {
         // Reassignment is not deletion. Keep the Google task and its link so a
         // later Personal poll does not import a duplicate Dad task.
-        await ctx.runMutation(internal.todos.markSynced, { todoId: todo.id });
+        await ctx.runMutation(internal.todos.markSynced, pushed);
         return null;
       }
 
       if (todo.deletedAt !== undefined) {
         // Cannvas removals stay local. Completing a task is the supported way
         // to make its completed state flow to Personal.
-        await ctx.runMutation(internal.todos.markSynced, { todoId: todo.id });
+        await ctx.runMutation(internal.todos.markSynced, pushed);
         return null;
       }
+
+      const accessToken = await getAccessToken(ctx, connection);
+      // poll() resolves the Personal list by title every cycle. Listing every
+      // task list on each push is wasted quota, so reuse a recently confirmed
+      // ID and only look it up again when it is stale or missing.
+      const cachedListIsFresh = connection.dadListId !== undefined
+        && (connection.dadListCheckedAt ?? 0) > Date.now() - LIST_ID_FRESH_MS;
+      const targetListId = cachedListIsFresh
+        ? connection.dadListId!
+        : await findPersonalList(ctx, connection, accessToken);
 
       let googleTaskId = todo.googleTaskId;
       let googleTaskListId = todo.googleTaskListId;
@@ -210,14 +250,14 @@ export const pushTodo = internalAction({
       }
 
       await ctx.runMutation(internal.todos.markSynced, {
-        todoId: todo.id,
+        ...pushed,
         googleTaskId: saved.id,
         googleTaskListId: targetListId,
         googleUpdatedAt: saved.updated,
       });
     } catch (error) {
       await ctx.runMutation(internal.todos.markSyncError, {
-        todoId: args.todoId,
+        ...pushed,
         error: error instanceof Error ? error.message : "Unknown Google Tasks sync error",
       });
     }
@@ -226,78 +266,123 @@ export const pushTodo = internalAction({
 });
 
 export const poll = internalAction({
-  args: { fullSync: v.optional(v.boolean()) },
+  args: {
+    fullSync: v.optional(v.boolean()),
+    // After checking Google, rerun with this set to at least the reported
+    // number of linked deletions to apply them past the safety limit.
+    allowDeletions: v.optional(v.number()),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
     const connection = await ctx.runQuery(internal.googleTasksStore.getConnection, {});
     if (!connection) return null;
     const startedAt = Date.now();
-    const accessToken = await getAccessToken(ctx, connection);
-    const personalListId = await findPersonalList(ctx, connection, accessToken);
-    const todoIds = await ctx.runQuery(internal.todos.listNeedingSync, {});
-    const wrongListTodoIds = await ctx.runQuery(internal.todos.listDadOutsideGoogleList, {
-      googleTaskListId: personalListId,
-    });
-    for (const todoId of new Set([...todoIds, ...wrongListTodoIds])) {
-      await ctx.scheduler.runAfter(0, internal.googleTasks.pushTodo, { todoId });
-    }
-    const updatedMin = !args.fullSync && connection.lastPolledAt
-      ? new Date(connection.lastPolledAt - 5 * 60_000).toISOString()
-      : undefined;
-
-    const tasks: GoogleTask[] = [];
-    let pageToken: string | undefined;
-    let pageCount = 0;
-    do {
-      const query = new URLSearchParams({
-        maxResults: "100",
-        showCompleted: "true",
-        showHidden: "true",
-        showDeleted: "true",
+    try {
+      const accessToken = await getAccessToken(ctx, connection);
+      const personalListId = await findPersonalList(ctx, connection, accessToken);
+      const todoIds = await ctx.runQuery(internal.todos.listNeedingSync, {});
+      const wrongListTodoIds = await ctx.runQuery(internal.todos.listDadOutsideGoogleList, {
+        googleTaskListId: personalListId,
       });
-      if (updatedMin) query.set("updatedMin", updatedMin);
-      if (pageToken) query.set("pageToken", pageToken);
-      const page = await googleRequest<{ items?: GoogleTask[]; nextPageToken?: string }>(
-        accessToken,
-        `/lists/${encodeURIComponent(personalListId)}/tasks?${query.toString()}`,
-      );
-      tasks.push(...(page.items ?? []));
-      pageToken = page.nextPageToken;
-      pageCount += 1;
-      if (pageCount >= 10 && pageToken) {
-        throw new Error("Google Tasks sync exceeded 1,000 tasks in Personal");
+      for (const todoId of new Set([...todoIds, ...wrongListTodoIds])) {
+        await ctx.scheduler.runAfter(0, internal.googleTasks.pushTodo, { todoId });
       }
-    } while (pageToken);
+      // Resume a poll that stopped at the page limit, so a long list is worked
+      // through a batch at a time instead of re-reading the first pages forever.
+      const resume = !args.fullSync ? connection.pollCursor : undefined;
+      const pollStartedAt = resume?.startedAt ?? startedAt;
+      const updatedMin = resume
+        ? resume.updatedMin
+        : !args.fullSync && connection.lastPolledAt
+          ? new Date(connection.lastPolledAt - 5 * 60_000).toISOString()
+          : undefined;
 
-    const activeGoogleTaskIds = new Set(
-      await ctx.runQuery(internal.todos.listActiveGoogleTaskIds, {
-        googleTaskListId: personalListId,
-      }),
-    );
-    const linkedDeletions = tasks.filter(
-      (task) => task.deleted === true && activeGoogleTaskIds.has(task.id),
-    );
-    if (linkedDeletions.length > MAX_GOOGLE_DELETIONS_PER_POLL) {
-      throw new Error(
-        `Google Tasks reported ${linkedDeletions.length} linked deletions; `
-        + `the safety limit is ${MAX_GOOGLE_DELETIONS_PER_POLL}`,
+      const tasks: GoogleTask[] = [];
+      let pageToken: string | undefined = resume?.pageToken;
+      let pageCount = 0;
+      do {
+        const query = new URLSearchParams({
+          maxResults: "100",
+          showCompleted: "true",
+          showHidden: "true",
+          showDeleted: "true",
+        });
+        if (updatedMin) query.set("updatedMin", updatedMin);
+        if (pageToken) query.set("pageToken", pageToken);
+        let page: { items?: GoogleTask[]; nextPageToken?: string };
+        try {
+          page = await googleRequest<{ items?: GoogleTask[]; nextPageToken?: string }>(
+            accessToken,
+            `/lists/${encodeURIComponent(personalListId)}/tasks?${query.toString()}`,
+          );
+        } catch (error) {
+          // A saved page token can expire. Drop it so the next poll starts
+          // the window again rather than failing on it forever.
+          if (resume && pageToken === resume.pageToken) {
+            await ctx.runMutation(internal.googleTasksStore.recordPoll, { pollCursor: null });
+          }
+          throw error;
+        }
+        tasks.push(...(page.items ?? []));
+        pageToken = page.nextPageToken;
+        pageCount += 1;
+      } while (pageToken && pageCount < MAX_POLL_PAGES);
+
+      const activeGoogleTaskIds = new Set(
+        await ctx.runQuery(internal.todos.listActiveGoogleTaskIds, {
+          googleTaskListId: personalListId,
+        }),
       );
-    }
+      const linkedDeletions = tasks.filter(
+        (task) => task.deleted === true && activeGoogleTaskIds.has(task.id),
+      );
+      // A manual allowance carries through every batch of the same window.
+      const allowDeletions = args.allowDeletions ?? resume?.allowDeletions;
+      const deletionLimit = Math.max(MAX_GOOGLE_DELETIONS_PER_POLL, allowDeletions ?? 0);
+      const skipLinkedDeletions = linkedDeletions.length > deletionLimit;
+      const skippedDeletions = (resume?.skippedDeletions ?? 0)
+        + (skipLinkedDeletions ? linkedDeletions.length : 0);
+      const nextCursor = pageToken
+        ? { pageToken, updatedMin, startedAt: pollStartedAt, skippedDeletions, allowDeletions }
+        : null;
 
-    for (const task of tasks) {
-      await ctx.runMutation(internal.todos.upsertFromGoogle, {
-        googleTaskId: task.id,
-        googleTaskListId: personalListId,
-        title: task.title?.trim() || "Untitled task",
-        assignee: "dad",
-        dueDate: task.due?.slice(0, 10),
-        completed: task.status === "completed",
-        deleted: task.deleted === true,
-        googleUpdatedAt: task.updated ?? new Date().toISOString(),
+      // Everything else still syncs. Skipped deletions leave the Cannvas
+      // to-dos in place, which is the safe direction.
+      for (const task of tasks) {
+        if (skipLinkedDeletions && task.deleted === true && activeGoogleTaskIds.has(task.id)) continue;
+        await ctx.runMutation(internal.todos.upsertFromGoogle, {
+          googleTaskId: task.id,
+          googleTaskListId: personalListId,
+          title: task.title?.trim() || "Untitled task",
+          assignee: "dad",
+          dueDate: task.due?.slice(0, 10),
+          completed: task.status === "completed",
+          deleted: task.deleted === true,
+          googleUpdatedAt: task.updated ?? new Date().toISOString(),
+        });
+      }
+
+      const problems = [
+        ...(skippedDeletions > 0
+          ? [`Skipped ${skippedDeletions} linked deletions in this poll window (limit ${deletionLimit} per batch). `
+            + `If they are real, run googleTasks:poll with {"fullSync":true,"allowDeletions":${skippedDeletions}}.`]
+          : []),
+      ];
+      if (problems.length > 0) console.error(`Google Tasks poll: ${problems.join(" ")}`);
+      // Only move the watermark once the whole window has been read, and not
+      // at all while deletions were skipped: the next poll reads the same
+      // window again, so they stay reported until someone deals with them.
+      const windowComplete = nextCursor === null;
+      await ctx.runMutation(internal.googleTasksStore.recordPoll, {
+        ...(windowComplete && skippedDeletions === 0 ? { lastPolledAt: pollStartedAt } : {}),
+        pollCursor: nextCursor,
+        error: problems.length > 0 ? problems.join(" ") : undefined,
       });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Google Tasks poll failed: ${message}`);
+      await ctx.runMutation(internal.googleTasksStore.recordPoll, { error: message });
     }
-
-    await ctx.runMutation(internal.googleTasksStore.saveLastPolledAt, { lastPolledAt: startedAt });
     return null;
   },
 });

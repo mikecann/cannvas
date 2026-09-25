@@ -27,6 +27,7 @@ import {
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
+import { preparePhotoForUpload } from "./photoPrep";
 
 type InventoryStatus = "active" | "disposed" | "donated" | "sold" | "lost";
 type InventoryItemSummary = {
@@ -126,20 +127,34 @@ function LoadingScreen() {
   return <main className="inventory-loading"><LoaderCircle className="spin" /><span>Opening inventory…</span></main>;
 }
 
+async function uploadFile(file: File, generateUploadUrl: () => Promise<string>) {
+  // Strip EXIF (including GPS) before anything leaves the phone.
+  const photo = await preparePhotoForUpload(file);
+  const uploadUrl = await generateUploadUrl();
+  const response = await fetch(uploadUrl, {
+    method: "POST",
+    headers: { "Content-Type": "image/jpeg" },
+    body: photo,
+  });
+  if (!response.ok) throw new Error("A photo could not be uploaded. Please try again.");
+  return (await response.json() as { storageId: Id<"_storage"> }).storageId;
+}
+
+// One at a time, and one bad file does not throw away the rest.
 async function uploadFiles(
   files: File[],
   generateUploadUrl: () => Promise<string>,
 ) {
-  return await Promise.all(files.map(async (file) => {
-    const uploadUrl = await generateUploadUrl();
-    const response = await fetch(uploadUrl, {
-      method: "POST",
-      headers: { "Content-Type": file.type || "image/jpeg" },
-      body: file,
-    });
-    if (!response.ok) throw new Error("A photo could not be uploaded. Please try again.");
-    return (await response.json() as { storageId: Id<"_storage"> }).storageId;
-  }));
+  const storageIds: Id<"_storage">[] = [];
+  const errors: string[] = [];
+  for (const file of files) {
+    try {
+      storageIds.push(await uploadFile(file, generateUploadUrl));
+    } catch (caught) {
+      errors.push(getErrorMessage(caught));
+    }
+  }
+  return { storageIds, errors };
 }
 
 function CaptureSheet({ onClose }: { onClose: () => void }) {
@@ -164,7 +179,7 @@ function CaptureSheet({ onClose }: { onClose: () => void }) {
 
   const uploadPhoto = async (photo: CapturePhoto) => {
     try {
-      const [storageId] = await uploadFiles([photo.file], () => generateUploadUrlMutation({}));
+      const storageId = await uploadFile(photo.file, () => generateUploadUrlMutation({}));
       setPhotos((current) => current.map((candidate) =>
         candidate.id === photo.id ? { ...candidate, status: "uploaded", storageId } : candidate,
       ));
@@ -386,11 +401,14 @@ function DetailSheet({ itemId, onClose }: { itemId: Id<"inventoryItems">; onClos
     setBusy(true);
     setError("");
     try {
-      const storageIds = await uploadFiles(
+      const { storageIds, errors } = await uploadFiles(
         files.slice(0, Math.min(MAX_PHOTOS_PER_UPLOAD, availableSlots)),
         () => generateUploadUrlMutation({}),
       );
-      await addPhotos({ itemId, storageIds, rerunEnrichment: true });
+      if (storageIds.length > 0) await addPhotos({ itemId, storageIds, rerunEnrichment: true });
+      if (errors.length > 0) {
+        setError(`${errors.length} of ${errors.length + storageIds.length} photos were not added. ${errors[0]}`);
+      }
     } catch (caught) {
       setError(getErrorMessage(caught));
     } finally {

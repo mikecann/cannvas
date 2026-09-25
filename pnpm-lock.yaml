@@ -35,6 +35,9 @@ importers:
       convex-helpers:
         specifier: 0.1.120
         version: 0.1.120(@standard-schema/spec@1.1.0)(convex@1.42.3(react@19.2.8))(react@19.2.8)(typescript@6.0.2)(zod@4.4.3)
+      fluent-convex:
+        specifier: ^0.13.0
+        version: 0.13.0(convex-helpers@0.1.120(@standard-schema/spec@1.1.0)(convex@1.42.3(react@19.2.8))(react@19.2.8)(typescript@6.0.2)(zod@4.4.3))(convex@1.42.3(react@19.2.8))(zod@4.4.3)
       leaflet:
         specifier: ^1.9.4
         version: 1.9.4
@@ -955,6 +958,18 @@ packages:
       picomatch:
         optional: true
 
+  fluent-convex@0.13.0:
+    resolution: {integrity: sha512-C+9m3ICdGBrY75gbUn5im6r+pJr4G5o06PJc7igL8VXA+KyoNABDsUTnjAwrajGvBxySx6wqNbDnaYun9xzQgg==}
+    peerDependencies:
+      convex: ^1.31.0
+      convex-helpers: '>=0.1.0'
+      zod: ^3.25.0 || ^4.0.0
+    peerDependenciesMeta:
+      convex-helpers:
+        optional: true
+      zod:
+        optional: true
+
   fsevents@2.3.3:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
@@ -1873,6 +1888,13 @@ snapshots:
   fdir@6.5.0(picomatch@4.0.5):
     optionalDependencies:
       picomatch: 4.0.5
+
+  fluent-convex@0.13.0(convex-helpers@0.1.120(@standard-schema/spec@1.1.0)(convex@1.42.3(react@19.2.8))(react@19.2.8)(typescript@6.0.2)(zod@4.4.3))(convex@1.42.3(react@19.2.8))(zod@4.4.3):
+    dependencies:
+      convex: 1.42.3(react@19.2.8)
+    optionalDependencies:
+      convex-helpers: convex-helpers@0.1.120(@standard-schema/spec@1.1.0)(convex@1.42.3(react@19.2.8))(react@19.2.8)(typescript@6.0.2)(zod@4.4.3)
+      zod: 4.4.3
 
   fsevents@2.3.3:
     optional: true

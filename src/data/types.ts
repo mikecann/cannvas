@@ -72,6 +72,13 @@ export type CalendarEvent = {
 
 export type CalendarStatus = "loading" | "ready" | "not-configured" | "error";
 
+// "local" means there is no Convex backup configured at all.
+export type BackupStatus =
+  | { state: "local" }
+  | { state: "pending" }
+  | { state: "ok"; lastBackedUpAt: number }
+  | { state: "error"; message: string; since: number };
+
 export type CannvasData = {
   boardDates: string[];
   getBoard: (date: string) => Stroke[];
@@ -98,5 +105,6 @@ export type CannvasData = {
   toggleTodo: (id: string) => Promise<void>;
   removeTodo: (id: string) => Promise<void>;
   isReady: boolean;
+  backupStatus: BackupStatus;
   mode: "backup" | "local";
 };

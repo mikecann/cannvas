@@ -10,19 +10,35 @@ import {
   useRef,
   useState,
 } from "react";
-import { ConvexReactClient, useAction, useMutation, useQuery } from "convex/react";
-import { ConvexAuthProvider } from "@convex-dev/auth/react";
+import { ConvexProvider, ConvexReactClient, useAction, useConvex, useMutation, useQueries } from "convex/react";
+import { makeUseQueryWithStatus } from "convex-helpers/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
-import type { CalendarEvent, CalendarStatus, CannvasData, Chore, ChoreCategory, Completion, NewsHeadline, Stroke, TabletCompletion, TabletSchedule, Todo } from "./types";
+import {
+  backupContentKey,
+  backupRetryDelayMs,
+  boardRevision,
+  boardsNeedingBackup,
+  isValidRevision,
+  jsonLength,
+  MAX_BACKUP_JSON_LENGTH,
+  reconcileBoardRevisions,
+  toBackupState,
+  toBackupStrokes,
+} from "../lib/deviceBackup";
+import { compactStrokes } from "../lib/strokes";
+import type { BackupStatus, CalendarEvent, CalendarStatus, CannvasData, Chore, ChoreCategory, Completion, NewsHeadline, Stroke, TabletCompletion, TabletSchedule, Todo } from "./types";
 
 const DataContext = createContext<CannvasData | null>(null);
 const DEVICE_STORAGE_KEY = "cannvas-device-data-v2";
 const LEGACY_LOCAL_STORAGE_KEY = "cannvas-local-data-v1";
 const DEVICE_ID = import.meta.env.VITE_CANNVAS_DEVICE_ID
   ?? (import.meta.env.PROD ? "mirror" : "development");
-const TODO_ACCESS_TOKEN = import.meta.env.VITE_CANNVAS_TODO_ACCESS_TOKEN ?? "";
+// Only the kiosk build on the Pi has this. The public site is a separate build
+// that never includes this module.
+const DEVICE_TOKEN = import.meta.env.VITE_CANNVAS_DEVICE_TOKEN?.trim() ?? "";
 const BACKUP_DEBOUNCE_MS = 500;
+const RECOVERY_PAGE_SIZE = 50;
 const CALENDAR_CACHE_KEY = "cannvas-calendar-cache-v1";
 const CALENDAR_REQUEST_TIMEOUT_MS = 30_000;
 const CALENDAR_RETRY_MS = 60_000;
@@ -105,15 +121,16 @@ type LocalState = {
 };
 
 type DeviceState = LocalState & {
+  // The device revision at which each board last changed. Boards are backed
+  // up one document per date, so this says which ones need uploading.
+  boardRevisions: Record<string, number>;
   version: 2;
   tabletScheduleVersion: number;
   revision: number;
   updatedAt: number;
 };
 
-type ConvexBoard = { date: string; strokes: Stroke[]; updatedAt?: number };
 type ConvexChore = Omit<Chore, "category"> & { category?: ChoreCategory; _id: string };
-type DeviceBackup = { revision: number; state: unknown; updatedAt: number } | null;
 type TodoData = Pick<
   CannvasData,
   "todos" | "addTodo" | "updateTodo" | "toggleTodo" | "removeTodo" | "isReady"
@@ -138,15 +155,21 @@ function createInitialLocalState(): LocalState {
   };
 }
 
-function toDeviceState(value: Partial<LocalState & Pick<DeviceState, "revision" | "tabletScheduleVersion">>): DeviceState {
+function toDeviceState(value: Partial<LocalState & Pick<DeviceState, "revision" | "tabletScheduleVersion" | "boardRevisions">>): DeviceState {
   const fallback = createInitialLocalState();
   const needsTabletScheduleMigration = value.tabletScheduleVersion !== TABLET_SCHEDULE_VERSION;
   return {
     version: 2,
     tabletScheduleVersion: TABLET_SCHEDULE_VERSION,
-    revision: Number.isFinite(value.revision) ? Math.max(0, Number(value.revision)) : 0,
+    // Older builds accepted any revision. One past the server's cap would be
+    // rejected on every save, so start again from 0 and let the server's
+    // answer move it forward.
+    revision: isValidRevision(value.revision) ? value.revision : 0,
     updatedAt: Date.now(),
     boards: value.boards ?? fallback.boards,
+    boardRevisions: isValidRevision(value.revision) && value.boardRevisions && typeof value.boardRevisions === "object"
+      ? Object.fromEntries(Object.entries(value.boardRevisions).filter(([, revision]) => isValidRevision(revision)))
+      : {},
     chores: (value.chores ?? fallback.chores).map((chore) => ({
       ...chore,
       category: chore.category ?? "standard",
@@ -215,14 +238,16 @@ function useDeviceData(
   calendarStatus: CalendarStatus,
   loadCalendarRange: (start: string, end: string) => Promise<void>,
   mode: CannvasData["mode"],
+  backupStatus: BackupStatus,
   todoData?: TodoData,
 ): CannvasData {
-  const updateState = useCallback((update: (current: DeviceState) => LocalState) => {
+  const updateState = useCallback((update: (current: DeviceState) => LocalState & Partial<Pick<DeviceState, "boardRevisions">>) => {
     setState((current) => {
       if (!current) return current;
       const next = update(current);
       return {
         ...next,
+        boardRevisions: next.boardRevisions ?? current.boardRevisions,
         version: 2,
         tabletScheduleVersion: current.tabletScheduleVersion,
         revision: current.revision + 1,
@@ -241,7 +266,8 @@ function useDeviceData(
     saveBoard: async (date, strokes) => {
       updateState((current) => ({
         ...current,
-        boards: { ...current.boards, [date]: strokes },
+        boards: { ...current.boards, [date]: compactStrokes(strokes) },
+        boardRevisions: { ...current.boardRevisions, [date]: current.revision + 1 },
       }));
     },
     chores: visibleState.chores,
@@ -380,9 +406,12 @@ function useDeviceData(
       }));
     }),
     isReady: state !== null && (todoData?.isReady ?? true),
+    backupStatus,
     mode,
-  }), [calendarEvents, calendarStatus, loadCalendarRange, mode, newsHeadlines, state, todoData, updateState, visibleState]);
+  }), [backupStatus, calendarEvents, calendarStatus, loadCalendarRange, mode, newsHeadlines, state, todoData, updateState, visibleState]);
 }
+
+const LOCAL_BACKUP_STATUS: BackupStatus = { state: "local" };
 
 function LocalDataProvider({ children }: PropsWithChildren) {
   const [state, setState] = useState<DeviceState | null>(() =>
@@ -397,25 +426,294 @@ function LocalDataProvider({ children }: PropsWithChildren) {
 
   const calendarEvents = useMemo(previewCalendarEvents, []);
   const loadCalendarRange = useCallback(async () => undefined, []);
-  const data = useDeviceData(state, setState, PREVIEW_HEADLINES, calendarEvents, "ready", loadCalendarRange, "local");
+  const data = useDeviceData(state, setState, PREVIEW_HEADLINES, calendarEvents, "ready", loadCalendarRange, "local", LOCAL_BACKUP_STATUS);
   return <DataContext.Provider value={data}>{children}</DataContext.Provider>;
 }
 
-function LocalFirstBackupProvider({ children }: PropsWithChildren) {
-  // Once this key exists, it is the authority. Remote values below are used
-  // only for first-run recovery and are never reconciled over local actions.
-  const [state, setState] = useState<DeviceState | null>(() => readStoredState(DEVICE_STORAGE_KEY));
-  const backup = useQuery(api.deviceBackups.get, { deviceId: DEVICE_ID }) as DeviceBackup | undefined;
-  const legacyBoards = useQuery(api.boards.list) as ConvexBoard[] | undefined;
-  const legacyChores = useQuery(api.chores.list) as ConvexChore[] | undefined;
-  const legacyCompletions = useQuery(api.chores.listCompletions) as Completion[] | undefined;
+const useQueryWithStatus = makeUseQueryWithStatus(useQueries);
+
+function errorMessage(error: unknown) {
+  if (error && typeof error === "object" && "data" in error && typeof error.data === "string") return error.data;
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function collectPages<T>(
+  loadPage: (cursor: string | null) => Promise<{ page: T[]; isDone: boolean; continueCursor: string }>,
+): Promise<T[]> {
+  const rows: T[] = [];
+  let cursor: string | null = null;
+  for (;;) {
+    const result = await loadPage(cursor);
+    rows.push(...result.page);
+    if (result.isDone) return rows;
+    cursor = result.continueCursor;
+  }
+}
+
+async function loadServerBoardRevisions(client: ConvexReactClient) {
+  const rows = await collectPages((cursor) => client.query(api.deviceBoards.revisions, {
+    deviceToken: DEVICE_TOKEN,
+    deviceId: DEVICE_ID,
+    paginationOpts: { cursor, numItems: 200 },
+  }));
+  return Object.fromEntries(rows.map(({ date, revision }) => [date, revision]));
+}
+
+// Rebuild a kiosk that has no local data. Remote data is only ever used here,
+// on first run. Once local data exists it is the authority.
+async function recoverDeviceState(client: ConvexReactClient) {
+  const deviceToken = DEVICE_TOKEN;
+  const backup = await client.query(api.deviceBackups.get, { deviceToken, deviceId: DEVICE_ID });
+  const deviceBoards = await collectPages((cursor) => client.query(api.deviceBoards.page, {
+    deviceToken,
+    deviceId: DEVICE_ID,
+    paginationOpts: { cursor, numItems: RECOVERY_PAGE_SIZE },
+  }));
+  const serverRevisions: Record<string, number> = {};
+  const boardsFromDevice = Object.fromEntries(deviceBoards.map(({ date, revision, strokes }) => {
+    serverRevisions[date] = revision;
+    return [date, strokes];
+  }));
+  // Boards recovered from deviceBoards start at the server's revision. The
+  // device revision is then raised past every board revision so the first
+  // edit to any recovered board is uploaded straight away.
+  const withBoardRevisions = (state: DeviceState) => {
+    const recoveredRevisions = Object.fromEntries(
+      Object.entries(serverRevisions).filter(([, revision]) => isValidRevision(revision)),
+    );
+    const reconciled = reconcileBoardRevisions(
+      { ...state, boardRevisions: { ...state.boardRevisions, ...recoveredRevisions } },
+      serverRevisions,
+    );
+    return {
+      backedUp: reconciled.backedUp,
+      state: { ...state, revision: reconciled.revision, boardRevisions: reconciled.boardRevisions },
+    };
+  };
+
+  if (backup) {
+    // Older backups keep boards inline. Newer per-date documents win.
+    const legacy = backup.state as Partial<LocalState>;
+    return withBoardRevisions(toDeviceState({
+      ...legacy,
+      boards: { ...(legacy.boards ?? {}), ...boardsFromDevice },
+      revision: backup.revision,
+    }));
+  }
+
+  // No device backup at all: fall back to the original remote-first tables.
+  const [legacyBoards, legacyChores, legacyCompletions] = await Promise.all([
+    collectPages((cursor) => client.query(api.boards.list, {
+      deviceToken,
+      paginationOpts: { cursor, numItems: RECOVERY_PAGE_SIZE },
+    })),
+    client.query(api.chores.list, { deviceToken }) as Promise<ConvexChore[]>,
+    collectPages((cursor) => client.query(api.chores.listCompletions, {
+      deviceToken,
+      paginationOpts: { cursor, numItems: 500 },
+    })),
+  ]);
+  return withBoardRevisions(toDeviceState({
+    revision: 0,
+    boards: {
+      ...Object.fromEntries(legacyBoards.map(({ date, strokes }) => [date, strokes])),
+      ...boardsFromDevice,
+    },
+    chores: legacyChores.length > 0
+      ? legacyChores.map(({ _id, ...chore }) => ({ ...chore, id: _id, category: chore.category ?? "standard" }))
+      : undefined,
+    completions: legacyCompletions,
+  }));
+}
+
+function useDeviceBackup(
+  state: DeviceState | null,
+  setState: Dispatch<SetStateAction<DeviceState | null>>,
+) {
+  const client = useConvex();
   const saveBackup = useMutation(api.deviceBackups.save);
+  const saveBoard = useMutation(api.deviceBoards.save);
+  const [status, setStatus] = useState<BackupStatus>({ state: "pending" });
+  const [retryTick, setRetryTick] = useState(0);
+  const latestState = useRef(state);
+  // Which board revisions the server is known to hold. Rebuilt from the
+  // server on every start, so a lost or restored table is noticed rather than
+  // trusted from local bookkeeping.
+  const backedUpBoards = useRef<Record<string, number> | null>(null);
+  const lastSavedContent = useRef<string | null>(null);
+  const running = useRef(false);
+  const rerunRequested = useRef(false);
+  const failures = useRef(0);
+  const retryTimer = useRef<number | undefined>(undefined);
+
+  latestState.current = state;
+
+  const fail = useCallback((message: string) => {
+    failures.current += 1;
+    setStatus((current) => current.state === "error" && current.message === message
+      ? current
+      : { state: "error", message, since: current.state === "error" ? current.since : Date.now() });
+    window.clearTimeout(retryTimer.current);
+    retryTimer.current = window.setTimeout(
+      () => setRetryTick((tick) => tick + 1),
+      backupRetryDelayMs(failures.current),
+    );
+  }, []);
+
+  // First run with no local data: recover before the app becomes usable, and
+  // keep retrying rather than starting empty and overwriting the backup.
+  useEffect(() => {
+    if (state) return;
+    let cancelled = false;
+    void recoverDeviceState(client).then((recovered) => {
+      if (cancelled) return;
+      // Persist before exposing the app, so a refresh during the first render
+      // cannot send us back to a remote-first state.
+      writeDeviceState(recovered.state);
+      backedUpBoards.current = recovered.backedUp;
+      setState(recovered.state);
+    }).catch((error: unknown) => {
+      if (!cancelled) fail(`Could not load the backup: ${errorMessage(error)}`);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, fail, retryTick, setState, state]);
+
+  const flush = useCallback(async (): Promise<void> => {
+    if (running.current) {
+      rerunRequested.current = true;
+      return;
+    }
+    running.current = true;
+    rerunRequested.current = false;
+    const oversized = new Set<string>();
+    try {
+      if (!latestState.current) return;
+
+      if (!backedUpBoards.current) {
+        const server = await loadServerBoardRevisions(client);
+        const current = latestState.current;
+        if (!current) return;
+        const reconciled = reconcileBoardRevisions(current, server);
+        backedUpBoards.current = reconciled.backedUp;
+        if (
+          reconciled.revision !== current.revision
+          || JSON.stringify(reconciled.boardRevisions) !== JSON.stringify(current.boardRevisions)
+        ) {
+          // Boards the server holds at a newer revision are moved past it.
+          // The state change runs this again.
+          setState((latest) => latest && {
+            ...latest,
+            revision: Math.max(latest.revision, reconciled.revision),
+            boardRevisions: { ...latest.boardRevisions, ...reconciled.boardRevisions },
+            updatedAt: Date.now(),
+          });
+          return;
+        }
+      }
+
+      for (;;) {
+        const current = latestState.current;
+        if (!current) return;
+
+        const payload = toBackupState(current);
+        const content = backupContentKey(payload);
+        if (content !== lastSavedContent.current) {
+          if (jsonLength(payload) > MAX_BACKUP_JSON_LENGTH) {
+            throw new Error("The device backup is too large. Old chores or tablet history need trimming.");
+          }
+          const result = await saveBackup({
+            deviceToken: DEVICE_TOKEN,
+            deviceId: DEVICE_ID,
+            revision: current.revision,
+            state: payload,
+          });
+          if (!result.accepted) {
+            // The server has an equal or newer revision, usually because an
+            // earlier upload got further than local bookkeeping. Local data is
+            // the authority, so move past it and save again.
+            setState((latest) => latest && latest.revision <= result.revision
+              ? { ...latest, revision: result.revision + 1, updatedAt: Date.now() }
+              : latest);
+            rerunRequested.current = true;
+            return;
+          }
+          lastSavedContent.current = content;
+          continue;
+        }
+
+        const [date] = boardsNeedingBackup(current, backedUpBoards.current, oversized);
+        if (!date) break;
+        const strokes = toBackupStrokes(current.boards[date] ?? []);
+        if (jsonLength(strokes) > MAX_BACKUP_JSON_LENGTH) {
+          oversized.add(date);
+          continue;
+        }
+        const revision = boardRevision(current, date);
+        const result = await saveBoard({ deviceToken: DEVICE_TOKEN, deviceId: DEVICE_ID, date, revision, strokes });
+        if (result.accepted || result.revision === revision) {
+          backedUpBoards.current = { ...backedUpBoards.current, [date]: revision };
+          continue;
+        }
+        // The server holds a newer revision of this board (a rolled-back
+        // kiosk, or another client using this device ID). The screen is the
+        // authority, so move this board past it and upload again.
+        const next = Math.max(result.revision, current.revision) + 1;
+        setState((latest) => latest && {
+          ...latest,
+          revision: Math.max(latest.revision, next),
+          boardRevisions: { ...latest.boardRevisions, [date]: Math.max(next, boardRevision(latest, date)) },
+          updatedAt: Date.now(),
+        });
+        rerunRequested.current = true;
+        return;
+      }
+
+      if (oversized.size > 0) {
+        fail(`Too large to back up: whiteboard ${[...oversized].join(", ")}. It is still saved on this screen.`);
+        return;
+      }
+      failures.current = 0;
+      window.clearTimeout(retryTimer.current);
+      // Every change re-renders the whole app through this context, so only
+      // refresh the timestamp occasionally.
+      setStatus((current) => current.state === "ok" && Date.now() - current.lastBackedUpAt < 60_000
+        ? current
+        : { state: "ok", lastBackedUpAt: Date.now() });
+    } catch (error) {
+      console.error("Cannvas backup failed", error);
+      fail(`Backup failed: ${errorMessage(error)}`);
+    } finally {
+      running.current = false;
+      // Wait a tick so a state change made above has rendered first.
+      if (rerunRequested.current && failures.current === 0) window.setTimeout(() => void flush(), 0);
+    }
+  }, [client, fail, saveBackup, saveBoard, setState]);
+
+  useEffect(() => {
+    if (!state) return;
+    writeDeviceState(state);
+    const timer = window.setTimeout(() => void flush(), BACKUP_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [flush, retryTick, state]);
+
+  useEffect(() => () => window.clearTimeout(retryTimer.current), []);
+
+  return status;
+}
+
+function LocalFirstBackupProvider({ children }: PropsWithChildren) {
+  // Once this key exists, it is the authority. Remote values are used only
+  // for first-run recovery and are never reconciled over local actions.
+  const [state, setState] = useState<DeviceState | null>(() => readStoredState(DEVICE_STORAGE_KEY));
+  const backupStatus = useDeviceBackup(state, setState);
   const loadWorldNews = useAction(api.news.world);
   const loadPrimaryCalendar = useAction(api.calendar.events);
-  const canonicalTodos = useQuery(
-    api.todos.list,
-    TODO_ACCESS_TOKEN ? { accessToken: TODO_ACCESS_TOKEN } : "skip",
-  );
+  const todosQuery = useQueryWithStatus(api.todos.list, { deviceToken: DEVICE_TOKEN });
+  const lastTodos = useRef<Todo[] | undefined>(undefined);
+  if (todosQuery.data) lastTodos.current = todosQuery.data;
+  const canonicalTodos = todosQuery.data ?? lastTodos.current;
   const createCanonicalTodo = useMutation(api.todos.create);
   const updateCanonicalTodo = useMutation(api.todos.update);
   const toggleCanonicalTodo = useMutation(api.todos.toggle);
@@ -426,8 +724,11 @@ function LocalFirstBackupProvider({ children }: PropsWithChildren) {
   const [calendarStatus, setCalendarStatus] = useState<CalendarStatus>(() => (
     hasCurrentCalendarEvents(readCalendarCache()) ? "ready" : "loading"
   ));
-  const backupBaselineChecked = useRef(false);
   const legacyTodoImportStarted = useRef(false);
+
+  useEffect(() => {
+    if (todosQuery.isError) console.error("Could not load to-dos", todosQuery.error);
+  }, [todosQuery.error, todosQuery.isError]);
 
   const loadCalendarRange = useCallback(async (requestedStart: string, requestedEnd: string) => {
     const today = new Date();
@@ -442,7 +743,7 @@ function LocalFirstBackupProvider({ children }: PropsWithChildren) {
     try {
       const result = await withTimeout(
         loadPrimaryCalendar({
-          accessToken: import.meta.env.VITE_CALENDAR_ACCESS_TOKEN ?? "",
+          deviceToken: DEVICE_TOKEN,
           start: start.toISOString(),
           end: end.toISOString(),
         }),
@@ -461,63 +762,9 @@ function LocalFirstBackupProvider({ children }: PropsWithChildren) {
   }, [loadPrimaryCalendar]);
 
   useEffect(() => {
-    if (state || backup === undefined) return;
-
-    if (backup) {
-      const recovered = toDeviceState({ ...(backup.state as Partial<LocalState>), revision: backup.revision });
-      writeDeviceState(recovered);
-      setState(recovered);
-      return;
-    }
-
-    if (legacyBoards === undefined || legacyChores === undefined || legacyCompletions === undefined) return;
-
-    const recovered = toDeviceState({
-      revision: 0,
-      boards: Object.fromEntries(legacyBoards.map(({ date, strokes }) => [date, strokes])),
-      chores: legacyChores.length > 0
-        ? legacyChores.map(({ _id, ...chore }) => ({ ...chore, id: _id, category: chore.category ?? "standard" }))
-        : undefined,
-      completions: legacyCompletions,
-    });
-
-    // Persist recovery before exposing the app, so even a refresh during the
-    // first render cannot send us back to a remote-first state.
-    writeDeviceState(recovered);
-    setState(recovered);
-  }, [backup, legacyBoards, legacyChores, legacyCompletions, state]);
-
-  useEffect(() => {
-    if (backup === undefined || backupBaselineChecked.current) return;
-    backupBaselineChecked.current = true;
-
-    // Only the remote revision is considered. If a prior upload got further
-    // than local bookkeeping, move the local revision forward without ever
-    // importing the remote payload over device data.
-    if (state && backup && backup.revision >= state.revision) {
-      setState((current) => current && current.revision <= backup.revision
-        ? { ...current, revision: backup.revision + 1, updatedAt: Date.now() }
-        : current);
-    }
-  }, [backup, state]);
-
-  useEffect(() => {
-    if (!state || backup === undefined) return;
-    writeDeviceState(state);
-    const timer = window.setTimeout(() => {
-      void saveBackup({
-        deviceId: DEVICE_ID,
-        revision: state.revision,
-        state,
-      }).catch(() => undefined);
-    }, BACKUP_DEBOUNCE_MS);
-    return () => window.clearTimeout(timer);
-  }, [saveBackup, state]);
-
-  useEffect(() => {
     let active = true;
     const refresh = () => {
-      void loadWorldNews({}).then((headlines) => {
+      void loadWorldNews({ deviceToken: DEVICE_TOKEN }).then((headlines) => {
         if (active && headlines.length > 0) setNewsHeadlines(headlines);
       }).catch(() => undefined);
     };
@@ -530,9 +777,9 @@ function LocalFirstBackupProvider({ children }: PropsWithChildren) {
   }, [loadWorldNews]);
 
   useEffect(() => {
-    if (!TODO_ACCESS_TOKEN || !state || canonicalTodos === undefined || legacyTodoImportStarted.current) return;
+    if (!state || canonicalTodos === undefined || legacyTodoImportStarted.current) return;
     legacyTodoImportStarted.current = true;
-    void importCanonicalTodos({ accessToken: TODO_ACCESS_TOKEN, todos: state.todos }).catch(() => {
+    void importCanonicalTodos({ deviceToken: DEVICE_TOKEN, todos: state.todos }).catch(() => {
       // A transient deployment or network failure should be retried on the
       // next render. The mutation itself is idempotent by legacy to-do ID.
       legacyTodoImportStarted.current = false;
@@ -573,11 +820,11 @@ function LocalFirstBackupProvider({ children }: PropsWithChildren) {
     return () => window.clearTimeout(timer);
   }, [calendarEvents.length, calendarStatus]);
 
-  const todoData = useMemo<TodoData | undefined>(() => TODO_ACCESS_TOKEN ? ({
+  const todoData = useMemo<TodoData>(() => ({
     todos: canonicalTodos?.map((todo) => ({ ...todo, id: todo.id })) ?? [],
     addTodo: async (title, assignee, priority, dueDate) => {
       await createCanonicalTodo({
-        accessToken: TODO_ACCESS_TOKEN,
+        deviceToken: DEVICE_TOKEN,
         title,
         assignee,
         priority,
@@ -586,7 +833,7 @@ function LocalFirstBackupProvider({ children }: PropsWithChildren) {
     },
     updateTodo: async (id, title, assignee, priority, dueDate) => {
       await updateCanonicalTodo({
-        accessToken: TODO_ACCESS_TOKEN,
+        deviceToken: DEVICE_TOKEN,
         id: id as Id<"todos">,
         title,
         assignee,
@@ -595,16 +842,19 @@ function LocalFirstBackupProvider({ children }: PropsWithChildren) {
       });
     },
     toggleTodo: async (id) => {
-      await toggleCanonicalTodo({ accessToken: TODO_ACCESS_TOKEN, id: id as Id<"todos"> });
+      await toggleCanonicalTodo({ deviceToken: DEVICE_TOKEN, id: id as Id<"todos"> });
     },
     removeTodo: async (id) => {
-      await removeCanonicalTodo({ accessToken: TODO_ACCESS_TOKEN, id: id as Id<"todos"> });
+      await removeCanonicalTodo({ deviceToken: DEVICE_TOKEN, id: id as Id<"todos"> });
     },
-    isReady: canonicalTodos !== undefined,
-  }) : undefined, [
+    // An auth or network error should not hold the whole kiosk on the
+    // loading screen. The list stays empty (or last known) instead.
+    isReady: canonicalTodos !== undefined || todosQuery.isError,
+  }), [
     canonicalTodos,
     createCanonicalTodo,
     removeCanonicalTodo,
+    todosQuery.isError,
     toggleCanonicalTodo,
     updateCanonicalTodo,
   ]);
@@ -616,6 +866,7 @@ function LocalFirstBackupProvider({ children }: PropsWithChildren) {
     calendarStatus,
     loadCalendarRange,
     "backup",
+    backupStatus,
     todoData,
   );
   return <DataContext.Provider value={data}>{children}</DataContext.Provider>;
@@ -623,13 +874,16 @@ function LocalFirstBackupProvider({ children }: PropsWithChildren) {
 
 export function DataProvider({ children }: PropsWithChildren) {
   const url = import.meta.env.VITE_CONVEX_URL;
-  const client = useMemo(() => (url ? new ConvexReactClient(url) : null), [url]);
+  const client = useMemo(() => (url && DEVICE_TOKEN ? new ConvexReactClient(url) : null), [url]);
 
-  if (!client) return <LocalDataProvider>{children}</LocalDataProvider>;
+  if (!client) {
+    if (url) console.warn("VITE_CANNVAS_DEVICE_TOKEN is not set, so Cannvas is running without a Convex backup.");
+    return <LocalDataProvider>{children}</LocalDataProvider>;
+  }
   return (
-    <ConvexAuthProvider client={client} storageNamespace="cannvas-kiosk">
+    <ConvexProvider client={client}>
       <LocalFirstBackupProvider>{children}</LocalFirstBackupProvider>
-    </ConvexAuthProvider>
+    </ConvexProvider>
   );
 }
 

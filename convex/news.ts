@@ -1,4 +1,5 @@
-import { action } from "./_generated/server";
+import { v } from "convex/values";
+import { deviceAction } from "./fluent";
 
 const WORLD_NEWS_FEED = "https://feeds.bbci.co.uk/news/world/rss.xml";
 
@@ -12,9 +13,10 @@ function decodeXml(value: string) {
     .replace(/&gt;/g, ">");
 }
 
-export const world = action({
-  args: {},
-  handler: async () => {
+export const world = deviceAction
+  .input({})
+  .returns(v.array(v.object({ title: v.string(), url: v.string() })))
+  .handler(async () => {
     const response = await fetch(WORLD_NEWS_FEED);
     if (!response.ok) throw new Error(`News feed returned ${response.status}`);
     const xml = await response.text();
@@ -25,5 +27,5 @@ export const world = action({
         url: decodeXml(item.match(/<link>([\s\S]*?)<\/link>/)?.[1] ?? ""),
       }))
       .filter(({ title, url }) => title.length > 0 && url.startsWith("http"));
-  },
-});
+  })
+  .public();
