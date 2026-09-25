@@ -69,6 +69,30 @@ pnpm convex:dev
 This creates the local deployment details used by the app. See
 [`.env.example`](.env.example) for the browser settings you can provide.
 
+### The touchscreen's device token
+
+The touchscreen has no signed-in user, so every Convex call it makes carries a
+shared device token. Whiteboard and chore backups, to-dos, the calendar and
+the news headlines all refuse calls without it.
+
+```sh
+pnpm exec convex env set CANNVAS_DEVICE_TOKEN "$(openssl rand -hex 32)"
+```
+
+Put the same value in `.env.local` as `VITE_CANNVAS_DEVICE_TOKEN` before
+building the touchscreen. Without it the touchscreen still works, but only on
+local data with no backup.
+
+The token ends up in the touchscreen's JavaScript, which is fine because that
+build is only served from the Raspberry Pi. The public website is a separate
+build (see below) that never contains it.
+
+Server functions are built with [fluent-convex](https://github.com/mikecann/fluent-convex)
+builders from [`convex/fluent.ts`](convex/fluent.ts): `deviceQuery`,
+`deviceMutation` and `deviceAction` for the touchscreen, `inventoryQuery` and
+`inventoryMutation` for signed-in inventory users, and `publicQuery` for the
+few deliberately public reads.
+
 ### Inventory
 
 The inventory app uploads photos to Convex file storage and keeps an append-only
@@ -109,15 +133,14 @@ named `mirror`.
 ### Google Calendar
 
 Cannvas reads one private iCal feed. The feed address stays in Convex rather
-than being sent to the browser.
+than being sent to the browser, and the touchscreen reads it with its device
+token.
 
 ```sh
 pnpm exec convex env set GOOGLE_CALENDAR_ICAL_URL '<private iCal address>'
-pnpm exec convex env set CALENDAR_ACCESS_TOKEN '<long random token>'
 ```
 
-Add the same access token to the build environment as
-`VITE_CALENDAR_ACCESS_TOKEN`. Declined and cancelled events are left out.
+Declined and cancelled events are left out.
 
 <details>
 <summary><strong>Google Tasks setup</strong></summary>
@@ -139,7 +162,6 @@ pnpm exec convex env set GOOGLE_TASKS_CLIENT_SECRET '<OAuth client secret>'
 pnpm exec convex env set GOOGLE_TASKS_REDIRECT_URI 'https://<deployment>.convex.site/google-tasks/callback'
 pnpm exec convex env set GOOGLE_TASKS_SETUP_TOKEN '<long random token>'
 pnpm exec convex env set CANNVAS_QUICK_ADD_TOKEN '<different long random token>'
-pnpm exec convex env set CANNVAS_TODO_ACCESS_TOKEN '<third long random token>'
 ```
 
 Open the connection link once while signed in to the Google account you want to
@@ -149,9 +171,18 @@ use:
 https://<deployment>.convex.site/google-tasks/connect?setupToken=<setup token>
 ```
 
-Add `CANNVAS_TODO_ACCESS_TOKEN` to the touchscreen build as
-`VITE_CANNVAS_TODO_ACCESS_TOKEN`. Google OAuth credentials remain on the
-server.
+The touchscreen uses the shared to-do list whenever it has its device token.
+Google OAuth credentials remain on the server.
+
+Sync runs every two minutes. A to-do that fails to push backs off (2 minutes
+doubling up to 6 hours). If a poll hits a problem, such as Google reporting
+more than five deletions of linked tasks at once, the rest still syncs and the
+problem is stored as `lastPollError` on the `googleTasksConnections` row.
+After checking Google, apply a large batch of deletions with:
+
+```sh
+pnpm exec convex run googleTasks:poll '{"fullSync":true,"allowDeletions":<count>}'
+```
 
 The `/quick-add-todo` endpoint can also accept a Bearer token from an Apple
 Shortcut. If the shortcut leaves out the person, priority, or date, Cannvas
@@ -222,7 +253,14 @@ reboot should start the desktop, browser, keyboard and timer without a login.
 Whiteboards, chores, pet schedules, and device settings work locally on the
 touchscreen. When Convex is connected, Cannvas keeps a revisioned backup so the
 display can recover without making the internet connection responsible for
-every tap or brush stroke.
+every tap or brush stroke. Each whiteboard date is its own backup document, so
+the backup can't outgrow Convex's document size limit. If backing up fails, the
+screen shows a "Backup paused" badge and keeps retrying. Nothing is lost from
+the screen itself.
+
+Inventory photos are redrawn as JPEGs in the browser before upload, which
+removes EXIF data such as GPS location. Photos uploaded before that change
+still have theirs.
 
 Inventory, Google Tasks, and Calendar use the Convex backend. Home Assistant and
 UniFi stay behind the local Raspberry Pi server. Their private credentials are
@@ -233,11 +271,21 @@ not committed to this repository.
 ```sh
 pnpm dev                # Run the app locally
 pnpm typecheck          # Check the TypeScript code
-pnpm build              # Create a production build
-pnpm preview            # Preview the production build
+pnpm test               # Run the regression tests
+pnpm build              # Build the touchscreen into dist/ (never publish this)
+pnpm build:mirror       # Build the touchscreen against the production backend
+pnpm build:public       # Build the public website into dist-public/
+pnpm preview            # Preview the touchscreen build
 pnpm convex:dev         # Run or configure the Convex development backend
-pnpm deploy:cloudflare  # Publish the web entries to Cloudflare
+pnpm deploy:cloudflare  # Publish dist-public/ to Cloudflare
 ```
+
+There are two separate builds. The touchscreen build (`dist/`) carries the
+device token and is only ever copied to the Raspberry Pi. The public website
+(`dist-public/`) only has the app launcher, `/inventory/` and `/giveaway/`,
+and its build fails if any touchscreen code or token value would end up in it.
+GitHub Actions deploys Convex and the public website on every push to `main`.
+The touchscreen is deployed by hand.
 
 This is a real family project, so some names, labels, defaults, and integrations
 are specific to our household. Fork it, swap those pieces out, and make it fit
