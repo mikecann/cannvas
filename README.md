@@ -339,6 +339,14 @@ display straight back off in the morning. The plug's power sensor can't show
 when the Pi has halted because the TV draws most of the power, which is why the
 automation uses a fixed wait.
 
+### Evening dimming
+
+There's no light sensor, so the screen follows the sun. It starts dimming at
+sunset, reaches about 45% brightness at 21:00 and stays there until sunrise.
+Any touch brings full brightness back for three minutes. Sunrise and sunset
+come from Home Assistant's `sun.sun` through `/api/sun`, with a local
+calculation for Busselton when Home Assistant can't be reached.
+
 ### Kiosk watchdog
 
 The page POSTs to `/api/heartbeat` every 30 seconds from the app shell, so

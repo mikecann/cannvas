@@ -457,6 +457,22 @@ def solar_status(config: dict[str, str]) -> dict[str, Any]:
     }
 
 
+def sun_status(config: dict[str, str]) -> dict[str, Any]:
+    """Sunrise and sunset from Home Assistant's sun.sun, for the evening dimming."""
+    state = home_assistant_request(config, "/api/states/sun.sun", timeout=SOLAR_STATES_TIMEOUT)
+    if not isinstance(state, dict):
+        raise ValueError("Home Assistant sent an unexpected sun state")
+    attributes = state.get("attributes") if isinstance(state.get("attributes"), dict) else {}
+    return {
+        "configured": True,
+        "state": state.get("state"),
+        "elevation": number(attributes.get("elevation")),
+        "rising": attributes.get("rising") is True,
+        "nextRising": attributes.get("next_rising"),
+        "nextSetting": attributes.get("next_setting"),
+    }
+
+
 VIDEO_RETRY_SECONDS = 60
 _VIDEO_LOCK = Lock()
 _HEARTBEAT_LOCK = Lock()
@@ -674,6 +690,16 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         except Exception as error:  # The response deliberately avoids leaking network or token details.
             self.home_assistant_error(error)
 
+    def get_sun(self, query: str) -> None:
+        config = load_config()
+        if not config:
+            self.send_json(200, {"configured": False})
+            return
+        try:
+            self.send_json(200, sun_status(config))
+        except Exception as error:  # The response deliberately avoids leaking network or token details.
+            self.home_assistant_error(error)
+
     def get_home_assistant_status(self, query: str) -> None:
         config = load_config()
         if not config:
@@ -778,6 +804,7 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         "/api/inventory": get_inventory,
         "/api/unifi/status": get_unifi_status,
         "/api/solar": get_solar,
+        "/api/sun": get_sun,
         "/api/home-assistant/status": get_home_assistant_status,
         "/api/heartbeat": heartbeat,
         "/api/health": health,

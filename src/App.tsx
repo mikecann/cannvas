@@ -30,6 +30,7 @@ import type { BackupStatus } from "./data/types";
 import { POWER_OFF_RECOVERY_MESSAGE, schedulePowerOffRecovery } from "./lib/actionTiming";
 import { dismissNativeKeyboard, installNativeKeyboard } from "./lib/nativeKeyboard";
 import { useHeartbeat } from "./lib/useHeartbeat";
+import { useNightDim } from "./lib/useNightDim";
 
 // Leaflet and the bigger dashboards load only when first opened.
 const WeatherApp = lazy(() => import("./apps/WeatherApp").then((module) => ({ default: module.WeatherApp })));
@@ -285,6 +286,7 @@ export function App() {
         {powerOffError && <p className="dialog-error">{powerOffError}</p>}
       </ConfirmDialog>
 
+      <NightDimOverlay />
     </main>
   );
 }
@@ -299,4 +301,10 @@ function RestoringCard({ backupStatus }: { backupStatus: BackupStatus }) {
         : "This screen is new, so it's fetching its backup first."}</span>
     </div>
   );
+}
+
+// Its own component, so the minute tick and touch wake never re-render the app.
+function NightDimOverlay() {
+  const level = useNightDim();
+  return <div className="night-dim" aria-hidden="true" style={{ opacity: level }} />;
 }

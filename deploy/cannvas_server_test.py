@@ -52,6 +52,18 @@ class FakeUpstream(BaseHTTPRequestHandler):
                 {"entity_id": "light.kitchen", "state": "on"},
             ]).encode()
             self.reply(200, body, "application/json")
+        elif self.path == "/api/states/sun.sun":
+            body = json.dumps({
+                "entity_id": "sun.sun",
+                "state": "above_horizon",
+                "attributes": {
+                    "next_rising": "2026-09-25T22:00:00+00:00",
+                    "next_setting": "2026-09-25T10:18:00+00:00",
+                    "elevation": 41.2,
+                    "rising": False,
+                },
+            }).encode()
+            self.reply(200, body, "application/json")
         elif self.path.startswith("/api/history/"):
             self.reply(200, b"[]", "application/json")
         elif self.path == "/redirect":
@@ -211,6 +223,34 @@ class CannvasServerTest(unittest.TestCase):
         self.assertEqual(value["status"], "Normal")
         state_requests = [path for path, _ in FakeUpstream.requests if path.startswith("/api/states")]
         self.assertEqual(state_requests, ["/api/states"])
+
+    def test_sun_without_home_assistant(self) -> None:
+        response, body = self.request("GET", "/api/sun")
+        self.assertEqual(response.status, 200)
+        self.assertEqual(json.loads(body), {"configured": False})
+
+    def test_sun_reports_next_rising_and_setting(self) -> None:
+        (self.temp / "home-assistant.json").write_text(json.dumps({"url": self.upstream_url, "token": "t" * 40}))
+        response, body = self.request("GET", "/api/sun")
+        self.assertEqual(response.status, 200)
+        self.assertEqual(json.loads(body), {
+            "configured": True,
+            "state": "above_horizon",
+            "elevation": 41.2,
+            "rising": False,
+            "nextRising": "2026-09-25T22:00:00+00:00",
+            "nextSetting": "2026-09-25T10:18:00+00:00",
+        })
+        self.assertEqual(FakeUpstream.requests, [("/api/states/sun.sun", "Bearer " + "t" * 40)])
+
+    def test_sun_hides_home_assistant_failures(self) -> None:
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            closed_port = probe.getsockname()[1]
+        (self.temp / "home-assistant.json").write_text(json.dumps({"url": f"http://127.0.0.1:{closed_port}", "token": "t" * 40}))
+        response, body = self.request("GET", "/api/sun")
+        self.assertEqual(response.status, 502)
+        self.assertEqual(json.loads(body), {"error": "Home Assistant is unavailable"})
 
     def test_home_assistant_redirects_are_not_followed(self) -> None:
         FakeUpstream.redirect_to = f"{self.upstream_url}/stolen"
