@@ -273,8 +273,6 @@ SOLAR_ENTITIES = {
     "house": "sensor.solis_house_load_power",
     "grid": "sensor.solis_grid_power",
     "pv": "sensor.solis_pv_power",
-    "imported": "sensor.solis_total_grid_import",
-    "exported": "sensor.solis_total_grid_export",
     "status": "sensor.solis_inverter_status",
     "temperature": "sensor.solis_inverter_temperature",
     # Forecast.Solar's modelled output for the 8 kWp array right now. The
@@ -290,8 +288,7 @@ SOLAR_FORECAST_ENTITIES = {
 }
 SOLAR_FORECAST_PEAK = "sensor.power_highest_peak_time_today"
 SOLAR_SERIES = ("solar", "house", "grid")
-SOLAR_TOTALS = ("imported", "exported")
-SOLAR_HISTORY = (*SOLAR_SERIES, "possible", *SOLAR_TOTALS)
+SOLAR_HISTORY = (*SOLAR_SERIES, "possible")
 
 
 def kilo_divisor(state: dict[str, Any], default: int = 1) -> int:
@@ -422,6 +419,17 @@ def integrate_kwh(points: Points, start: float, end: float) -> float:
     return total / 3600
 
 
+def grid_energy_kwh(points: Points, start: float, end: float) -> tuple[float, float]:
+    """(imported, exported) kWh from grid power, where positive means export.
+
+    The meter's own import and export registers stop counting for hours at a
+    time, so integrate the power instead. Gaps are handled like integrate_kwh.
+    """
+    exported = integrate_kwh([(stamp, max(0.0, value) if value is not None else None) for stamp, value in points], start, end)
+    imported = integrate_kwh([(stamp, max(0.0, -value) if value is not None else None) for stamp, value in points], start, end)
+    return imported, exported
+
+
 def solar_status(config: dict[str, str]) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     # One request for every state, filtered here, instead of one per sensor.
@@ -434,11 +442,6 @@ def solar_status(config: dict[str, str]) -> dict[str, Any]:
     value = {key: number(state.get("state")) for key, state in states.items()}
     points = refresh_solar_history(config, now)
     midnight = datetime.combine(now.astimezone(SOLAR_ZONE).date(), datetime.min.time(), SOLAR_ZONE)
-
-    def since_midnight(key: str) -> float | None:
-        first = next((row[1] for row in points.get(key, []) if row[1] is not None), None)
-        current = value[key]
-        return round(max(0.0, current - first), 2) if first is not None and current is not None else None
 
     series = {
         key: bucket_averages(points.get(key, []), midnight.timestamp(), now.timestamp(), SOLAR_STEP.total_seconds())
@@ -454,7 +457,11 @@ def solar_status(config: dict[str, str]) -> dict[str, Any]:
     # resets at 8am in Perth. Integrate the power history instead.
     solar_points = points.get("solar", [])
     generated = round(integrate_kwh(solar_points, midnight.timestamp(), now.timestamp()), 2) if any(row[1] is not None for row in solar_points) else None
-    imported, exported = since_midnight("imported"), since_midnight("exported")
+    grid_points = points.get("grid", [])
+    if any(row[1] is not None for row in grid_points):
+        imported, exported = (round(kwh, 2) for kwh in grid_energy_kwh(grid_points, midnight.timestamp(), now.timestamp()))
+    else:
+        imported = exported = None
     consumed = round(generated + imported - exported, 2) if None not in (generated, imported, exported) else None
     peak = max(((row[1], row[0]) for row in solar_points if row[1] is not None), default=None)
     grid = value["grid"]

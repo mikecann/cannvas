@@ -246,6 +246,21 @@ class CannvasServerTest(unittest.TestCase):
         self.assertEqual(value["updatedAt"], "2026-09-25T01:00:00+00:00")
         self.assertIn("possible", value["series"])
 
+    def test_grid_energy_splits_import_and_export(self) -> None:
+        # Positive grid power is export. 1 h exporting 2 kW, then 30 min importing 1 kW.
+        points = [(0.0, 2.0), (3600.0, -1.0)]
+        imported, exported = self.module.grid_energy_kwh(points, 0.0, 5400.0)
+        self.assertAlmostEqual(exported, 2.0)
+        self.assertAlmostEqual(imported, 0.5)
+
+    def test_grid_energy_skips_gaps_and_clips_to_the_day(self) -> None:
+        # Starts before midnight (0), goes unavailable for an hour, then imports.
+        points = [(-1800.0, -2.0), (1800.0, None), (5400.0, -1.0)]
+        imported, exported = self.module.grid_energy_kwh(points, 0.0, 9000.0)
+        # 0.5 h at 2 kW, the gap counts for nothing, then 1 h at 1 kW.
+        self.assertAlmostEqual(imported, 2.0)
+        self.assertAlmostEqual(exported, 0.0)
+
     def test_kilo_divisor_follows_the_unit(self) -> None:
         divisor = self.module.kilo_divisor
         self.assertEqual(divisor({"attributes": {"unit_of_measurement": "W"}}), 1000)
