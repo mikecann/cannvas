@@ -396,7 +396,9 @@ def solar_status(config: dict[str, str]) -> dict[str, Any]:
     return {
         "configured": True,
         "connected": True,
-        "updatedAt": max((state.get("last_updated", "") for state in states.values()), default=None),
+        # last_reported moves on every poll even when the value is unchanged, so
+        # it shows whether the integration is still alive.
+        "updatedAt": max((state.get("last_reported") or state.get("last_updated", "") for state in states.values()), default=None),
         "status": states["status"].get("state"),
         "now": {
             "solarKw": value["solar"],

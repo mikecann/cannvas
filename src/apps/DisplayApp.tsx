@@ -2,7 +2,7 @@ import { CheckCircle2, Clock3, Home, Sun, UtilityPole, Volume2, VolumeX } from "
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useCannvasData } from "../data/DataProvider";
 import { addCalendarDays, calendarDateKey, calendarEventTime, eventsForDate } from "../lib/calendar";
-import { FLOW_THRESHOLD_KW, formatKw, useSolar } from "../lib/solar";
+import { FLOW_THRESHOLD_KW, formatKw, isSolarFresh, useSolar } from "../lib/solar";
 import { shuffledVideos } from "../lib/videoPlaylist";
 
 // The mirror proxies Bruce's private media service so the browser only needs
@@ -222,7 +222,7 @@ export function DisplayApp({
 
 function SolarHomeWidget({ onOpen }: { onOpen: () => void }) {
   const state = useSolar(15000);
-  if (state.kind !== "ready" || !state.solar.configured || !state.solar.now) return null;
+  if (state.kind !== "ready" || !state.solar.configured || !state.solar.now || !isSolarFresh(state.solar)) return null;
   const { now } = state.solar;
   const gridKw = now.gridKw;
   return (

@@ -60,3 +60,21 @@ test("serves approved source symlinks and rejects links outside the archive", as
   assert.equal(await (await fetch(`${base}/family.mp4`)).text(), "family-video");
   assert.equal((await fetch(`${base}/private.mp4`)).status, 403);
 });
+
+test("answers 400 for malformed percent escapes", async (context) => {
+  const temporary = await mkdtemp(join(tmpdir(), "cannvas-media-"));
+  const cache = join(temporary, "cache");
+  const source = join(temporary, "source");
+  await mkdir(cache);
+  await mkdir(source);
+
+  const server = createMediaServer({ root: cache, sourceRoot: source });
+  await new Promise((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+  context.after(async () => {
+    await new Promise((resolveClose) => server.close(resolveClose));
+    await rm(temporary, { recursive: true, force: true });
+  });
+
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/clip%ZZ.mp4`);
+  assert.equal(response.status, 400);
+});

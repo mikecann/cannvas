@@ -1,6 +1,6 @@
 import { Home, PlugZap, Sun, UtilityPole } from "lucide-react";
 import { type ReactNode, useMemo } from "react";
-import { FLOW_THRESHOLD_KW, formatKw, formatKwh, type SolarStatus, useSolar } from "../lib/solar";
+import { FLOW_THRESHOLD_KW, formatKw, formatKwh, isSolarFresh, type SolarStatus, useSolar } from "../lib/solar";
 
 export function SolarApp() {
   const state = useSolar(5000);
@@ -34,7 +34,7 @@ export function SolarApp() {
 function SolarStatusPill({ solar }: { solar: SolarStatus }) {
   const updated = solar.updatedAt ? new Date(solar.updatedAt) : null;
   const seconds = updated ? Math.max(0, Math.round((Date.now() - updated.getTime()) / 1000)) : null;
-  const stale = seconds == null || seconds > 120;
+  const stale = !isSolarFresh(solar);
   return (
     <div className={`solar-status-pill${stale ? " stale" : ""}`}>
       <PlugZap aria-hidden="true" />

@@ -74,6 +74,13 @@ export function useSolar(intervalMs: number): SolarState {
   return state;
 }
 
+// HTTP success isn't enough: Home Assistant can answer with readings from an
+// integration that stopped polling the inverter.
+export function isSolarFresh(solar: SolarStatus): boolean {
+  const updated = solar.updatedAt ? Date.parse(solar.updatedAt) : Number.NaN;
+  return Number.isFinite(updated) && Date.now() - updated < STALE_AFTER_MS;
+}
+
 export function formatKw(value: number | null | undefined): string {
   if (value == null) return "–";
   const abs = Math.abs(value);
