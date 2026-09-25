@@ -19,34 +19,13 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { useCannvasData } from "../data/DataProvider";
 import type { Point, Stroke } from "../data/types";
 import { addDays, dateKey, fromDateKey, longDate } from "../lib/dates";
+import { drawStroke, paintScaled } from "../lib/drawing";
 
 const COLORS = ["#20252b", "#f05b52", "#f5a623", "#168b70", "#3478d4", "#894fc7"];
 const STICKERS = ["⭐", "❤️", "😊", "🌈", "🦖", "🚀", "⚽", "🐾"];
 type DrawingTool = "pen" | "eraser" | "sticker";
 
-function drawStroke(context: CanvasRenderingContext2D, stroke: Stroke, width: number, height: number) {
-  if (stroke.points.length === 0) return;
-  if (stroke.kind === "sticker" && stroke.sticker) {
-    const point = stroke.points[0];
-    context.save();
-    context.font = `${stroke.width}px system-ui, sans-serif`;
-    context.textAlign = "center";
-    context.textBaseline = "middle";
-    context.fillText(stroke.sticker, point.x * width, point.y * height);
-    context.restore();
-    return;
-  }
-  context.beginPath();
-  context.strokeStyle = stroke.color;
-  context.lineWidth = stroke.width;
-  context.lineCap = "round";
-  context.lineJoin = "round";
-  const first = stroke.points[0];
-  context.moveTo(first.x * width, first.y * height);
-  for (const point of stroke.points.slice(1)) context.lineTo(point.x * width, point.y * height);
-  if (stroke.points.length === 1) context.lineTo(first.x * width + 0.01, first.y * height + 0.01);
-  context.stroke();
-}
+const BOARD_BACKGROUND = "#fffdf8";
 
 export function WhiteboardApp() {
   const { boardDates, getBoard, saveBoard } = useCannvasData();
@@ -60,33 +39,82 @@ export function WhiteboardApp() {
   const [toolsOpen, setToolsOpen] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // Finished strokes live on this offscreen layer. Moving a finger only draws
+  // the new part of the live stroke on top, instead of the whole board.
+  const layerRef = useRef<HTMLCanvasElement | null>(null);
+  const layerStrokes = useRef<Stroke[] | null>(null);
   const activeStrokes = useRef(new Map<number, Stroke>());
+  const drawnPoints = useRef(new Map<number, number>());
   const activeErasers = useRef(new Set<number>());
+  const frame = useRef<number | undefined>(undefined);
   const strokesRef = useRef(strokes);
+  const getBoardRef = useRef(getBoard);
+  getBoardRef.current = getBoard;
 
+  // Only a new date loads a board. The provider rebuilds getBoard on every
+  // save, so depending on it would wipe the redo stack straight after undo.
   useEffect(() => {
-    const next = getBoard(selectedDate);
+    const next = getBoardRef.current(selectedDate);
     setStrokes(next);
     strokesRef.current = next;
     setRedoStack([]);
-  }, [getBoard, selectedDate, boardDates]);
+  }, [selectedDate]);
+
+  const drawLiveStrokes = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    paintScaled(canvas, (context, width, height) => {
+      for (const [contactId, stroke] of activeStrokes.current) {
+        const from = drawnPoints.current.get(contactId) ?? 0;
+        if (from >= stroke.points.length) continue;
+        drawStroke(context, stroke, width, height, from);
+        drawnPoints.current.set(contactId, stroke.points.length);
+      }
+    });
+  }, []);
+
+  const scheduleLiveDraw = useCallback(() => {
+    frame.current ??= window.requestAnimationFrame(() => {
+      frame.current = undefined;
+      drawLiveStrokes();
+    });
+  }, [drawLiveStrokes]);
 
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const layer = layerRef.current ?? document.createElement("canvas");
+    layerRef.current = layer;
+    if (layer.width !== canvas.width) layer.width = canvas.width;
+    if (layer.height !== canvas.height) layer.height = canvas.height;
+    const layerContext = layer.getContext("2d");
     const context = canvas.getContext("2d");
-    if (!context) return;
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    context.fillStyle = "#fffdf8";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.save();
-    context.scale(window.devicePixelRatio, window.devicePixelRatio);
-    const cssWidth = canvas.width / window.devicePixelRatio;
-    const cssHeight = canvas.height / window.devicePixelRatio;
-    for (const stroke of strokesRef.current) drawStroke(context, stroke, cssWidth, cssHeight);
-    for (const stroke of activeStrokes.current.values()) drawStroke(context, stroke, cssWidth, cssHeight);
-    context.restore();
-  }, []);
+    if (!layerContext || !context) return;
+    layerContext.fillStyle = BOARD_BACKGROUND;
+    layerContext.fillRect(0, 0, layer.width, layer.height);
+    paintScaled(layer, (scaled, width, height) => {
+      for (const stroke of strokesRef.current) drawStroke(scaled, stroke, width, height);
+    });
+    layerStrokes.current = strokesRef.current;
+    context.drawImage(layer, 0, 0);
+    // Strokes still being drawn are repainted in full on the fresh board.
+    drawnPoints.current.clear();
+    drawLiveStrokes();
+  }, [drawLiveStrokes]);
+
+  // Adds a finished stroke to the offscreen layer without repainting the board.
+  const commitStroke = (stroke: Stroke, next: Stroke[], alsoOnScreen: boolean) => {
+    const layer = layerRef.current;
+    if (layer && layerStrokes.current === strokesRef.current) {
+      paintScaled(layer, (context, width, height) => drawStroke(context, stroke, width, height));
+      if (alsoOnScreen && canvasRef.current) {
+        paintScaled(canvasRef.current, (context, width, height) => drawStroke(context, stroke, width, height));
+      }
+      layerStrokes.current = next;
+    }
+    strokesRef.current = next;
+    setStrokes(next);
+  };
 
   const resize = useCallback(() => {
     const canvas = canvasRef.current;
@@ -104,9 +132,14 @@ export function WhiteboardApp() {
     return () => observer.disconnect();
   }, [resize]);
 
+  useEffect(() => () => {
+    if (frame.current !== undefined) window.cancelAnimationFrame(frame.current);
+  }, []);
+
   useEffect(() => {
     strokesRef.current = strokes;
-    redraw();
+    // Strokes added by commitStroke are already on the layer.
+    if (layerStrokes.current !== strokes) redraw();
   }, [redraw, strokes]);
 
   const pointFromClient = (clientX: number, clientY: number): Point => {
@@ -120,16 +153,16 @@ export function WhiteboardApp() {
 
   const startContact = (contactId: number, point: Point) => {
     if (tool === "sticker") {
-      const next = [...strokesRef.current, {
+      const stamp: Stroke = {
         id: crypto.randomUUID(),
-        kind: "sticker" as const,
+        kind: "sticker",
         color,
         width: 72,
         points: [point],
         sticker,
-      }];
-      strokesRef.current = next;
-      setStrokes(next);
+      };
+      const next = [...strokesRef.current, stamp];
+      commitStroke(stamp, next, true);
       setRedoStack([]);
       void saveBoard(selectedDate, next);
       return;
@@ -146,8 +179,9 @@ export function WhiteboardApp() {
       width: lineWidth,
       points: [point],
     });
+    drawnPoints.current.set(contactId, 0);
     setRedoStack([]);
-    redraw();
+    scheduleLiveDraw();
   };
 
   const continueContact = (contactId: number, point: Point) => {
@@ -158,7 +192,7 @@ export function WhiteboardApp() {
     const stroke = activeStrokes.current.get(contactId);
     if (!stroke) return;
     stroke.points.push(point);
-    redraw();
+    scheduleLiveDraw();
   };
 
   const startDrawing = (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -174,10 +208,12 @@ export function WhiteboardApp() {
     if (activeErasers.current.delete(pointerId)) return;
     const stroke = activeStrokes.current.get(pointerId);
     if (!stroke) return;
+    // Put the last few points on screen before the stroke leaves the live set.
+    drawLiveStrokes();
     activeStrokes.current.delete(pointerId);
+    drawnPoints.current.delete(pointerId);
     const next = [...strokesRef.current, stroke];
-    strokesRef.current = next;
-    setStrokes(next);
+    commitStroke(stroke, next, false);
     await saveBoard(selectedDate, next);
   };
 
