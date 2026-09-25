@@ -237,7 +237,7 @@ releases plus the previous one.
 
 Set `CANNVAS_HOST`, `CANNVAS_BUILD`, `CANNVAS_DIST` or `CANNVAS_SKIP_BUILD=1`
 to change the host, build command, build output directory, or to reuse an
-existing build. The build reads `VITE_CALENDAR_ACCESS_TOKEN` from the untracked
+existing build. The build reads the kiosk's `VITE_*` tokens from the untracked
 `.env.local`.
 
 The server has tests you can run on any machine with Python 3.11 or newer:
