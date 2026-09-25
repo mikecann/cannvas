@@ -231,8 +231,9 @@ Each release lives in `/opt/cannvas/releases/<YYYYmmdd-HHMMSS>-<sha>`, owned by
 root, with the web build in `www/` and `cannvas-server` beside it. The server
 only serves `www/`, so the script and anything else in the release stay
 private. The deploy switches `/opt/cannvas/current` with an atomic rename,
-restarts `cannvas-web` and the kiosk, and checks that `/` and `/api/solar`
-answer. If they don't, it switches back on its own. It keeps the newest five
+restarts `cannvas-web` and the kiosk, and checks that `/` and `/api/health`
+answer. `/api/health` only checks the server, so a Home Assistant outage can't
+block a deploy. If either check fails, it switches back on its own. It keeps the newest five
 releases plus the previous one.
 
 Set `CANNVAS_HOST`, `CANNVAS_BUILD`, `CANNVAS_DIST` or `CANNVAS_SKIP_BUILD=1`
@@ -240,10 +241,11 @@ to change the host, build command, build output directory, or to reuse an
 existing build. The build reads the kiosk's `VITE_*` tokens from the untracked
 `.env.local`.
 
-The server has tests you can run on any machine with Python 3.11 or newer:
+The server has Python tests (3.11 or newer). `pnpm test` runs them after the
+Node tests, and so does CI. To run them on their own:
 
 ```sh
-python3 -m unittest deploy/cannvas_server_test.py
+pnpm test:server
 ```
 
 ### Installing the system pieces
@@ -290,9 +292,10 @@ shuts itself down first:
    `input_boolean.cannvas_shutdown`.
 2. `cannvas-ha-shutdown.service` on the Pi polls that helper every 10 seconds,
    using the Home Assistant token the web server already stores. When it sees
-   the helper on, it turns it back off as an acknowledgement and starts
-   `cannvas-poweroff.service`, the same polkit-approved helper the on-screen
-   power button uses.
+   the helper on, it starts `cannvas-poweroff.service`, the same
+   polkit-approved helper the on-screen power button uses, then turns the
+   helper back off as an acknowledgement. If the power-off can't start, it
+   leaves the helper on and tries again on the next poll.
 3. The automation waits up to 60 seconds for that acknowledgement, then 60
    seconds more for the Pi to halt, then cuts the plug and clears the helper.
 
@@ -307,8 +310,9 @@ automation uses a fixed wait.
 
 ### Kiosk watchdog
 
-The page can ping `/api/heartbeat` (GET, or POST with a JSON body) every 30
-seconds. The server records the time in `/run/cannvas/heartbeat`, and the
+The page pings `/api/heartbeat` (GET, or POST with a JSON body) every 30
+seconds. The ping is added to the touchscreen page in a separate change, and
+until it lands the watchdog stays idle. The server records the time in `/run/cannvas/heartbeat`, and the
 `cannvas-kiosk-watchdog` user timer restarts `cannvas-kiosk.service` if no ping
 has arrived for three minutes. It does nothing until the first ping after boot,
 skips a kiosk that started in the last three minutes or a web server that is
