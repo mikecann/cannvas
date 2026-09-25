@@ -54,11 +54,12 @@ const primaryApps = [
   { id: "todos" as const, label: "To-do's", icon: ListTodo },
   { id: "calendar" as const, label: "Calendar", icon: CalendarDays },
   { id: "weather" as const, label: "Weather", icon: CloudSun },
-  { id: "solar" as const, label: "Solar", icon: Sun },
   { id: "home-automation" as const, label: "Home controls", icon: HousePlug },
 ];
 
+// Things used less often. The home screen's solar readout still opens Solar.
 const moreApps = [
+  { id: "solar" as const, label: "Solar", description: "Power right now and today", icon: Sun },
   { id: "sammy-tablets" as const, label: "Sammy", description: "Tablet schedule", icon: Dog },
   { id: "inventory" as const, label: "Inventory", description: "Find household items", icon: PackageSearch },
 ];
