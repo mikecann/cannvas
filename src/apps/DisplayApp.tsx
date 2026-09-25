@@ -1,36 +1,13 @@
-import { CheckCircle2, Clock3, Home, Sun, UtilityPole, Volume2, VolumeX } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useCalendar, useNews } from "../data/DataProvider";
-import { addCalendarDays, calendarDateKey, calendarEventTime, eventsForDate } from "../lib/calendar";
+import { Home, Sun, UtilityPole, Volume2, VolumeX } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useNews } from "../data/DataProvider";
 import { FLOW_THRESHOLD_KW, formatKw, isSolarFresh } from "../lib/solar";
+import { useMinuteClock } from "../lib/useMinuteClock";
 import { useSolar } from "../lib/useSolar";
-import { shuffledVideos } from "../lib/videoPlaylist";
+import { CalendarHomeWidget } from "./display/CalendarHomeWidget";
+import { IdleVideo } from "./display/IdleVideo";
 
-// The mirror proxies Bruce's private media service so the browser only needs
-// access to the same loopback origin as the rest of Cannvas.
-const VIDEO_ROOT = "/videos/";
-const VIDEO_CACHE_KEY = "cannvas-video-list-v5";
-const VIDEO_PATTERN = /<a href="([^"]+)"/g;
 const YR_METEOGRAM = "https://www.yr.no/en/content/2-2075265/meteogram.svg";
-
-async function crawlVideos(root = VIDEO_ROOT, depth = 0, visited = new Set<string>()): Promise<string[]> {
-  if (depth > 10 || visited.has(root)) return [];
-  visited.add(root);
-  const response = await fetch(root);
-  if (!response.ok) throw new Error(`Video server returned ${response.status}`);
-  const html = await response.text();
-  const urls = [...html.matchAll(VIDEO_PATTERN)]
-    .map((match) => match[1])
-    .filter((href) => href !== "../" && href !== "./../")
-    // Keep proxy URLs relative to Cannvas. `new URL(href, root)` turns them
-    // into absolute browser URLs, which then fail the VIDEO_ROOT safety check.
-    .map((href) => new URL(href, new URL(root, window.location.origin)).pathname)
-    .filter((url) => url.startsWith(VIDEO_ROOT));
-  const videos = urls.filter((url) => /\.(mp4|m4v|mov|webm)$/i.test(url));
-  const folders = urls.filter((url) => url.endsWith("/") && url !== root);
-  const nested = await Promise.all(folders.map((folder) => crawlVideos(folder, depth + 1, visited)));
-  return [...videos, ...nested.flat()];
-}
 
 export function DisplayApp({
   displaySession,
@@ -45,162 +22,25 @@ export function DisplayApp({
   onOpenWeather: () => void;
   onOpenSolar: () => void;
 }) {
-  const { calendarEvents, calendarStatus } = useCalendar();
-  const { newsHeadlines } = useNews();
-  const [now, setNow] = useState(new Date());
   const [videoAudio, setVideoAudio] = useState(() => ({ session: displaySession, muted: true }));
-  const [calendarCanExpand, setCalendarCanExpand] = useState(false);
-  const calendarWidgetRef = useRef<HTMLElement>(null);
-  const [weatherVersion, setWeatherVersion] = useState(Date.now());
-  const [videos, setVideos] = useState<string[]>(() => {
-    try { return shuffledVideos(JSON.parse(localStorage.getItem(VIDEO_CACHE_KEY) ?? "[]") as string[]); } catch { return []; }
-  });
-  const [videoIndex, setVideoIndex] = useState(0);
+  const [videoPlayable, setVideoPlayable] = useState(false);
 
   // Derive this during render so a new session is muted before the video can
   // commit or produce even a brief audio blip. The stored choice only belongs
   // to the display session in which the user made it.
   const videoMuted = videoAudio.session === displaySession ? videoAudio.muted : true;
 
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    // Mike's Smarter Mirror refreshed this same Yr image every two hours.
-    const timer = window.setInterval(() => setWeatherVersion(Date.now()), 2 * 60 * 60 * 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    void crawlVideos().then((found) => {
-      if (found.length > 0) {
-        // Keep the clip that started from the cached list at the front, so the
-        // fresh listing doesn't cut it off a few seconds into playback.
-        const playing = playingVideo.current;
-        const randomized = shuffledVideos(found);
-        const ordered = playing && randomized.includes(playing) ? [playing, ...randomized.filter((video) => video !== playing)] : randomized;
-        setVideos(ordered);
-        setVideoIndex(0);
-        localStorage.setItem(VIDEO_CACHE_KEY, JSON.stringify(ordered));
-      }
-    }).catch(() => undefined);
-  }, []);
-
-  const currentVideo = videos[videoIndex % Math.max(1, videos.length)];
-  const playingVideo = useRef(currentVideo);
-  playingVideo.current = currentVideo;
-  const todayKey = calendarDateKey(now);
-  const todayEvents = useMemo(() => eventsForDate(calendarEvents, todayKey), [calendarEvents, todayKey]);
-  const upcomingEvents = useMemo(() => {
-    const result = [];
-    for (let offset = 1; offset <= 7; offset += 1) {
-      const date = addCalendarDays(now, offset);
-      const key = calendarDateKey(date);
-      for (const event of eventsForDate(calendarEvents, key)) {
-        result.push({ event, date, key: `${key}:${event.id}` });
-      }
-    }
-    return result;
-  }, [calendarEvents, todayKey]);
-
-  useEffect(() => {
-    const widget = calendarWidgetRef.current;
-    if (!widget) return;
-
-    const updateOverflow = () => setCalendarCanExpand(widget.scrollHeight > widget.clientHeight + 1);
-    updateOverflow();
-    const observer = new ResizeObserver(updateOverflow);
-    observer.observe(widget);
-    return () => observer.disconnect();
-  }, [calendarStatus, todayEvents.length, upcomingEvents.length]);
-
   return (
     <section className="display-app">
-      <div className="display-media">
-        {currentVideo ? (
-          <video key={currentVideo} src={currentVideo} autoPlay muted={videoMuted} playsInline onEnded={() => setVideoIndex((value) => value + 1)} onError={() => setVideoIndex((value) => value + 1)} />
-        ) : (
-          <div className="display-gradient"><span>C</span></div>
-        )}
-      </div>
-
-      <div className="display-content">
-        <p className="display-date">{now.toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" })}</p>
-        <div className="display-time">{now.toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit", hour12: false })}</div>
-      </div>
-
-      <aside
-        ref={calendarWidgetRef}
-        className={`calendar-home-widget${calendarCanExpand ? " has-more" : ""}`}
-        aria-label="Open the calendar app"
-        role="button"
-        tabIndex={0}
-        onPointerDown={(event) => event.stopPropagation()}
-        onClick={onOpenCalendar}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            onOpenCalendar();
-          }
-        }}
-      >
-        <section>
-          <h2>Today</h2>
-          <div className="calendar-home-list">
-            {todayEvents.slice(0, 3).map((event) => {
-              const hasPassed = !event.allDay && new Date(event.end) <= now;
-              return (
-                <article className={hasPassed ? "passed" : undefined} key={event.id} aria-label={`${event.title}, ${calendarEventTime(event)}${hasPassed ? ", passed" : ""}`}>
-                  <span className="calendar-home-time">{hasPassed && <CheckCircle2 aria-hidden="true" />}{calendarEventTime(event)}</span>
-                  <strong>{event.title}</strong>
-                </article>
-              );
-            })}
-            {calendarStatus === "ready" && todayEvents.length === 0 && <p className="calendar-home-empty">Nothing planned today</p>}
-          </div>
-        </section>
-        <section>
-          <h2>Upcoming</h2>
-          <div className="calendar-home-list upcoming">
-            {upcomingEvents.map(({ event, date, key }) => (
-              <article key={key}>
-                <span className="calendar-home-day">{date.toLocaleDateString("en-AU", { weekday: "short", day: "numeric" })}</span>
-                <strong>{event.title}</strong>
-                <small><Clock3 /> {calendarEventTime(event)}</small>
-              </article>
-            ))}
-            {calendarStatus === "ready" && upcomingEvents.length === 0 && <p className="calendar-home-empty">Nothing in the next 7 days</p>}
-          </div>
-        </section>
-        {calendarStatus !== "ready" && calendarEvents.length === 0 && (
-          <p className="calendar-home-status">{calendarStatus === "not-configured" ? "Connect Google Calendar to see your schedule" : calendarStatus === "error" ? "Calendar is temporarily unavailable" : "Loading calendar…"}</p>
-        )}
-      </aside>
+      <IdleVideo muted={videoMuted} onPlayableChange={setVideoPlayable} />
+      <IdleClock />
+      <CalendarHomeWidget onOpen={onOpenCalendar} />
 
       <div className="display-widgets">
         <SolarHomeWidget onOpen={onOpenSolar} />
-        <button
-          type="button"
-          className="weather-panel yr-weather-panel"
-          aria-label="Open detailed Busselton weather"
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={onOpenWeather}
-        >
-          <span className="yr-weather-frame">
-            <img src={`${YR_METEOGRAM}?bust=${weatherVersion}`} alt="Busselton weather forecast from Yr" />
-          </span>
-        </button>
-        <aside className="weather-panel news-panel">
-          <div className="news-header"><span>BBC News</span></div>
-          <div className="news-headlines">
-            {(newsHeadlines.length > 0 ? newsHeadlines : [{ title: "Loading latest headlines…", url: "" }]).slice(0, 3).map((headline) => (
-              <p key={headline.title}>{headline.title}</p>
-            ))}
-          </div>
-        </aside>
-        {currentVideo && (
+        <WeatherWidget onOpen={onOpenWeather} />
+        <NewsWidget />
+        {videoPlayable && (
           <button
             type="button"
             className={`display-audio-toggle${videoMuted ? "" : " is-playing"}`}
@@ -219,6 +59,56 @@ export function DisplayApp({
         )}
       </div>
     </section>
+  );
+}
+
+// Its own component, so the minute tick re-renders only the clock.
+function IdleClock() {
+  const now = useMinuteClock();
+  return (
+    <div className="display-content">
+      <p className="display-date">{now.toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" })}</p>
+      <div className="display-time">{now.toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit", hour12: false })}</div>
+    </div>
+  );
+}
+
+function WeatherWidget({ onOpen }: { onOpen: () => void }) {
+  const [weatherVersion, setWeatherVersion] = useState(Date.now());
+
+  useEffect(() => {
+    // Mike's Smarter Mirror refreshed this same Yr image every two hours.
+    const timer = window.setInterval(() => setWeatherVersion(Date.now()), 2 * 60 * 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  return (
+    <button
+      type="button"
+      className="weather-panel yr-weather-panel"
+      aria-label="Open detailed Busselton weather"
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={onOpen}
+    >
+      <span className="yr-weather-frame">
+        <img src={`${YR_METEOGRAM}?bust=${weatherVersion}`} alt="Busselton weather forecast from Yr" />
+      </span>
+    </button>
+  );
+}
+
+function NewsWidget() {
+  const { newsHeadlines } = useNews();
+  const headlines = newsHeadlines.length > 0 ? newsHeadlines : [{ title: "Loading latest headlines…", url: "" }];
+  return (
+    <aside className="weather-panel news-panel">
+      <div className="news-header"><span>BBC News</span></div>
+      <div className="news-headlines">
+        {headlines.slice(0, 3).map((headline) => (
+          <p key={headline.title}>{headline.title}</p>
+        ))}
+      </div>
+    </aside>
   );
 }
 
