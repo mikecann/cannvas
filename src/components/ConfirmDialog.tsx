@@ -1,4 +1,5 @@
 import type { PropsWithChildren } from "react";
+import { DialogBackdrop } from "./DialogBackdrop";
 
 type ConfirmDialogProps = PropsWithChildren<{
   open: boolean;
@@ -9,6 +10,8 @@ type ConfirmDialogProps = PropsWithChildren<{
   onConfirm: () => void;
 }>;
 
+// Confirmations only close through their buttons. On a wall screen a brush
+// against the backdrop is more likely than a deliberate "never mind".
 export function ConfirmDialog({
   open,
   title,
@@ -21,22 +24,21 @@ export function ConfirmDialog({
   if (!open) return null;
 
   return (
-    <div className="dialog-backdrop" role="presentation" onPointerDown={onCancel}>
+    <DialogBackdrop>
       <section
         className="dialog-card"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="dialog-title"
-        onPointerDown={(event) => event.stopPropagation()}
       >
         <div className="dialog-symbol">!</div>
         <h2 id="dialog-title">{title}</h2>
         <div className="dialog-copy">{children}</div>
         <div className="dialog-actions">
-          <button className="button secondary" onClick={onCancel}>Keep it</button>
+          <button className="button secondary" onClick={onCancel} disabled={confirmDisabled}>Keep it</button>
           <button className="button danger" onClick={onConfirm} disabled={confirmDisabled}>{confirmLabel}</button>
         </div>
       </section>
-    </div>
+    </DialogBackdrop>
   );
 }

@@ -2,36 +2,17 @@ import { CalendarDays, Check, ChevronLeft, ChevronRight, HeartPulse, History, Ro
 import { useMemo, useState } from "react";
 import { useTablets } from "../data/DataProvider";
 import type { TabletId, TabletSchedule } from "../data/types";
+import { calendarMonthDays } from "../lib/calendar";
+import { dateKey, fromDateKey } from "../lib/dates";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 function todayKey() {
-  const today = new Date();
-  return [today.getFullYear(), String(today.getMonth() + 1).padStart(2, "0"), String(today.getDate()).padStart(2, "0")].join("-");
-}
-
-function fromDateKey(value: string) {
-  const [year, month, day] = value.split("-").map(Number);
-  return new Date(year, month - 1, day);
+  return dateKey(new Date());
 }
 
 function formatDate(value: string) {
   return fromDateKey(value).toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "long", year: "numeric" });
-}
-
-function dateKey(value: Date) {
-  return [value.getFullYear(), String(value.getMonth() + 1).padStart(2, "0"), String(value.getDate()).padStart(2, "0")].join("-");
-}
-
-function calendarDays(month: Date) {
-  const first = new Date(month.getFullYear(), month.getMonth(), 1);
-  const gridStart = new Date(first);
-  gridStart.setDate(first.getDate() - ((first.getDay() + 6) % 7));
-  return Array.from({ length: 42 }, (_, index) => {
-    const day = new Date(gridStart);
-    day.setDate(gridStart.getDate() + index);
-    return day;
-  });
 }
 
 function dueState(tablet: TabletSchedule) {
@@ -57,7 +38,7 @@ export function SammyTabletTickerApp() {
     [tabletCompletions],
   );
   const dateTablet = tabletSchedules.find(({ id }) => id === dateTabletId);
-  const pickerDays = useMemo(() => calendarDays(pickerMonth), [pickerMonth]);
+  const pickerDays = useMemo(() => calendarMonthDays(pickerMonth), [pickerMonth]);
 
   const openDatePicker = (tablet: TabletSchedule) => {
     const initialDate = tablet.dueDate ? fromDateKey(tablet.dueDate) : new Date();
@@ -90,6 +71,8 @@ export function SammyTabletTickerApp() {
         {tabletSchedules.map((tablet) => {
           const status = dueState(tablet);
           const latest = latestByTablet.get(tablet.id);
+          // One dose a day. A second tap would skip a whole month ahead.
+          const givenToday = latest?.takenDate === todayKey();
           return (
             <article className={`tablet-card ${status.className}`} key={tablet.id} style={{ "--tablet-color": tablet.color } as React.CSSProperties}>
               <div className="tablet-card-top">
@@ -111,11 +94,11 @@ export function SammyTabletTickerApp() {
                 </button>
                 <button
                   className="tablet-done-button"
-                  disabled={!tablet.dueDate}
-                  onClick={() => void completeTablet(tablet.id, todayKey())}
+                  disabled={!tablet.dueDate || givenToday}
+                  onClick={() => { if (!givenToday) void completeTablet(tablet.id, todayKey()); }}
                 >
                   <Check strokeWidth={3.2} />
-                  Mark as given
+                  {givenToday ? "Given today" : "Mark as given"}
                 </button>
               </div>
 
