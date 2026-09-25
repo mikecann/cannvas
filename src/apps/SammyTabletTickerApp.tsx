@@ -1,6 +1,6 @@
 import { CalendarDays, Check, ChevronLeft, ChevronRight, HeartPulse, History, RotateCcw, ShieldCheck, X } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useCannvasData } from "../data/DataProvider";
+import { useTablets } from "../data/DataProvider";
 import type { TabletId, TabletSchedule } from "../data/types";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -44,7 +44,7 @@ function dueState(tablet: TabletSchedule) {
 }
 
 export function SammyTabletTickerApp() {
-  const { tabletSchedules, tabletCompletions, setTabletDueDate, completeTablet, undoTabletCompletion } = useCannvasData();
+  const { tabletSchedules, tabletCompletions, setTabletDueDate, completeTablet, undoTabletCompletion } = useTablets();
   const [showHistory, setShowHistory] = useState(false);
   const [dateTabletId, setDateTabletId] = useState<TabletId | null>(null);
   const [pickerMonth, setPickerMonth] = useState(() => new Date());

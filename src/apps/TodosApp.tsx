@@ -1,6 +1,6 @@
 import { CalendarDays, Check, Pencil, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useCannvasData } from "../data/DataProvider";
+import { useTodos } from "../data/DataProvider";
 import type { Todo, TodoAssignee, TodoPriority } from "../data/types";
 
 const PEOPLE: Array<{ id: TodoAssignee; name: string; avatar: string }> = [
@@ -28,7 +28,7 @@ function sortTodos(left: Todo, right: Todo) {
 }
 
 export function TodosApp() {
-  const { todos, addTodo, updateTodo, toggleTodo } = useCannvasData();
+  const { todos, addTodo, updateTodo, toggleTodo } = useTodos();
   const [editingId, setEditingId] = useState<string | "new" | null>(null);
   const [title, setTitle] = useState("");
   const [assignee, setAssignee] = useState<TodoAssignee>("josh");

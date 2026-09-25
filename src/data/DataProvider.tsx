@@ -1,4 +1,5 @@
 import {
+  type Context,
   createContext,
   type Dispatch,
   type PropsWithChildren,
@@ -27,9 +28,30 @@ import {
   toBackupStrokes,
 } from "../lib/deviceBackup";
 import { compactStrokes } from "../lib/strokes";
-import type { BackupStatus, CalendarEvent, CalendarStatus, CannvasData, Chore, ChoreCategory, Completion, NewsHeadline, Stroke, TabletCompletion, TabletSchedule, Todo } from "./types";
+import { homeCalendarRange } from "../lib/calendar";
+import { usePolling } from "../lib/usePolling";
+import type {
+  BackupStatus,
+  BoardsData,
+  CalendarData,
+  CalendarEvent,
+  CalendarMonth,
+  CalendarStatus,
+  Chore,
+  ChoreCategory,
+  ChoresData,
+  Completion,
+  DeviceStatus,
+  NewsData,
+  NewsHeadline,
+  Stroke,
+  TabletCompletion,
+  TabletSchedule,
+  TabletsData,
+  Todo,
+  TodosData,
+} from "./types";
 
-const DataContext = createContext<CannvasData | null>(null);
 const DEVICE_STORAGE_KEY = "cannvas-device-data-v2";
 const LEGACY_LOCAL_STORAGE_KEY = "cannvas-local-data-v1";
 const DEVICE_ID = import.meta.env.VITE_CANNVAS_DEVICE_ID
@@ -45,6 +67,8 @@ const CALENDAR_RETRY_MS = 60_000;
 const CALENDAR_REFRESH_MS = 15 * 60_000;
 const CALENDAR_RELOAD_COOLDOWN_MS = 10 * 60_000;
 const CALENDAR_RELOAD_KEY = "cannvas-calendar-reload-at";
+const NEWS_REFRESH_MS = 60 * 60_000;
+const NEWS_RETRY_MS = 5 * 60_000;
 const TABLET_SCHEDULE_VERSION = 1;
 const COLORS = ["#ff8066", "#ffbf47", "#5ec6a5", "#6ba7ff", "#a77bea", "#ff7eb3"];
 const PREVIEW_HEADLINES: NewsHeadline[] = [
@@ -117,7 +141,7 @@ type LocalState = {
   completions: Completion[];
   todos: Todo[];
   tabletSchedules: TabletSchedule[];
-  tabletCompletions: CannvasData["tabletCompletions"];
+  tabletCompletions: TabletCompletion[];
 };
 
 type DeviceState = LocalState & {
@@ -131,10 +155,6 @@ type DeviceState = LocalState & {
 };
 
 type ConvexChore = Omit<Chore, "category"> & { category?: ChoreCategory; _id: string };
-type TodoData = Pick<
-  CannvasData,
-  "todos" | "addTodo" | "updateTodo" | "toggleTodo" | "removeTodo" | "isReady"
->;
 
 function createInitialLocalState(): LocalState {
   return {
@@ -230,18 +250,22 @@ function writeDeviceState(state: DeviceState) {
   window.localStorage.setItem(DEVICE_STORAGE_KEY, JSON.stringify(state));
 }
 
-function useDeviceData(
+type UpdateState = (update: (current: DeviceState) => LocalState & Partial<Pick<DeviceState, "boardRevisions">>) => void;
+
+type DeviceSlices = {
+  boards: BoardsData;
+  chores: ChoresData;
+  tablets: TabletsData;
+  localTodos: TodosData;
+};
+
+// Each slice only changes when its own part of the device state changes.
+// Updates spread the previous state, so untouched arrays keep their identity.
+function useDeviceSlices(
   state: DeviceState | null,
   setState: Dispatch<SetStateAction<DeviceState | null>>,
-  newsHeadlines: NewsHeadline[],
-  calendarEvents: CalendarEvent[],
-  calendarStatus: CalendarStatus,
-  loadCalendarRange: (start: string, end: string) => Promise<void>,
-  mode: CannvasData["mode"],
-  backupStatus: BackupStatus,
-  todoData?: TodoData,
-): CannvasData {
-  const updateState = useCallback((update: (current: DeviceState) => LocalState & Partial<Pick<DeviceState, "boardRevisions">>) => {
+): DeviceSlices {
+  const updateState = useCallback<UpdateState>((update) => {
     setState((current) => {
       if (!current) return current;
       const next = update(current);
@@ -256,13 +280,15 @@ function useDeviceData(
     });
   }, [setState]);
 
-  const visibleState = state ?? toDeviceState({});
+  const fallback = useMemo(() => toDeviceState({}), []);
+  const visibleState = state ?? fallback;
+  const { boards: boardMap, chores: choreList, completions, tabletSchedules, tabletCompletions, todos } = visibleState;
 
-  return useMemo<CannvasData>(() => ({
-    boardDates: Object.entries(visibleState.boards)
+  const boards = useMemo<BoardsData>(() => ({
+    boardDates: Object.entries(boardMap)
       .filter(([, strokes]) => strokes.length > 0)
       .map(([date]) => date),
-    getBoard: (date) => visibleState.boards[date] ?? [],
+    getBoard: (date) => boardMap[date] ?? [],
     saveBoard: async (date, strokes) => {
       updateState((current) => ({
         ...current,
@@ -270,15 +296,11 @@ function useDeviceData(
         boardRevisions: { ...current.boardRevisions, [date]: current.revision + 1 },
       }));
     },
-    chores: visibleState.chores,
-    completions: visibleState.completions,
-    tabletSchedules: visibleState.tabletSchedules,
-    tabletCompletions: visibleState.tabletCompletions,
-    todos: todoData?.todos ?? visibleState.todos,
-    newsHeadlines,
-    calendarEvents,
-    calendarStatus,
-    loadCalendarRange,
+  }), [boardMap, updateState]);
+
+  const chores = useMemo<ChoresData>(() => ({
+    chores: choreList,
+    completions,
     addChore: async (name, valueCents, category) => {
       updateState((current) => ({
         ...current,
@@ -332,6 +354,11 @@ function useDeviceData(
         }),
       }));
     },
+  }), [choreList, completions, updateState]);
+
+  const tablets = useMemo<TabletsData>(() => ({
+    tabletSchedules,
+    tabletCompletions,
     setTabletDueDate: async (tabletId, dueDate) => {
       updateState((current) => ({
         ...current,
@@ -371,7 +398,13 @@ function useDeviceData(
         };
       });
     },
-    addTodo: todoData?.addTodo ?? (async (title, assignee, priority, dueDate) => {
+  }), [tabletCompletions, tabletSchedules, updateState]);
+
+  // Used only without Convex. With Convex, to-dos come from the server.
+  const localTodos = useMemo<TodosData>(() => ({
+    todos,
+    todosStatus: "ready",
+    addTodo: async (title, assignee, priority, dueDate) => {
       updateState((current) => ({
         ...current,
         todos: [...current.todos, {
@@ -384,34 +417,70 @@ function useDeviceData(
           createdAt: Date.now(),
         }],
       }));
-    }),
-    updateTodo: todoData?.updateTodo ?? (async (id, title, assignee, priority, dueDate) => {
+    },
+    updateTodo: async (id, title, assignee, priority, dueDate) => {
       updateState((current) => ({
         ...current,
         todos: current.todos.map((todo) => todo.id === id
           ? { ...todo, title, assignee, priority, dueDate: dueDate || undefined }
           : todo),
       }));
-    }),
-    toggleTodo: todoData?.toggleTodo ?? (async (id) => {
+    },
+    toggleTodo: async (id) => {
       updateState((current) => ({
         ...current,
         todos: current.todos.map((todo) => todo.id === id ? { ...todo, completed: !todo.completed } : todo),
       }));
-    }),
-    removeTodo: todoData?.removeTodo ?? (async (id) => {
+    },
+    removeTodo: async (id) => {
       updateState((current) => ({
         ...current,
         todos: current.todos.filter((todo) => todo.id !== id),
       }));
-    }),
-    isReady: state !== null && (todoData?.isReady ?? true),
-    backupStatus,
-    mode,
-  }), [backupStatus, calendarEvents, calendarStatus, loadCalendarRange, mode, newsHeadlines, state, todoData, updateState, visibleState]);
+    },
+  }), [todos, updateState]);
+
+  return { boards, chores, tablets, localTodos };
 }
 
-const LOCAL_BACKUP_STATUS: BackupStatus = { state: "local" };
+const BoardsContext = createContext<BoardsData | null>(null);
+const ChoresContext = createContext<ChoresData | null>(null);
+const TabletsContext = createContext<TabletsData | null>(null);
+const TodosContext = createContext<TodosData | null>(null);
+const CalendarContext = createContext<CalendarData | null>(null);
+const NewsContext = createContext<NewsData | null>(null);
+const StatusContext = createContext<DeviceStatus | null>(null);
+
+type DataContextsProps = PropsWithChildren<{
+  boards: BoardsData;
+  chores: ChoresData;
+  tablets: TabletsData;
+  todos: TodosData;
+  calendar: CalendarData;
+  news: NewsData;
+  status: DeviceStatus;
+}>;
+
+function DataContexts({ boards, chores, tablets, todos, calendar, news, status, children }: DataContextsProps) {
+  return (
+    <StatusContext.Provider value={status}>
+      <BoardsContext.Provider value={boards}>
+        <ChoresContext.Provider value={chores}>
+          <TabletsContext.Provider value={tablets}>
+            <TodosContext.Provider value={todos}>
+              <CalendarContext.Provider value={calendar}>
+                <NewsContext.Provider value={news}>{children}</NewsContext.Provider>
+              </CalendarContext.Provider>
+            </TodosContext.Provider>
+          </TabletsContext.Provider>
+        </ChoresContext.Provider>
+      </BoardsContext.Provider>
+    </StatusContext.Provider>
+  );
+}
+
+const LOCAL_STATUS: DeviceStatus = { isReady: true, backupStatus: { state: "local" }, mode: "local" };
+const PREVIEW_NEWS: NewsData = { newsHeadlines: PREVIEW_HEADLINES };
 
 function LocalDataProvider({ children }: PropsWithChildren) {
   const [state, setState] = useState<DeviceState | null>(() =>
@@ -424,10 +493,18 @@ function LocalDataProvider({ children }: PropsWithChildren) {
     if (state) writeDeviceState(state);
   }, [state]);
 
-  const calendarEvents = useMemo(previewCalendarEvents, []);
-  const loadCalendarRange = useCallback(async () => undefined, []);
-  const data = useDeviceData(state, setState, PREVIEW_HEADLINES, calendarEvents, "ready", loadCalendarRange, "local", LOCAL_BACKUP_STATUS);
-  return <DataContext.Provider value={data}>{children}</DataContext.Provider>;
+  const calendar = useMemo<CalendarData>(() => ({
+    calendarEvents: previewCalendarEvents(),
+    calendarStatus: "ready",
+    calendarMonth: null,
+    loadCalendarRange: async () => undefined,
+  }), []);
+  const { boards, chores, tablets, localTodos } = useDeviceSlices(state, setState);
+  return (
+    <DataContexts boards={boards} chores={chores} tablets={tablets} todos={localTodos} calendar={calendar} news={PREVIEW_NEWS} status={LOCAL_STATUS}>
+      {children}
+    </DataContexts>
+  );
 }
 
 const useQueryWithStatus = makeUseQueryWithStatus(useQueries);
@@ -703,106 +780,68 @@ function useDeviceBackup(
   return status;
 }
 
-function LocalFirstBackupProvider({ children }: PropsWithChildren) {
-  // Once this key exists, it is the authority. Remote values are used only
-  // for first-run recovery and are never reconciled over local actions.
-  const [state, setState] = useState<DeviceState | null>(() => readStoredState(DEVICE_STORAGE_KEY));
-  const backupStatus = useDeviceBackup(state, setState);
-  const loadWorldNews = useAction(api.news.world);
+function writeCalendarCache(events: CalendarEvent[]) {
+  try {
+    window.localStorage.setItem(CALENDAR_CACHE_KEY, JSON.stringify(events));
+  } catch {
+    // The cache only helps the next start. A full store is not worth an error.
+  }
+}
+
+function useCalendarFeed(): CalendarData {
   const loadPrimaryCalendar = useAction(api.calendar.events);
-  const todosQuery = useQueryWithStatus(api.todos.list, { deviceToken: DEVICE_TOKEN });
-  const lastTodos = useRef<Todo[] | undefined>(undefined);
-  if (todosQuery.data) lastTodos.current = todosQuery.data;
-  const canonicalTodos = todosQuery.data ?? lastTodos.current;
-  const createCanonicalTodo = useMutation(api.todos.create);
-  const updateCanonicalTodo = useMutation(api.todos.update);
-  const toggleCanonicalTodo = useMutation(api.todos.toggle);
-  const removeCanonicalTodo = useMutation(api.todos.remove);
-  const importCanonicalTodos = useMutation(api.todos.importLegacy);
-  const [newsHeadlines, setNewsHeadlines] = useState<NewsHeadline[]>([]);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>(readCalendarCache);
   const [calendarStatus, setCalendarStatus] = useState<CalendarStatus>(() => (
     hasCurrentCalendarEvents(readCalendarCache()) ? "ready" : "loading"
   ));
-  const legacyTodoImportStarted = useRef(false);
+  const [calendarMonth, setCalendarMonth] = useState<CalendarMonth | null>(null);
+  // Only the newest month request may update the month. Swiping through
+  // months quickly would otherwise let an older, slower answer win.
+  const monthRequest = useRef(0);
 
-  useEffect(() => {
-    if (todosQuery.isError) console.error("Could not load to-dos", todosQuery.error);
-  }, [todosQuery.error, todosQuery.isError]);
+  const fetchRange = useCallback((start: string, end: string) => withTimeout(
+    loadPrimaryCalendar({ deviceToken: DEVICE_TOKEN, start, end }),
+    CALENDAR_REQUEST_TIMEOUT_MS,
+  ), [loadPrimaryCalendar]);
 
-  const loadCalendarRange = useCallback(async (requestedStart: string, requestedEnd: string) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const homeEnd = new Date(today);
-    homeEnd.setDate(homeEnd.getDate() + 8);
-    const requestedStartDate = new Date(requestedStart);
-    const requestedEndDate = new Date(requestedEnd);
-    const start = new Date(Math.min(today.getTime(), requestedStartDate.getTime()));
-    const end = new Date(Math.max(homeEnd.getTime(), requestedEndDate.getTime()));
-
+  // The home screen's week. Retry every minute until it loads, then refresh
+  // every 15 minutes so the calendar feed is not hammered.
+  usePolling(async () => {
+    const { start, end } = homeCalendarRange(new Date());
     try {
-      const result = await withTimeout(
-        loadPrimaryCalendar({
-          deviceToken: DEVICE_TOKEN,
-          start: start.toISOString(),
-          end: end.toISOString(),
-        }),
-        CALENDAR_REQUEST_TIMEOUT_MS,
-      );
+      const result = await fetchRange(start, end);
       if (!result.configured) {
         setCalendarStatus("not-configured");
-        return;
+        return CALENDAR_REFRESH_MS;
       }
       setCalendarEvents(result.events);
       setCalendarStatus("ready");
-      window.localStorage.setItem(CALENDAR_CACHE_KEY, JSON.stringify(result.events));
+      writeCalendarCache(result.events);
+      return CALENDAR_REFRESH_MS;
     } catch {
       setCalendarStatus((current) => current === "ready" || current === "not-configured" ? current : "error");
+      return CALENDAR_RETRY_MS;
     }
-  }, [loadPrimaryCalendar]);
+  }, CALENDAR_RETRY_MS);
 
-  useEffect(() => {
-    let active = true;
-    const refresh = () => {
-      void loadWorldNews({ deviceToken: DEVICE_TOKEN }).then((headlines) => {
-        if (active && headlines.length > 0) setNewsHeadlines(headlines);
-      }).catch(() => undefined);
-    };
-    refresh();
-    const timer = window.setInterval(refresh, 60 * 60 * 1000);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, [loadWorldNews]);
-
-  useEffect(() => {
-    if (!state || canonicalTodos === undefined || legacyTodoImportStarted.current) return;
-    legacyTodoImportStarted.current = true;
-    void importCanonicalTodos({ deviceToken: DEVICE_TOKEN, todos: state.todos }).catch(() => {
-      // A transient deployment or network failure should be retried on the
-      // next render. The mutation itself is idempotent by legacy to-do ID.
-      legacyTodoImportStarted.current = false;
-    });
-  }, [canonicalTodos, importCanonicalTodos, state]);
-
-  useEffect(() => {
-    const refresh = () => {
-      const start = new Date();
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(start);
-      end.setDate(end.getDate() + 8);
-      void loadCalendarRange(start.toISOString(), end.toISOString());
-    };
-    refresh();
-    // Retry quickly while startup is unhealthy. Once data arrives, return to
-    // the normal 15-minute refresh so the calendar feed is not hammered.
-    const timer = window.setInterval(
-      refresh,
-      calendarStatus === "ready" ? CALENDAR_REFRESH_MS : CALENDAR_RETRY_MS,
-    );
-    return () => window.clearInterval(timer);
-  }, [calendarStatus, loadCalendarRange]);
+  const loadCalendarRange = useCallback(async (start: string, end: string) => {
+    const request = ++monthRequest.current;
+    const isSameRange = (month: CalendarMonth | null): month is CalendarMonth => month?.start === start && month.end === end;
+    setCalendarMonth((current) => isSameRange(current) ? current : { start, end, events: [], status: "loading" });
+    try {
+      const result = await fetchRange(start, end);
+      if (request !== monthRequest.current) return;
+      setCalendarMonth({
+        start,
+        end,
+        events: result.configured ? result.events : [],
+        status: result.configured ? "ready" : "not-configured",
+      });
+    } catch {
+      if (request !== monthRequest.current) return;
+      setCalendarMonth((current) => isSameRange(current) && current.status !== "ready" ? { ...current, status: "error" } : current);
+    }
+  }, [fetchRange]);
 
   useEffect(() => {
     if (hasCurrentCalendarEvents(calendarEvents) || calendarStatus === "ready" || calendarStatus === "not-configured") return;
@@ -818,58 +857,102 @@ function LocalFirstBackupProvider({ children }: PropsWithChildren) {
     }, calendarStatus === "error" ? 5_000 : CALENDAR_REQUEST_TIMEOUT_MS + 5_000);
 
     return () => window.clearTimeout(timer);
-  }, [calendarEvents.length, calendarStatus]);
+  }, [calendarEvents, calendarStatus]);
 
-  const todoData = useMemo<TodoData>(() => ({
-    todos: canonicalTodos?.map((todo) => ({ ...todo, id: todo.id })) ?? [],
-    addTodo: async (title, assignee, priority, dueDate) => {
-      await createCanonicalTodo({
-        deviceToken: DEVICE_TOKEN,
-        title,
-        assignee,
-        priority,
-        dueDate,
-      });
-    },
-    updateTodo: async (id, title, assignee, priority, dueDate) => {
-      await updateCanonicalTodo({
-        deviceToken: DEVICE_TOKEN,
-        id: id as Id<"todos">,
-        title,
-        assignee,
-        priority,
-        dueDate,
-      });
-    },
-    toggleTodo: async (id) => {
-      await toggleCanonicalTodo({ deviceToken: DEVICE_TOKEN, id: id as Id<"todos"> });
-    },
-    removeTodo: async (id) => {
-      await removeCanonicalTodo({ deviceToken: DEVICE_TOKEN, id: id as Id<"todos"> });
-    },
-    // An auth or network error should not hold the whole kiosk on the
-    // loading screen. The list stays empty (or last known) instead.
-    isReady: canonicalTodos !== undefined || todosQuery.isError,
-  }), [
-    canonicalTodos,
-    createCanonicalTodo,
-    removeCanonicalTodo,
-    todosQuery.isError,
-    toggleCanonicalTodo,
-    updateCanonicalTodo,
-  ]);
-  const data = useDeviceData(
-    state,
-    setState,
-    newsHeadlines,
+  return useMemo(() => ({ calendarEvents, calendarStatus, calendarMonth, loadCalendarRange }), [
     calendarEvents,
+    calendarMonth,
     calendarStatus,
     loadCalendarRange,
-    "backup",
-    backupStatus,
-    todoData,
+  ]);
+}
+
+function useNewsFeed(): NewsData {
+  const loadWorldNews = useAction(api.news.world);
+  const [newsHeadlines, setNewsHeadlines] = useState<NewsHeadline[]>([]);
+  const hasHeadlines = useRef(false);
+
+  usePolling(async () => {
+    try {
+      const headlines = await loadWorldNews({ deviceToken: DEVICE_TOKEN });
+      if (headlines.length > 0) {
+        hasHeadlines.current = true;
+        setNewsHeadlines(headlines);
+      }
+    } catch {
+      // Keep the last headlines. Try again sooner if there are none yet.
+    }
+    return hasHeadlines.current ? NEWS_REFRESH_MS : NEWS_RETRY_MS;
+  }, NEWS_REFRESH_MS);
+
+  return useMemo(() => ({ newsHeadlines }), [newsHeadlines]);
+}
+
+function useCanonicalTodos(state: DeviceState | null): TodosData {
+  const todosQuery = useQueryWithStatus(api.todos.list, { deviceToken: DEVICE_TOKEN });
+  const lastTodos = useRef<Todo[] | undefined>(undefined);
+  if (todosQuery.data) lastTodos.current = todosQuery.data;
+  const canonicalTodos = todosQuery.data ?? lastTodos.current;
+  const createTodo = useMutation(api.todos.create);
+  const updateTodo = useMutation(api.todos.update);
+  const toggleTodo = useMutation(api.todos.toggle);
+  const removeTodo = useMutation(api.todos.remove);
+  const importTodos = useMutation(api.todos.importLegacy);
+  const legacyTodoImportStarted = useRef(false);
+
+  useEffect(() => {
+    if (todosQuery.isError) console.error("Could not load to-dos", todosQuery.error);
+  }, [todosQuery.error, todosQuery.isError]);
+
+  useEffect(() => {
+    if (!state || canonicalTodos === undefined || legacyTodoImportStarted.current) return;
+    legacyTodoImportStarted.current = true;
+    void importTodos({ deviceToken: DEVICE_TOKEN, todos: state.todos }).catch(() => {
+      // A transient deployment or network failure should be retried on the
+      // next render. The mutation itself is idempotent by legacy to-do ID.
+      legacyTodoImportStarted.current = false;
+    });
+  }, [canonicalTodos, importTodos, state]);
+
+  // Only the To-do's app waits for this. The rest of the screen runs from
+  // local data, so a Convex outage at boot can't hold up the whole kiosk.
+  const todosStatus = canonicalTodos !== undefined ? "ready" : todosQuery.isError ? "error" : "loading";
+
+  return useMemo<TodosData>(() => ({
+    todos: canonicalTodos ?? [],
+    todosStatus,
+    addTodo: async (title, assignee, priority, dueDate) => {
+      await createTodo({ deviceToken: DEVICE_TOKEN, title, assignee, priority, dueDate });
+    },
+    updateTodo: async (id, title, assignee, priority, dueDate) => {
+      await updateTodo({ deviceToken: DEVICE_TOKEN, id: id as Id<"todos">, title, assignee, priority, dueDate });
+    },
+    toggleTodo: async (id) => {
+      await toggleTodo({ deviceToken: DEVICE_TOKEN, id: id as Id<"todos"> });
+    },
+    removeTodo: async (id) => {
+      await removeTodo({ deviceToken: DEVICE_TOKEN, id: id as Id<"todos"> });
+    },
+  }), [canonicalTodos, createTodo, removeTodo, todosStatus, toggleTodo, updateTodo]);
+}
+
+function LocalFirstBackupProvider({ children }: PropsWithChildren) {
+  // Once this key exists, it is the authority. Remote values are used only
+  // for first-run recovery and are never reconciled over local actions.
+  const [state, setState] = useState<DeviceState | null>(() => readStoredState(DEVICE_STORAGE_KEY));
+  const backupStatus = useDeviceBackup(state, setState);
+  const { boards, chores, tablets } = useDeviceSlices(state, setState);
+  const todos = useCanonicalTodos(state);
+  const calendar = useCalendarFeed();
+  const news = useNewsFeed();
+  const hasState = state !== null;
+  const status = useMemo<DeviceStatus>(() => ({ isReady: hasState, backupStatus, mode: "backup" }), [backupStatus, hasState]);
+
+  return (
+    <DataContexts boards={boards} chores={chores} tablets={tablets} todos={todos} calendar={calendar} news={news} status={status}>
+      {children}
+    </DataContexts>
   );
-  return <DataContext.Provider value={data}>{children}</DataContext.Provider>;
 }
 
 export function DataProvider({ children }: PropsWithChildren) {
@@ -887,8 +970,16 @@ export function DataProvider({ children }: PropsWithChildren) {
   );
 }
 
-export function useCannvasData(): CannvasData {
-  const value = useContext(DataContext);
-  if (!value) throw new Error("useCannvasData must be used inside DataProvider");
+function useSlice<T>(context: Context<T | null>, name: string): T {
+  const value = useContext(context);
+  if (!value) throw new Error(`${name} must be used inside DataProvider`);
   return value;
 }
+
+export const useBoards = () => useSlice(BoardsContext, "useBoards");
+export const useChores = () => useSlice(ChoresContext, "useChores");
+export const useTablets = () => useSlice(TabletsContext, "useTablets");
+export const useTodos = () => useSlice(TodosContext, "useTodos");
+export const useCalendar = () => useSlice(CalendarContext, "useCalendar");
+export const useNews = () => useSlice(NewsContext, "useNews");
+export const useDeviceStatus = () => useSlice(StatusContext, "useDeviceStatus");

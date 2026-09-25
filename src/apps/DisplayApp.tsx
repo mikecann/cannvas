@@ -1,6 +1,6 @@
 import { CheckCircle2, Clock3, Home, Sun, UtilityPole, Volume2, VolumeX } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useCannvasData } from "../data/DataProvider";
+import { useCalendar, useNews } from "../data/DataProvider";
 import { addCalendarDays, calendarDateKey, calendarEventTime, eventsForDate } from "../lib/calendar";
 import { FLOW_THRESHOLD_KW, formatKw, isSolarFresh } from "../lib/solar";
 import { useSolar } from "../lib/useSolar";
@@ -45,7 +45,8 @@ export function DisplayApp({
   onOpenWeather: () => void;
   onOpenSolar: () => void;
 }) {
-  const { calendarEvents, calendarStatus, newsHeadlines } = useCannvasData();
+  const { calendarEvents, calendarStatus } = useCalendar();
+  const { newsHeadlines } = useNews();
   const [now, setNow] = useState(new Date());
   const [videoAudio, setVideoAudio] = useState(() => ({ session: displaySession, muted: true }));
   const [calendarCanExpand, setCalendarCanExpand] = useState(false);

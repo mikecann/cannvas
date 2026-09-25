@@ -26,7 +26,7 @@ import { TodosApp } from "./apps/TodosApp";
 import { WhiteboardApp } from "./apps/WhiteboardApp";
 import { WeatherApp } from "./apps/WeatherApp";
 import { ConfirmDialog } from "./components/ConfirmDialog";
-import { useCannvasData } from "./data/DataProvider";
+import { useDeviceStatus } from "./data/DataProvider";
 import { POWER_OFF_RECOVERY_MESSAGE, schedulePowerOffRecovery } from "./lib/actionTiming";
 import { dismissNativeKeyboard, installNativeKeyboard } from "./lib/nativeKeyboard";
 
@@ -60,7 +60,7 @@ const moreApps = [
 const DEFAULT_IDLE_TIMEOUT = 5 * 60 * 1000;
 
 export function App() {
-  const { isReady, backupStatus } = useCannvasData();
+  const { isReady, backupStatus } = useDeviceStatus();
   const [activeApp, setActiveApp] = useState<AppId>("whiteboard");
   const [displaySession, setDisplaySession] = useState(0);
   const [moreOpen, setMoreOpen] = useState(false);

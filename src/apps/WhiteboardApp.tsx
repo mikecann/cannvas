@@ -16,7 +16,7 @@ import {
   useState,
 } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { useCannvasData } from "../data/DataProvider";
+import { useBoards } from "../data/DataProvider";
 import type { Point, Stroke } from "../data/types";
 import { addDays, dateKey, fromDateKey, longDate } from "../lib/dates";
 import { drawStroke, paintScaled } from "../lib/drawing";
@@ -28,7 +28,7 @@ type DrawingTool = "pen" | "eraser" | "sticker";
 const BOARD_BACKGROUND = "#fffdf8";
 
 export function WhiteboardApp() {
-  const { boardDates, getBoard, saveBoard } = useCannvasData();
+  const { boardDates, getBoard, saveBoard } = useBoards();
   const [selectedDate, setSelectedDate] = useState(dateKey(new Date()));
   const [strokes, setStrokes] = useState<Stroke[]>(() => getBoard(selectedDate));
   const [redoStack, setRedoStack] = useState<Stroke[]>([]);

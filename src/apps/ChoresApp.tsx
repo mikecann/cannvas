@@ -2,12 +2,12 @@ import { Check, ChevronLeft, ChevronRight, CircleDollarSign, CircleHelp, Pencil,
 import { useMemo, useState } from "react";
 import { ChoreCategoryPicker } from "../components/ChoreCategoryPicker";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { useCannvasData } from "../data/DataProvider";
+import { useChores } from "../data/DataProvider";
 import type { ChoreCategory } from "../data/types";
 import { addDays, dateKey, fromDateKey, money, startOfWeek } from "../lib/dates";
 
 export function ChoresApp() {
-  const { chores, completions, addChore, updateChore, removeChore, toggleCompletion } = useCannvasData();
+  const { chores, completions, addChore, updateChore, removeChore, toggleCompletion } = useChores();
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [showAdd, setShowAdd] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
