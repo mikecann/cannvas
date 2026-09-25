@@ -39,7 +39,9 @@ export const list = deviceQuery
     position: v.number(),
   })))
   .handler(async (ctx) => {
-    const chores = await ctx.db.query("chores").withIndex("by_position").take(MAX_CHORES);
+    // Inactive rows are kept, so filtering after a take could hide live
+    // chores. The table is small, one row per chore ever created.
+    const chores = await ctx.db.query("chores").withIndex("by_position").collect();
     return chores
       .filter((chore) => chore.active)
       .map(({ _id, name, valueCents, category, color, position }) => ({
@@ -109,7 +111,7 @@ export const add = deviceMutation
   .returns(v.id("chores"))
   .handler(async (ctx, args) => {
     const name = cleanName(args.name);
-    const active = (await ctx.db.query("chores").withIndex("by_position").take(MAX_CHORES))
+    const active = (await ctx.db.query("chores").withIndex("by_position").collect())
       .filter((chore) => chore.active);
     if (active.length >= MAX_CHORES) throw new ConvexError("There are too many chores.");
     const lastPosition = active.reduce((highest, chore) => Math.max(highest, chore.position), -1);
@@ -175,7 +177,7 @@ export const clearWeek = deviceMutation
     const completions = await ctx.db
       .query("choreCompletions")
       .withIndex("by_date", (q) => q.gte("date", args.weekStart).lt("date", weekEnd))
-      .take(1000);
+      .collect();
     await Promise.all(completions.map(({ _id }) => ctx.db.delete(_id)));
     return null;
   })
