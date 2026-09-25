@@ -7,7 +7,7 @@ import { deviceState, stroke } from "./lib/validators";
 export const MAX_BACKUP_JSON_LENGTH = 900_000;
 // Revisions are a local counter that goes up by one per change. Anything
 // beyond this is a bug, and accepting it would block every later backup.
-const MAX_REVISION = 1_000_000_000_000;
+export const MAX_REVISION = 1_000_000_000_000;
 
 const saveResult = v.object({ accepted: v.boolean(), revision: v.number() });
 
@@ -15,6 +15,13 @@ export function assertRevision(revision: number) {
   if (!Number.isSafeInteger(revision) || revision < 0 || revision > MAX_REVISION) {
     throw new ConvexError("Backup revision is out of range.");
   }
+}
+
+// Older kiosk builds accepted any revision, so a stored one can be above the
+// cap. Treat that as no revision at all so the next valid save replaces it,
+// instead of every later save being rejected or failing forever.
+export function storedRevision(revision: number) {
+  return Number.isSafeInteger(revision) && revision >= 0 && revision <= MAX_REVISION ? revision : -1;
 }
 
 export function assertBackupSize(value: unknown, label: string) {
@@ -112,7 +119,7 @@ export const save = deviceMutation
     // Rapid edits can leave several requests in flight. Never let an older
     // response arrive late and replace a newer device snapshot. The kiosk
     // moves its revision past a rejected one and saves again.
-    if (existing && args.revision <= existing.revision) {
+    if (existing && args.revision <= storedRevision(existing.revision)) {
       return { accepted: false, revision: existing.revision };
     }
 

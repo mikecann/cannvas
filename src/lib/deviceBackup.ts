@@ -2,6 +2,12 @@ import type { Chore, Completion, Stroke, TabletCompletion, TabletSchedule, Todo 
 
 // Convex documents max out at 1 MiB. The server enforces the same limit.
 export const MAX_BACKUP_JSON_LENGTH = 900_000;
+// Must match MAX_REVISION in convex/deviceBackups.ts.
+export const MAX_BACKUP_REVISION = 1_000_000_000_000;
+
+export function isValidRevision(revision: unknown): revision is number {
+  return typeof revision === "number" && Number.isSafeInteger(revision) && revision >= 0 && revision <= MAX_BACKUP_REVISION;
+}
 
 export type BackupSource = {
   revision: number;
@@ -72,8 +78,37 @@ export function boardsNeedingBackup(
   skip: ReadonlySet<string> = new Set(),
 ) {
   return Object.keys(state.boards)
-    .filter((date) => !skip.has(date) && boardRevision(state, date) > (backedUp[date] ?? 0))
+    .filter((date) => !skip.has(date) && boardRevision(state, date) > (backedUp[date] ?? -1))
     .sort();
+}
+
+// Compare the kiosk's boards with what the server actually holds.
+// - Boards the server doesn't have (or holds at a lower revision) get uploaded.
+// - Boards the server holds at a higher revision are moved past it, because
+//   the kiosk's copy is the authority.
+// - The device revision ends up at least as high as every board revision, so
+//   the next edit always produces a revision the server will accept.
+export function reconcileBoardRevisions(
+  state: Pick<BackupSource, "revision" | "boards" | "boardRevisions">,
+  server: Record<string, number>,
+) {
+  const boardRevisions: Record<string, number> = { ...state.boardRevisions };
+  const backedUp: Record<string, number> = {};
+  let revision = state.revision;
+  for (const date of Object.keys(state.boards)) {
+    const local = boardRevision(state, date);
+    revision = Math.max(revision, local);
+    const remote = server[date];
+    // A server revision above the cap is treated as missing, like the server does.
+    if (!isValidRevision(remote)) continue;
+    if (remote > local) {
+      boardRevisions[date] = remote + 1;
+      revision = Math.max(revision, remote + 1);
+    } else {
+      backedUp[date] = remote;
+    }
+  }
+  return { revision, boardRevisions, backedUp };
 }
 
 // UTF-8 bytes, which is what counts against Convex's document limit.

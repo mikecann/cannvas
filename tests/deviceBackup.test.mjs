@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   backupContentKey,
-  jsonLength,
   boardsNeedingBackup,
+  jsonLength,
+  reconcileBoardRevisions,
   toBackupState,
   toBackupStrokes,
 } from "../src/lib/deviceBackup.ts";
@@ -112,4 +113,38 @@ test("single points and stickers keep every point", () => {
   assert.deepEqual(dot.points, [{ x: 0.3333, y: 0.5 }]);
   const sticker = compactStroke({ id: "k", kind: "sticker", sticker: "*", color: "#000", width: 72, points: [{ x: 0.5, y: 0.5 }] });
   assert.equal(sticker.points.length, 1);
+});
+
+test("reconciling uploads boards the server has lost", () => {
+  const state = deviceState({ boardRevisions: { "2026-09-01": 5, "2026-09-02": 6 } });
+  const result = reconcileBoardRevisions(state, { "2026-09-01": 5 });
+  assert.deepEqual(result.backedUp, { "2026-09-01": 5 });
+  assert.deepEqual(boardsNeedingBackup({ ...state, boardRevisions: result.boardRevisions }, result.backedUp), ["2026-09-02"]);
+});
+
+test("reconciling moves a board past a newer server revision", () => {
+  const state = deviceState({ revision: 7, boardRevisions: { "2026-09-01": 5 } });
+  const result = reconcileBoardRevisions(state, { "2026-09-01": 20 });
+  assert.equal(result.boardRevisions["2026-09-01"], 21);
+  assert.equal(result.revision, 21);
+  assert.deepEqual(boardsNeedingBackup({ ...state, boardRevisions: result.boardRevisions }, result.backedUp), ["2026-09-01", "2026-09-02"]);
+});
+
+test("reconciling raises the device revision past every board revision", () => {
+  const state = deviceState({ revision: 3, boardRevisions: { "2026-09-01": 40, "2026-09-02": 41 } });
+  const result = reconcileBoardRevisions(state, { "2026-09-01": 40, "2026-09-02": 41 });
+  assert.equal(result.revision, 41);
+  assert.deepEqual(boardsNeedingBackup({ ...state, boardRevisions: result.boardRevisions }, result.backedUp), []);
+});
+
+test("a server revision above the cap counts as missing", () => {
+  const state = deviceState({ boardRevisions: { "2026-09-01": 2 } });
+  const result = reconcileBoardRevisions(state, { "2026-09-01": 1e15 });
+  assert.equal(result.backedUp["2026-09-01"], undefined);
+  assert.equal(result.boardRevisions["2026-09-01"], 2);
+});
+
+test("revision-zero boards the server has lost are uploaded", () => {
+  const state = deviceState({ boardRevisions: { "2026-09-01": 0, "2026-09-02": 0 } });
+  assert.deepEqual(boardsNeedingBackup(state, { "2026-09-01": 0 }), ["2026-09-02"]);
 });

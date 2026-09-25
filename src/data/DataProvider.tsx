@@ -19,8 +19,10 @@ import {
   backupRetryDelayMs,
   boardRevision,
   boardsNeedingBackup,
+  isValidRevision,
   jsonLength,
   MAX_BACKUP_JSON_LENGTH,
+  reconcileBoardRevisions,
   toBackupState,
   toBackupStrokes,
 } from "../lib/deviceBackup";
@@ -35,7 +37,6 @@ const DEVICE_ID = import.meta.env.VITE_CANNVAS_DEVICE_ID
 // Only the kiosk build on the Pi has this. The public site is a separate build
 // that never includes this module.
 const DEVICE_TOKEN = import.meta.env.VITE_CANNVAS_DEVICE_TOKEN?.trim() ?? "";
-const BOARD_BACKUPS_KEY = "cannvas-board-backups-v1";
 const BACKUP_DEBOUNCE_MS = 500;
 const RECOVERY_PAGE_SIZE = 50;
 const CALENDAR_CACHE_KEY = "cannvas-calendar-cache-v1";
@@ -160,10 +161,15 @@ function toDeviceState(value: Partial<LocalState & Pick<DeviceState, "revision" 
   return {
     version: 2,
     tabletScheduleVersion: TABLET_SCHEDULE_VERSION,
-    revision: Number.isFinite(value.revision) ? Math.max(0, Number(value.revision)) : 0,
+    // Older builds accepted any revision. One past the server's cap would be
+    // rejected on every save, so start again from 0 and let the server's
+    // answer move it forward.
+    revision: isValidRevision(value.revision) ? value.revision : 0,
     updatedAt: Date.now(),
     boards: value.boards ?? fallback.boards,
-    boardRevisions: value.boardRevisions && typeof value.boardRevisions === "object" ? value.boardRevisions : {},
+    boardRevisions: isValidRevision(value.revision) && value.boardRevisions && typeof value.boardRevisions === "object"
+      ? Object.fromEntries(Object.entries(value.boardRevisions).filter(([, revision]) => isValidRevision(revision)))
+      : {},
     chores: (value.chores ?? fallback.chores).map((chore) => ({
       ...chore,
       category: chore.category ?? "standard",
@@ -426,19 +432,6 @@ function LocalDataProvider({ children }: PropsWithChildren) {
 
 const useQueryWithStatus = makeUseQueryWithStatus(useQueries);
 
-function readBoardBackups(): Record<string, number> {
-  try {
-    const value = JSON.parse(window.localStorage.getItem(BOARD_BACKUPS_KEY) ?? "{}") as unknown;
-    return value && typeof value === "object" ? value as Record<string, number> : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeBoardBackups(value: Record<string, number>) {
-  window.localStorage.setItem(BOARD_BACKUPS_KEY, JSON.stringify(value));
-}
-
 function errorMessage(error: unknown) {
   if (error && typeof error === "object" && "data" in error && typeof error.data === "string") return error.data;
   return error instanceof Error ? error.message : String(error);
@@ -457,6 +450,15 @@ async function collectPages<T>(
   }
 }
 
+async function loadServerBoardRevisions(client: ConvexReactClient) {
+  const rows = await collectPages((cursor) => client.query(api.deviceBoards.revisions, {
+    deviceToken: DEVICE_TOKEN,
+    deviceId: DEVICE_ID,
+    paginationOpts: { cursor, numItems: 200 },
+  }));
+  return Object.fromEntries(rows.map(({ date, revision }) => [date, revision]));
+}
+
 // Rebuild a kiosk that has no local data. Remote data is only ever used here,
 // on first run. Once local data exists it is the authority.
 async function recoverDeviceState(client: ConvexReactClient) {
@@ -467,26 +469,36 @@ async function recoverDeviceState(client: ConvexReactClient) {
     deviceId: DEVICE_ID,
     paginationOpts: { cursor, numItems: RECOVERY_PAGE_SIZE },
   }));
-  const backedUp: Record<string, number> = {};
-  const boardRevisions: Record<string, number> = {};
+  const serverRevisions: Record<string, number> = {};
   const boardsFromDevice = Object.fromEntries(deviceBoards.map(({ date, revision, strokes }) => {
-    backedUp[date] = revision;
-    boardRevisions[date] = revision;
+    serverRevisions[date] = revision;
     return [date, strokes];
   }));
+  // Boards recovered from deviceBoards start at the server's revision. The
+  // device revision is then raised past every board revision so the first
+  // edit to any recovered board is uploaded straight away.
+  const withBoardRevisions = (state: DeviceState) => {
+    const recoveredRevisions = Object.fromEntries(
+      Object.entries(serverRevisions).filter(([, revision]) => isValidRevision(revision)),
+    );
+    const reconciled = reconcileBoardRevisions(
+      { ...state, boardRevisions: { ...state.boardRevisions, ...recoveredRevisions } },
+      serverRevisions,
+    );
+    return {
+      backedUp: reconciled.backedUp,
+      state: { ...state, revision: reconciled.revision, boardRevisions: reconciled.boardRevisions },
+    };
+  };
 
   if (backup) {
     // Older backups keep boards inline. Newer per-date documents win.
     const legacy = backup.state as Partial<LocalState>;
-    return {
-      backedUp,
-      state: toDeviceState({
-        ...legacy,
-        boards: { ...(legacy.boards ?? {}), ...boardsFromDevice },
-        boardRevisions,
-        revision: backup.revision,
-      }),
-    };
+    return withBoardRevisions(toDeviceState({
+      ...legacy,
+      boards: { ...(legacy.boards ?? {}), ...boardsFromDevice },
+      revision: backup.revision,
+    }));
   }
 
   // No device backup at all: fall back to the original remote-first tables.
@@ -501,21 +513,17 @@ async function recoverDeviceState(client: ConvexReactClient) {
       paginationOpts: { cursor, numItems: 500 },
     })),
   ]);
-  return {
-    backedUp,
-    state: toDeviceState({
-      revision: 0,
-      boards: {
-        ...Object.fromEntries(legacyBoards.map(({ date, strokes }) => [date, strokes])),
-        ...boardsFromDevice,
-      },
-      boardRevisions,
-      chores: legacyChores.length > 0
-        ? legacyChores.map(({ _id, ...chore }) => ({ ...chore, id: _id, category: chore.category ?? "standard" }))
-        : undefined,
-      completions: legacyCompletions,
-    }),
-  };
+  return withBoardRevisions(toDeviceState({
+    revision: 0,
+    boards: {
+      ...Object.fromEntries(legacyBoards.map(({ date, strokes }) => [date, strokes])),
+      ...boardsFromDevice,
+    },
+    chores: legacyChores.length > 0
+      ? legacyChores.map(({ _id, ...chore }) => ({ ...chore, id: _id, category: chore.category ?? "standard" }))
+      : undefined,
+    completions: legacyCompletions,
+  }));
 }
 
 function useDeviceBackup(
@@ -528,7 +536,10 @@ function useDeviceBackup(
   const [status, setStatus] = useState<BackupStatus>({ state: "pending" });
   const [retryTick, setRetryTick] = useState(0);
   const latestState = useRef(state);
-  const backedUpBoards = useRef<Record<string, number>>(readBoardBackups());
+  // Which board revisions the server is known to hold. Rebuilt from the
+  // server on every start, so a lost or restored table is noticed rather than
+  // trusted from local bookkeeping.
+  const backedUpBoards = useRef<Record<string, number> | null>(null);
   const lastSavedContent = useRef<string | null>(null);
   const running = useRef(false);
   const rerunRequested = useRef(false);
@@ -560,7 +571,6 @@ function useDeviceBackup(
       // cannot send us back to a remote-first state.
       writeDeviceState(recovered.state);
       backedUpBoards.current = recovered.backedUp;
-      writeBoardBackups(recovered.backedUp);
       setState(recovered.state);
     }).catch((error: unknown) => {
       if (!cancelled) fail(`Could not load the backup: ${errorMessage(error)}`);
@@ -579,6 +589,30 @@ function useDeviceBackup(
     rerunRequested.current = false;
     const oversized = new Set<string>();
     try {
+      if (!latestState.current) return;
+
+      if (!backedUpBoards.current) {
+        const server = await loadServerBoardRevisions(client);
+        const current = latestState.current;
+        if (!current) return;
+        const reconciled = reconcileBoardRevisions(current, server);
+        backedUpBoards.current = reconciled.backedUp;
+        if (
+          reconciled.revision !== current.revision
+          || JSON.stringify(reconciled.boardRevisions) !== JSON.stringify(current.boardRevisions)
+        ) {
+          // Boards the server holds at a newer revision are moved past it.
+          // The state change runs this again.
+          setState((latest) => latest && {
+            ...latest,
+            revision: Math.max(latest.revision, reconciled.revision),
+            boardRevisions: { ...latest.boardRevisions, ...reconciled.boardRevisions },
+            updatedAt: Date.now(),
+          });
+          return;
+        }
+      }
+
       for (;;) {
         const current = latestState.current;
         if (!current) return;
@@ -602,6 +636,7 @@ function useDeviceBackup(
             setState((latest) => latest && latest.revision <= result.revision
               ? { ...latest, revision: result.revision + 1, updatedAt: Date.now() }
               : latest);
+            rerunRequested.current = true;
             return;
           }
           lastSavedContent.current = content;
@@ -617,12 +652,22 @@ function useDeviceBackup(
         }
         const revision = boardRevision(current, date);
         const result = await saveBoard({ deviceToken: DEVICE_TOKEN, deviceId: DEVICE_ID, date, revision, strokes });
-        // A rejected save means the server already has this revision or newer.
-        backedUpBoards.current = { ...backedUpBoards.current, [date]: revision };
-        writeBoardBackups(backedUpBoards.current);
-        if (!result.accepted && result.revision > revision) {
-          console.warn(`Board ${date} has a newer server revision (${result.revision}) than the device (${revision}).`);
+        if (result.accepted || result.revision === revision) {
+          backedUpBoards.current = { ...backedUpBoards.current, [date]: revision };
+          continue;
         }
+        // The server holds a newer revision of this board (a rolled-back
+        // kiosk, or another client using this device ID). The screen is the
+        // authority, so move this board past it and upload again.
+        const next = Math.max(result.revision, current.revision) + 1;
+        setState((latest) => latest && {
+          ...latest,
+          revision: Math.max(latest.revision, next),
+          boardRevisions: { ...latest.boardRevisions, [date]: Math.max(next, boardRevision(latest, date)) },
+          updatedAt: Date.now(),
+        });
+        rerunRequested.current = true;
+        return;
       }
 
       if (oversized.size > 0) {
@@ -641,9 +686,10 @@ function useDeviceBackup(
       fail(`Backup failed: ${errorMessage(error)}`);
     } finally {
       running.current = false;
-      if (rerunRequested.current && failures.current === 0) void flush();
+      // Wait a tick so a state change made above has rendered first.
+      if (rerunRequested.current && failures.current === 0) window.setTimeout(() => void flush(), 0);
     }
-  }, [fail, saveBackup, saveBoard, setState]);
+  }, [client, fail, saveBackup, saveBoard, setState]);
 
   useEffect(() => {
     if (!state) return;

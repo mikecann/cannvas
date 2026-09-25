@@ -1,6 +1,6 @@
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
-import { assertBackupSize, assertRevision } from "./deviceBackups";
+import { assertBackupSize, assertRevision, storedRevision } from "./deviceBackups";
 import { deviceMutation, deviceQuery } from "./fluent";
 import { stroke } from "./lib/validators";
 
@@ -25,13 +25,35 @@ export const save = deviceMutation
       .query("deviceBoards")
       .withIndex("by_device_id_and_date", (q) => q.eq("deviceId", args.deviceId).eq("date", args.date))
       .unique();
-    if (existing && args.revision <= existing.revision) {
+    if (existing && args.revision <= storedRevision(existing.revision)) {
       return { accepted: false, revision: existing.revision };
     }
     const value = { revision: args.revision, strokes: args.strokes, updatedAt: Date.now() };
     if (existing) await ctx.db.patch(existing._id, value);
     else await ctx.db.insert("deviceBoards", { deviceId: args.deviceId, date: args.date, ...value });
     return { accepted: true, revision: args.revision };
+  })
+  .public();
+
+// Which boards the server holds, and at what revision. The kiosk checks this
+// on startup so a lost or restored table can't hide boards that need upload.
+export const revisions = deviceQuery
+  .input({ deviceId: v.string(), paginationOpts: paginationOptsValidator })
+  .returns(v.object({
+    page: v.array(v.object({ date: v.string(), revision: v.number() })),
+    isDone: v.boolean(),
+    continueCursor: v.string(),
+  }))
+  .handler(async (ctx, args) => {
+    const result = await ctx.db
+      .query("deviceBoards")
+      .withIndex("by_device_id_and_date", (q) => q.eq("deviceId", args.deviceId))
+      .paginate(args.paginationOpts);
+    return {
+      page: result.page.map(({ date, revision }) => ({ date, revision })),
+      isDone: result.isDone,
+      continueCursor: result.continueCursor,
+    };
   })
   .public();
 
