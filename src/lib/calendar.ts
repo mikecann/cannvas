@@ -24,6 +24,13 @@ export function addCalendarDays(date: Date, days: number) {
   return value;
 }
 
+/** The home screen shows today and the next seven days. */
+export function homeCalendarRange(now: Date) {
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  return { start: start.toISOString(), end: addCalendarDays(start, 8).toISOString() };
+}
+
 export function startOfCalendarWeek(date: Date) {
   const value = new Date(date);
   value.setHours(0, 0, 0, 0);

@@ -49,8 +49,24 @@ class FakeUpstream(BaseHTTPRequestHandler):
                 {"entity_id": "sensor.solis_load_power", "state": "2.5", "last_updated": "2026-09-25T01:00:00+00:00"},
                 {"entity_id": "sensor.solis_grid_power", "state": "1.0", "last_updated": "2026-09-25T01:00:00+00:00"},
                 {"entity_id": "sensor.solis_inverter_status", "state": "Normal", "last_updated": "2026-09-25T01:00:00+00:00"},
+                {"entity_id": "sensor.power_production_now", "state": "3450", "attributes": {"unit_of_measurement": "W"}, "last_updated": "2026-09-25T02:00:00+00:00"},
+                {"entity_id": "sensor.energy_production_today", "state": "15.889", "attributes": {"unit_of_measurement": "kWh"}},
+                {"entity_id": "sensor.energy_production_tomorrow", "state": "8856", "attributes": {"unit_of_measurement": "Wh"}},
+                {"entity_id": "sensor.power_highest_peak_time_today", "state": "2026-09-25T04:00:00+00:00"},
                 {"entity_id": "light.kitchen", "state": "on"},
             ]).encode()
+            self.reply(200, body, "application/json")
+        elif self.path == "/api/states/sun.sun":
+            body = json.dumps({
+                "entity_id": "sun.sun",
+                "state": "above_horizon",
+                "attributes": {
+                    "next_rising": "2026-09-25T22:00:00+00:00",
+                    "next_setting": "2026-09-25T10:18:00+00:00",
+                    "elevation": 41.2,
+                    "rising": False,
+                },
+            }).encode()
             self.reply(200, body, "application/json")
         elif self.path.startswith("/api/history/"):
             self.reply(200, b"[]", "application/json")
@@ -211,6 +227,75 @@ class CannvasServerTest(unittest.TestCase):
         self.assertEqual(value["status"], "Normal")
         state_requests = [path for path, _ in FakeUpstream.requests if path.startswith("/api/states")]
         self.assertEqual(state_requests, ["/api/states"])
+
+    def test_solar_includes_forecast_in_kilowatts(self) -> None:
+        (self.temp / "home-assistant.json").write_text(json.dumps({"url": self.upstream_url, "token": "t" * 40}))
+        self.module._SOLAR_CACHE.update(key=None)
+        response, body = self.request("GET", "/api/solar")
+        self.assertEqual(response.status, 200)
+        value = json.loads(body)
+        self.assertEqual(value["forecast"], {
+            "potentialKw": 3.45,
+            "todayKwh": 15.889,
+            # Not reported by the fake Home Assistant.
+            "remainingKwh": None,
+            "tomorrowKwh": 8.856,
+            "peakAt": "2026-09-25T04:00:00+00:00",
+        })
+        # The forecast's newer timestamp must not make stale inverter data look live.
+        self.assertEqual(value["updatedAt"], "2026-09-25T01:00:00+00:00")
+        self.assertIn("possible", value["series"])
+
+    def test_grid_energy_splits_import_and_export(self) -> None:
+        # Positive grid power is export. 1 h exporting 2 kW, then 30 min importing 1 kW.
+        points = [(0.0, 2.0), (3600.0, -1.0)]
+        imported, exported = self.module.grid_energy_kwh(points, 0.0, 5400.0)
+        self.assertAlmostEqual(exported, 2.0)
+        self.assertAlmostEqual(imported, 0.5)
+
+    def test_grid_energy_skips_gaps_and_clips_to_the_day(self) -> None:
+        # Starts before midnight (0), goes unavailable for an hour, then imports.
+        points = [(-1800.0, -2.0), (1800.0, None), (5400.0, -1.0)]
+        imported, exported = self.module.grid_energy_kwh(points, 0.0, 9000.0)
+        # 0.5 h at 2 kW, the gap counts for nothing, then 1 h at 1 kW.
+        self.assertAlmostEqual(imported, 2.0)
+        self.assertAlmostEqual(exported, 0.0)
+
+    def test_kilo_divisor_follows_the_unit(self) -> None:
+        divisor = self.module.kilo_divisor
+        self.assertEqual(divisor({"attributes": {"unit_of_measurement": "W"}}), 1000)
+        self.assertEqual(divisor({"attributes": {"unit_of_measurement": "kWh"}}, default=1000), 1)
+        # A missing sensor keeps the unit its history is known to use.
+        self.assertEqual(divisor({}, default=1000), 1000)
+        self.assertEqual(divisor({}), 1)
+
+    def test_sun_without_home_assistant(self) -> None:
+        response, body = self.request("GET", "/api/sun")
+        self.assertEqual(response.status, 200)
+        self.assertEqual(json.loads(body), {"configured": False})
+
+    def test_sun_reports_next_rising_and_setting(self) -> None:
+        (self.temp / "home-assistant.json").write_text(json.dumps({"url": self.upstream_url, "token": "t" * 40}))
+        response, body = self.request("GET", "/api/sun")
+        self.assertEqual(response.status, 200)
+        self.assertEqual(json.loads(body), {
+            "configured": True,
+            "state": "above_horizon",
+            "elevation": 41.2,
+            "rising": False,
+            "nextRising": "2026-09-25T22:00:00+00:00",
+            "nextSetting": "2026-09-25T10:18:00+00:00",
+        })
+        self.assertEqual(FakeUpstream.requests, [("/api/states/sun.sun", "Bearer " + "t" * 40)])
+
+    def test_sun_hides_home_assistant_failures(self) -> None:
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            closed_port = probe.getsockname()[1]
+        (self.temp / "home-assistant.json").write_text(json.dumps({"url": f"http://127.0.0.1:{closed_port}", "token": "t" * 40}))
+        response, body = self.request("GET", "/api/sun")
+        self.assertEqual(response.status, 502)
+        self.assertEqual(json.loads(body), {"error": "Home Assistant is unavailable"})
 
     def test_home_assistant_redirects_are_not_followed(self) -> None:
         FakeUpstream.redirect_to = f"{self.upstream_url}/stolen"

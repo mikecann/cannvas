@@ -26,7 +26,16 @@ button:focus-visible, input:focus-visible { outline: 4px solid rgba(52, 120, 212
 
 .app-shell { width: 100%; height: 100%; background: var(--cream); position: relative; overflow: hidden; }
 .app-stage { height: calc(100% - 124px); min-height: 0; }
-.loading-card { position: absolute; inset: 0; display: grid; place-items: center; font: 700 2rem "Fraunces", serif; }
+.loading-card { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--muted); text-align: center; }
+.loading-card > svg { width: 44px; height: 44px; color: var(--green); }
+.loading-card strong { color: var(--ink); font: 700 2rem "Fraunces", serif; }
+.loading-card span { max-width: 520px; font-size: 1rem; line-height: 1.45; }
+.spin { animation: cannvas-spin .9s linear infinite; }
+@keyframes cannvas-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .spin, .whiteboard-slide { animation: none; }
+  .night-dim, .display-media video { transition: none; }
+}
 .eyebrow { margin: 0 0 5px; color: var(--orange); font-size: 0.9rem; font-weight: 800; letter-spacing: 0.13em; text-transform: uppercase; }
 h1, h2, p { margin-top: 0; }
 h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", serif; letter-spacing: -0.035em; }
@@ -38,13 +47,21 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
   border: 1px solid rgba(255,255,255,.75); border-radius: 28px;
   background: rgba(255, 253, 248, .9); backdrop-filter: blur(24px); box-shadow: 0 14px 36px rgba(54,45,34,.18);
 }
-.dock-item { position: relative; min-width: 104px; height: 68px; padding: 6px 8px; display: flex; flex-direction: column; gap: 3px; align-items: center; justify-content: center; border: 0; border-radius: 19px; background: transparent; font-size: .77rem; font-weight: 700; cursor: pointer; }
+.dock-item { position: relative; min-width: 116px; height: 68px; padding: 6px 8px; display: flex; flex-direction: column; gap: 3px; align-items: center; justify-content: center; border: 0; border-radius: 19px; background: transparent; font-size: .77rem; font-weight: 700; cursor: pointer; }
 .dock-item.active { color: white; background: var(--ink); }
 .dock-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 12px; background: #ebe4d7; color: var(--ink); }
 .dock-item.active .dock-icon { background: var(--orange); color: white; }
 .dock-icon svg { width: 22px; }
-.backup-error-badge { position: fixed; z-index: 110; top: 18px; right: 18px; display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; color: white; background: #b3412f; box-shadow: 0 8px 24px rgba(32,29,25,.24); font-weight: 800; pointer-events: none; }
-.backup-error-badge svg { width: 20px; height: 20px; }
+/* Quiet, like the dock: it is a heads-up, not an alarm. Nothing is lost. */
+.backup-error-badge { position: fixed; z-index: 110; top: 16px; right: 16px; display: flex; align-items: center; gap: 10px; padding: 7px 16px 7px 7px; border: 1px solid rgba(205,196,183,.85); border-radius: 18px; color: var(--ink); background: rgba(255,253,248,.96); box-shadow: 0 10px 28px rgba(54,45,34,.16); pointer-events: none; }
+.backup-error-icon { width: 36px; height: 36px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 12px; color: #b3412f; background: #fbe4dd; }
+.backup-error-icon svg { width: 20px; height: 20px; }
+.backup-error-badge > span:last-child { display: flex; flex-direction: column; line-height: 1.15; }
+.backup-error-badge strong { font-size: .88rem; font-weight: 800; }
+.backup-error-badge small { color: var(--muted); font-size: .72rem; font-weight: 600; }
+
+/* Evening dimming. Above everything, but touches pass straight through. */
+.night-dim { position: fixed; z-index: 1000; inset: 0; background: #000; pointer-events: none; transition: opacity 1.2s ease; }
 .keyboard-dismiss-button { position: fixed; z-index: 120; right: 28px; bottom: calc(var(--native-keyboard-height) + 24px); min-height: 58px; padding: 0 22px; display: flex; align-items: center; gap: 10px; border: 2px solid rgba(255,255,255,.88); border-radius: 18px; color: white; background: var(--ink); box-shadow: 0 12px 34px rgba(32,29,25,.3); font-weight: 800; cursor: pointer; }
 .keyboard-dismiss-button svg { width: 23px; }
 .keyboard-dismiss-button:active { transform: scale(.97); }
@@ -249,8 +266,13 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .todo-card-actions svg { width: 16px; }
 .todo-empty { min-height: 110px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: #aaa49a; font-weight: 700; }
 .todo-empty svg { width: 30px; height: 30px; padding: 6px; border-radius: 50%; color: white; background: #b9dacf; }
-.todos-actions { position: absolute; z-index: 4; left: 50%; bottom: 14px; padding: 8px; display: flex; justify-content: center; border-radius: 22px; transform: translateX(-50%); }
-.todos-actions .button { min-width: 230px; }
+.todos-actions { position: absolute; z-index: 4; left: 50%; bottom: 14px; width: max-content; max-width: calc(100% - 28px); padding: 8px; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; border-radius: 22px; transform: translateX(-50%); }
+.todos-error { margin: 14px 0 0; padding: 12px 16px; border-radius: 16px; color: #8f2f24; background: #fbe4dd; font-weight: 700; }
+.todos-app-waiting { align-items: center; justify-content: center; }
+.todos-waiting { max-width: 560px; display: flex; flex-direction: column; align-items: center; gap: 10px; color: var(--muted); text-align: center; line-height: 1.45; }
+.todos-waiting > svg { width: 48px; height: 48px; color: var(--green); }
+.todos-waiting strong { color: var(--ink); font: 700 1.8rem "Fraunces", serif; }
+.todos-actions .button { min-width: min(230px, 100%); }
 
 /* Calendar */
 .calendar-app { height: 100%; padding: 34px 34px 10px; display: flex; flex-direction: column; overflow: hidden; background: radial-gradient(circle at 88% 6%, rgba(107,167,255,.2), transparent 27%), radial-gradient(circle at 4% 76%, rgba(94,198,165,.16), transparent 30%), var(--cream); }
@@ -647,14 +669,28 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 
 /* Idle display */
 .display-app { position: fixed; z-index: 50; inset: 0; overflow: hidden; color: white; background: #161719; cursor: none; }
-.display-media, .display-media video { position: absolute; inset: 0; width: 100%; height: 100%; }
-.display-media video { object-fit: cover; }
-.display-gradient { width: 100%; height: 100%; display: grid; place-items: center; background: radial-gradient(circle at 70% 25%, #f9a55c, transparent 25%), radial-gradient(circle at 30% 65%, #527fc4, transparent 30%), linear-gradient(135deg, #27294a, #131620); }
+.display-media, .display-media video, .display-gradient { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* A clip stays hidden until its first frame is ready, so gaps show the gradient. */
+.display-media video { object-fit: cover; opacity: 0; transition: opacity .5s ease; }
+.display-media video[data-ready] { opacity: 1; }
+.display-media video.is-next { opacity: 0; transition: none; }
+.display-video-notice { position: absolute; z-index: 1; left: 50%; top: 44%; width: max-content; max-width: calc(100% - 96px); padding: 16px 24px 16px 18px; display: flex; align-items: center; gap: 16px; border: 1px solid rgba(255,255,255,.22); border-radius: 24px; background: rgba(16,22,29,.62); box-shadow: 0 18px 50px rgba(0,0,0,.24); transform: translate(-50%, -50%); }
+.display-video-notice > svg { width: 34px; height: 34px; flex: 0 0 auto; color: #ffd36f; }
+.display-video-notice.loading > svg { color: rgba(255,255,255,.85); }
+.display-video-notice > span { display: flex; flex-direction: column; gap: 4px; }
+.display-video-notice strong { font-size: 1.25rem; font-weight: 700; }
+.display-video-notice small { max-width: 520px; color: rgba(255,255,255,.76); font-size: .95rem; line-height: 1.35; }
+/* Today's drawing between videos. It covers the clock and widgets briefly. */
+.whiteboard-slide { position: absolute; z-index: 6; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: var(--cream); animation: whiteboard-slide-in .6s ease both; }
+.whiteboard-slide .eyebrow { margin: 0; font-size: 1.1rem; }
+.whiteboard-slide canvas { width: min(calc(100vw - 96px), calc((100vh - 170px) * 1024 / 1676)); height: auto; border-radius: 28px; background: var(--paper); box-shadow: var(--shadow); }
+@keyframes whiteboard-slide-in { from { opacity: 0; } to { opacity: 1; } }
+.display-gradient { display: grid; place-items: center; background: radial-gradient(circle at 70% 25%, #f9a55c, transparent 25%), radial-gradient(circle at 30% 65%, #527fc4, transparent 30%), linear-gradient(135deg, #27294a, #131620); }
 .display-gradient span { font: 700 38vw "Fraunces", serif; opacity: .06; }
 .display-content { position: absolute; z-index: 2; left: 56px; top: 50px; text-shadow: 0 3px 18px rgba(0,0,0,.4); }
 .display-date { margin-bottom: 2px; font-size: 1.4rem; font-weight: 600; }
 .display-time { font: 600 clamp(7rem, 18vw, 13rem)/.9 "Fraunces", serif; letter-spacing: -.08em; }
-.display-audio-toggle { position: absolute; z-index: 4; top: -72px; right: 0; width: 58px; height: 58px; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.38); border-radius: 50%; color: white; background: rgba(16,22,29,.58); backdrop-filter: blur(18px); box-shadow: 0 12px 32px rgba(0,0,0,.22); cursor: pointer; }
+.display-audio-toggle { position: absolute; z-index: 4; top: -72px; right: 0; width: 58px; height: 58px; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.38); border-radius: 50%; color: white; background: rgba(16,22,29,.74); box-shadow: 0 12px 32px rgba(0,0,0,.22); cursor: pointer; }
 .display-audio-toggle svg { width: 27px; height: 27px; }
 .display-audio-toggle.is-playing { border-color: rgba(255,255,255,.72); background: var(--orange); }
 .display-audio-toggle:active { transform: scale(.94); }
@@ -676,7 +712,7 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .calendar-home-list article small svg { width: 11px; height: 11px; }
 .calendar-home-empty, .calendar-home-status { margin: 0; padding: 4px 0; color: rgba(255,255,255,.72); font-size: .73rem; font-weight: 700; }
 .calendar-home-status { margin-top: 12px; }
-.weather-panel { position: absolute; z-index: 3; right: 36px; bottom: 36px; width: 300px; padding: 28px; border: 1px solid rgba(255,255,255,.25); border-radius: 30px; background: rgba(16,22,29,.58); backdrop-filter: blur(26px); box-shadow: 0 24px 70px rgba(0,0,0,.26); }
+.weather-panel { position: absolute; z-index: 3; right: 36px; bottom: 36px; width: 300px; padding: 28px; border: 1px solid rgba(255,255,255,.25); border-radius: 30px; background: rgba(16,22,29,.74); box-shadow: 0 24px 70px rgba(0,0,0,.26); }
 .display-widgets { position: absolute; z-index: 3; left: 36px; right: 36px; bottom: 32px; display: grid; grid-template-columns: minmax(0, 2fr) minmax(290px, 1fr); gap: 16px; align-items: stretch; }
 .display-widgets .weather-panel { position: relative; inset: auto; width: auto; }
 .yr-weather-panel { padding: 10px; border-radius: 8px; cursor: pointer; }
@@ -794,6 +830,13 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .solar-chart-import { fill: rgba(91,127,214,.3); }
 .solar-chart-house { fill: none; stroke: var(--ink); stroke-width: 3; stroke-linejoin: round; }
 .solar-chart-now { stroke: var(--orange); stroke-width: 2; stroke-dasharray: 6 6; }
+.solar-chart-possible { fill: none; stroke: #e3a33a; stroke-width: 2.5; stroke-dasharray: 3 7; stroke-linecap: round; opacity: .75; }
+.solar-chart-legend .possible::before { height: 0; border-top: 3px dotted #e3a33a; border-radius: 0; }
+.solar-flow-note { margin-top: 3px; color: #b86f00; font-size: .8rem; font-style: normal; font-weight: 800; }
+.solar-potential { flex: 0 0 auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 4px; border: 1px solid #e2dbd0; border-radius: 22px; background: var(--paper); box-shadow: 0 8px 22px rgba(64,53,38,.06); }
+.solar-potential.has-spare { border-color: #f7d68e; background: #fff6de; }
+.solar-potential strong { font: 700 1.3rem "Fraunces", serif; }
+.solar-potential span { color: var(--muted); font-size: .9rem; font-weight: 600; line-height: 1.4; }
 
 .solar-home-widget { position: absolute; left: 4px; bottom: 100%; margin-bottom: 2px; min-height: 52px; padding: 0 4px; display: flex; align-items: center; gap: 18px; border: 0; color: rgba(255,255,255,.82); background: none; font: 700 1.05rem "DM Sans", sans-serif; text-shadow: 0 1px 3px rgba(0,0,0,.7); white-space: nowrap; cursor: pointer; }
 .solar-home-widget span { display: flex; align-items: center; gap: 7px; }

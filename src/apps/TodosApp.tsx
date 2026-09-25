@@ -1,7 +1,10 @@
-import { CalendarDays, Check, Pencil, Plus } from "lucide-react";
+import { CalendarDays, Check, CloudOff, LoaderCircle, Pencil, Plus, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useCannvasData } from "../data/DataProvider";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { DialogBackdrop } from "../components/DialogBackdrop";
+import { useTodos } from "../data/DataProvider";
 import type { Todo, TodoAssignee, TodoPriority } from "../data/types";
+import { errorText } from "../lib/http";
 
 const PEOPLE: Array<{ id: TodoAssignee; name: string; avatar: string }> = [
   { id: "mum", name: "Mum", avatar: "/avatars/mum.png" },
@@ -28,14 +31,30 @@ function sortTodos(left: Todo, right: Todo) {
 }
 
 export function TodosApp() {
-  const { todos, addTodo, updateTodo, toggleTodo } = useCannvasData();
+  const { todos, todosStatus, addTodo, updateTodo, toggleTodo, removeTodo } = useTodos();
   const [editingId, setEditingId] = useState<string | "new" | null>(null);
   const [title, setTitle] = useState("");
   const [assignee, setAssignee] = useState<TodoAssignee>("josh");
   const [priority, setPriority] = useState<TodoPriority>("medium");
   const [dueDate, setDueDate] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [editorError, setEditorError] = useState("");
+  const [listError, setListError] = useState("");
+  const [confirmClearFinished, setConfirmClearFinished] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  // A quick double tap would toggle twice and land back where it started.
+  const [toggling, setToggling] = useState<ReadonlySet<string>>(() => new Set());
   const openCount = todos.filter((todo) => !todo.completed).length;
   const completedCount = todos.length - openCount;
+  const editingTodo = todos.find((todo) => todo.id === editingId);
+  // A stray touch on the backdrop may only close a form with nothing to lose.
+  const editorUnchanged = editingId === "new"
+    ? !title.trim()
+    : editingTodo !== undefined
+      && title === editingTodo.title
+      && assignee === editingTodo.assignee
+      && priority === editingTodo.priority
+      && dueDate === (editingTodo.dueDate ?? "");
 
   const groupedTodos = useMemo(() => Object.fromEntries(
     PEOPLE.map(({ id }) => [id, todos.filter((todo) => todo.assignee === id).sort(sortTodos)]),
@@ -46,6 +65,7 @@ export function TodosApp() {
     setAssignee(selectedAssignee);
     setPriority("medium");
     setDueDate("");
+    setEditorError("");
     setEditingId("new");
   };
 
@@ -54,16 +74,72 @@ export function TodosApp() {
     setAssignee(todo.assignee);
     setPriority(todo.priority);
     setDueDate(todo.dueDate ?? "");
+    setEditorError("");
     setEditingId(todo.id);
+  };
+
+  const closeEditor = () => {
+    if (!saving) setEditingId(null);
   };
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!title.trim() || !editingId) return;
-    if (editingId === "new") await addTodo(title.trim(), assignee, priority, dueDate || undefined);
-    else await updateTodo(editingId, title.trim(), assignee, priority, dueDate || undefined);
-    setEditingId(null);
+    if (!title.trim() || !editingId || saving) return;
+    setSaving(true);
+    setEditorError("");
+    try {
+      if (editingId === "new") await addTodo(title.trim(), assignee, priority, dueDate || undefined);
+      else await updateTodo(editingId, title.trim(), assignee, priority, dueDate || undefined);
+      setEditingId(null);
+    } catch (error) {
+      setEditorError(`Couldn't save that to-do. ${errorText(error, "Check the connection and try again.")}`);
+    } finally {
+      setSaving(false);
+    }
   };
+
+  const toggle = async (todo: Todo) => {
+    if (toggling.has(todo.id)) return;
+    setToggling((current) => new Set(current).add(todo.id));
+    setListError("");
+    try {
+      await toggleTodo(todo.id);
+    } catch (error) {
+      setListError(`Couldn't update "${todo.title}". ${errorText(error, "Try again in a moment.")}`);
+    } finally {
+      setToggling((current) => {
+        const next = new Set(current);
+        next.delete(todo.id);
+        return next;
+      });
+    }
+  };
+
+  const clearFinished = async () => {
+    setClearing(true);
+    setListError("");
+    const finished = todos.filter((todo) => todo.completed);
+    const results = await Promise.allSettled(finished.map((todo) => removeTodo(todo.id)));
+    const failed = results.filter((result) => result.status === "rejected").length;
+    if (failed > 0) setListError(`Couldn't clear ${failed} finished to-do${failed === 1 ? "" : "s"}. Try again in a moment.`);
+    setClearing(false);
+    setConfirmClearFinished(false);
+  };
+
+  if (todosStatus !== "ready") {
+    const loading = todosStatus === "loading";
+    return (
+      <section className="todos-app todos-app-waiting">
+        <div className="todos-waiting" role="status">
+          {loading ? <LoaderCircle className="spin" /> : <CloudOff />}
+          <strong>{loading ? "Fetching the family list…" : "Can't reach the to-do list right now"}</strong>
+          <span>{loading
+            ? "This only takes a moment."
+            : "It lives online, so it'll be back when the connection is. Everything else on the screen still works."}</span>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="todos-app">
@@ -79,6 +155,8 @@ export function TodosApp() {
         </div>
       </header>
 
+      {listError && <p className="todos-error" role="alert">{listError}</p>}
+
       <div className="todo-board">
         {PEOPLE.map((person) => {
           const personTodos = groupedTodos[person.id];
@@ -92,7 +170,7 @@ export function TodosApp() {
               <div className="todo-list">
                 {personTodos.map((todo) => (
                   <article className={todo.completed ? "todo-card completed" : "todo-card"} key={todo.id}>
-                    <button className="todo-check" onClick={() => void toggleTodo(todo.id)} aria-label={`${todo.completed ? "Reopen" : "Finish"} ${todo.title}`} aria-pressed={todo.completed}>
+                    <button className="todo-check" onClick={() => void toggle(todo)} disabled={toggling.has(todo.id)} aria-label={`${todo.completed ? "Reopen" : "Finish"} ${todo.title}`} aria-pressed={todo.completed}>
                       {todo.completed && <Check strokeWidth={4} />}
                     </button>
                     <div className="todo-copy">
@@ -114,12 +192,15 @@ export function TodosApp() {
         })}
         <footer className="todos-actions app-control-palette">
           <button className="button primary" onClick={() => openAdd()}><Plus /> Add a to-do</button>
+          {completedCount > 0 && (
+            <button className="button secondary" onClick={() => setConfirmClearFinished(true)}><Trash2 /> Clear finished</button>
+          )}
         </footer>
       </div>
 
       {editingId && (
-        <div className="dialog-backdrop todo-dialog-backdrop" role="presentation" onPointerDown={() => setEditingId(null)}>
-          <form className="dialog-card todo-editor-card" onSubmit={(event) => void submit(event)} onPointerDown={(event) => event.stopPropagation()}>
+        <DialogBackdrop className="todo-dialog-backdrop" onDismiss={editorUnchanged && !saving ? closeEditor : undefined}>
+          <form className="dialog-card todo-editor-card" onSubmit={(event) => void submit(event)}>
             <div className={`dialog-symbol ${editingId === "new" ? "add" : "edit"}`}>{editingId === "new" ? <Plus /> : <Pencil />}</div>
             <h2>{editingId === "new" ? "Add a to-do" : "Edit to-do"}</h2>
             <label className="todo-title-field"><span>What needs doing?</span><input value={title} onChange={(event) => setTitle(event.target.value)} autoFocus autoComplete="off" autoCapitalize="sentences" enterKeyHint="done" placeholder="Type a to-do" /></label>
@@ -137,11 +218,27 @@ export function TodosApp() {
               <label className="todo-due-field"><span>Due date <small>optional</small></span><input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></label>
             </div>
 
-            <div className="dialog-actions"><button type="button" className="button secondary" onClick={() => setEditingId(null)}>Cancel</button><button className="button primary" type="submit" disabled={!title.trim()}>{editingId === "new" ? "Add to-do" : "Save changes"}</button></div>
+            {editorError && <p className="dialog-error" role="alert">{editorError}</p>}
+            <div className="dialog-actions">
+              <button type="button" className="button secondary" onClick={closeEditor} disabled={saving}>Cancel</button>
+              <button className="button primary" type="submit" disabled={!title.trim() || saving}>
+                {saving ? "Saving…" : editingId === "new" ? "Add to-do" : "Save changes"}
+              </button>
+            </div>
           </form>
-        </div>
+        </DialogBackdrop>
       )}
 
+      <ConfirmDialog
+        open={confirmClearFinished}
+        title="Clear finished to-dos?"
+        confirmLabel={clearing ? "Clearing…" : `Clear ${completedCount}`}
+        confirmDisabled={clearing}
+        onCancel={() => { if (!clearing) setConfirmClearFinished(false); }}
+        onConfirm={() => void clearFinished()}
+      >
+        This removes the {completedCount} ticked-off to-do{completedCount === 1 ? "" : "s"} from everyone's list.
+      </ConfirmDialog>
     </section>
   );
 }

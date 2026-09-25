@@ -1,6 +1,7 @@
 import { Home, PlugZap, Sun, UtilityPole } from "lucide-react";
 import { type ReactNode, useMemo } from "react";
-import { FLOW_THRESHOLD_KW, formatKw, formatKwh, isSolarFresh, type SolarStatus, useSolar } from "../lib/solar";
+import { FLOW_THRESHOLD_KW, formatKw, formatKwh, isSolarFresh, type SolarStatus, spareSolarKw } from "../lib/solar";
+import { useSolar } from "../lib/useSolar";
 
 export function SolarApp() {
   const state = useSolar(5000);
@@ -23,6 +24,7 @@ export function SolarApp() {
       {state.kind === "ready" && state.solar.configured && (
         <>
           <PowerFlow solar={state.solar} />
+          <SolarPotential solar={state.solar} />
           <TodayTiles solar={state.solar} />
           <DayChart solar={state.solar} />
         </>
@@ -54,6 +56,7 @@ function PowerFlow({ solar }: { solar: SolarStatus }) {
   const importing = gridKw != null && gridKw > FLOW_THRESHOLD_KW;
   const exporting = gridKw != null && gridKw < -FLOW_THRESHOLD_KW;
   const producing = solarKw != null && solarKw > FLOW_THRESHOLD_KW;
+  const potentialKw = solar.forecast?.potentialKw ?? null;
 
   return (
     <div className="solar-flow-card">
@@ -62,7 +65,15 @@ function PowerFlow({ solar }: { solar: SolarStatus }) {
         <FlowLine d="M 790 238 C 790 350, 680 400, 570 400" active={importing} kw={gridKw ?? 0} tone="grid" />
         <FlowLine d="M 290 110 L 710 110" active={exporting} kw={gridKw ?? 0} tone="export" />
       </svg>
-      <FlowNode className="solar" x={21} y={21} icon={<Sun />} label="Solar" value={formatKw(solarKw)} />
+      <FlowNode
+        className="solar"
+        x={21}
+        y={21}
+        icon={<Sun />}
+        label="Solar"
+        value={formatKw(solarKw)}
+        note={potentialKw != null ? `Could make ~${formatKw(potentialKw)}` : undefined}
+      />
       <FlowNode className="grid" x={79} y={21} icon={<UtilityPole />} label={exporting ? "Selling" : "Grid"} value={formatKw(gridKw)} />
       <FlowNode className="home" x={50} y={77} icon={<Home />} label="Home" value={formatKw(houseKw)} />
     </div>
@@ -80,12 +91,44 @@ function FlowLine({ d, active, kw, tone }: { d: string; active: boolean; kw: num
   );
 }
 
-function FlowNode({ className, x, y, icon, label, value }: { className: string; x: number; y: number; icon: ReactNode; label: string; value: string }) {
+function FlowNode({ className, x, y, icon, label, value, note }: { className: string; x: number; y: number; icon: ReactNode; label: string; value: string; note?: string }) {
   return (
     <div className={`solar-flow-node ${className}`} style={{ left: `${x}%`, top: `${y}%` }}>
       <span className="solar-flow-icon">{icon}</span>
       <strong>{value}</strong>
       <small>{label}</small>
+      {note && <em className="solar-flow-note">{note}</em>}
+    </div>
+  );
+}
+
+// Forecast.Solar is a weather model, so everything here is worded as an estimate.
+function SolarPotential({ solar }: { solar: SolarStatus }) {
+  const forecast = solar.forecast;
+  if (!forecast || (forecast.potentialKw == null && forecast.todayKwh == null && forecast.tomorrowKwh == null)) return null;
+  const actualKw = solar.now?.solarKw ?? null;
+  const spare = spareSolarKw(actualKw, forecast.potentialKw);
+  // Only claim the panels are keeping up when there's an actual reading to compare.
+  const comparable = actualKw != null && forecast.potentialKw != null;
+  const outlook = [
+    forecast.todayKwh != null ? `about ${formatKwh(forecast.todayKwh)} today` : null,
+    forecast.tomorrowKwh != null ? `${formatKwh(forecast.tomorrowKwh)} tomorrow` : null,
+  ].filter(Boolean).join(", ");
+  return (
+    <div className={`solar-potential${spare != null ? " has-spare" : ""}`}>
+      <strong>
+        {spare != null
+          ? `About ${formatKw(spare)} of sun going unused`
+          : comparable
+            ? "Using about all the sun there is right now"
+            : "Solar forecast"}
+      </strong>
+      <span>
+        {spare != null
+          ? "With no battery and no export, the panels only make what the house is using. "
+          : ""}
+        {outlook ? `The forecast says the panels could make ${outlook}.` : ""}
+      </span>
     </div>
   );
 }
@@ -128,7 +171,8 @@ function DayChart({ solar }: { solar: SolarStatus }) {
     const start = new Date(series.start).getTime();
     const step = series.stepMinutes * 60_000;
     const day = 24 * 60 * 60_000;
-    const values = [...series.solar, ...series.house, ...series.grid].filter((value): value is number => value != null);
+    const possible = series.possible ?? [];
+    const values = [...series.solar, ...series.house, ...series.grid, ...possible].filter((value): value is number => value != null);
     const max = Math.max(2, Math.ceil(Math.max(...values, 0)));
     const plotWidth = CHART.width - CHART.left - CHART.right;
     const plotHeight = CHART.height - CHART.top - CHART.bottom;
@@ -169,6 +213,7 @@ function DayChart({ solar }: { solar: SolarStatus }) {
       solarLine: line(series.solar),
       importArea: area(series.grid.map((value) => (value == null ? null : Math.max(0, value)))),
       houseLine: line(series.house),
+      possibleLine: possible.some((value) => value != null) ? line(possible) : "",
       nowX,
       hours: hours.map((hour) => ({ hour, x: CHART.left + (hour / 24) * plotWidth })),
       ticks: ticks.map((value) => ({ value, y: y(value) })),
@@ -185,6 +230,7 @@ function DayChart({ solar }: { solar: SolarStatus }) {
           <span className="solar">Solar</span>
           <span className="house">Home</span>
           <span className="grid">Grid</span>
+          {chart.possibleLine && <span className="possible">Possible (estimate)</span>}
         </div>
       </div>
       <svg className="solar-chart" viewBox={`0 0 ${CHART.width} ${CHART.height}`} role="img" aria-label="Solar, home and grid power across today">
@@ -202,6 +248,7 @@ function DayChart({ solar }: { solar: SolarStatus }) {
         <path className="solar-chart-area" d={chart.solarArea} />
         <path className="solar-chart-import" d={chart.importArea} />
         <path className="solar-chart-solar-line" d={chart.solarLine} />
+        {chart.possibleLine && <path className="solar-chart-possible" d={chart.possibleLine} />}
         <path className="solar-chart-house" d={chart.houseLine} />
         <line className="solar-chart-now" x1={chart.nowX} x2={chart.nowX} y1={CHART.top} y2={CHART.height - CHART.bottom} />
       </svg>

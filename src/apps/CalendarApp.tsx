@@ -1,24 +1,41 @@
 import { CalendarCheck2, ChevronLeft, ChevronRight, Clock3, MapPin } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useCannvasData } from "../data/DataProvider";
+import { useCalendar } from "../data/DataProvider";
 import { addCalendarDays, calendarDateKey, calendarEventTime, calendarMonthDays, eventsForDate } from "../lib/calendar";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 export function CalendarApp() {
-  const { calendarEvents, calendarStatus, loadCalendarRange } = useCannvasData();
+  const { calendarEvents: weekEvents, calendarStatus: weekStatus, calendarMonth, loadCalendarRange } = useCalendar();
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [selectedDate, setSelectedDate] = useState(() => calendarDateKey(new Date()));
   const days = useMemo(() => calendarMonthDays(month), [month]);
+  const range = useMemo(() => ({
+    start: days[0].toISOString(),
+    end: addCalendarDays(days[days.length - 1], 1).toISOString(),
+  }), [days]);
+  // Until this month's events arrive, show the home screen's week so today
+  // is never blank.
+  const viewed = calendarMonth?.start === range.start && calendarMonth.end === range.end ? calendarMonth : null;
+  const showMonth = viewed?.status === "ready" || viewed?.status === "not-configured";
+  const calendarEvents = showMonth ? viewed.events : weekEvents;
+  const calendarStatus = showMonth ? viewed.status : viewed?.status === "error" ? "error" : weekStatus;
   const todayKey = calendarDateKey(new Date());
   const selectedEvents = eventsForDate(calendarEvents, selectedDate);
   const nextWeekEnd = addCalendarDays(new Date(), 8);
-  const nextWeekCount = calendarEvents.filter((event) => new Date(event.start) < nextWeekEnd && new Date(event.end) > new Date()).length;
+  const nextWeekCount = weekEvents.filter((event) => new Date(event.start) < nextWeekEnd && new Date(event.end) > new Date()).length;
 
   useEffect(() => {
-    const rangeEnd = addCalendarDays(days[days.length - 1], 1);
-    void loadCalendarRange(days[0].toISOString(), rangeEnd.toISOString());
-  }, [days, loadCalendarRange]);
+    void loadCalendarRange(range.start, range.end);
+  }, [loadCalendarRange, range]);
+
+  // A month that failed to load tries again every minute while it's on screen.
+  const monthFailed = viewed?.status === "error";
+  useEffect(() => {
+    if (!monthFailed) return;
+    const timer = window.setTimeout(() => void loadCalendarRange(range.start, range.end), 60_000);
+    return () => window.clearTimeout(timer);
+  }, [loadCalendarRange, monthFailed, range]);
 
   const moveMonth = (offset: number) => {
     const next = new Date(month.getFullYear(), month.getMonth() + offset, 1);

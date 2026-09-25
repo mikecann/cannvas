@@ -273,13 +273,39 @@ SOLAR_ENTITIES = {
     "house": "sensor.solis_house_load_power",
     "grid": "sensor.solis_grid_power",
     "pv": "sensor.solis_pv_power",
-    "imported": "sensor.solis_total_grid_import",
-    "exported": "sensor.solis_total_grid_export",
     "status": "sensor.solis_inverter_status",
     "temperature": "sensor.solis_inverter_temperature",
+    # Forecast.Solar's modelled output for the 8 kWp array right now. The
+    # system is zero export with no battery, so actual solar is capped at what
+    # the house uses. The gap between the two is sun going unused.
+    "possible": "sensor.power_production_now",
 }
+# Forecast.Solar's estimates for the day. Missing entities read as null.
+SOLAR_FORECAST_ENTITIES = {
+    "todayKwh": "sensor.energy_production_today",
+    "remainingKwh": "sensor.energy_production_today_remaining",
+    "tomorrowKwh": "sensor.energy_production_tomorrow",
+}
+SOLAR_FORECAST_PEAK = "sensor.power_highest_peak_time_today"
 SOLAR_SERIES = ("solar", "house", "grid")
-SOLAR_TOTALS = ("imported", "exported")
+SOLAR_HISTORY = (*SOLAR_SERIES, "possible")
+
+
+def kilo_divisor(state: dict[str, Any], default: int = 1) -> int:
+    """1000 for a sensor reporting W or Wh, 1 for kW or kWh, `default` if it says neither."""
+    attributes = state.get("attributes") if isinstance(state.get("attributes"), dict) else {}
+    unit = attributes.get("unit_of_measurement")
+    if unit in {"W", "Wh"}:
+        return 1000
+    return 1 if unit in {"kW", "kWh"} else default
+
+
+def in_kilo(state: dict[str, Any]) -> float | None:
+    """A power or energy reading in kW or kWh, whatever unit Home Assistant uses."""
+    value = number(state.get("state"))
+    return round(value / kilo_divisor(state), 3) if value is not None else None
+
+
 _SOLAR_LOCK = Lock()
 _SOLAR_CACHE: dict[str, Any] = {"key": None, "points": {}, "fetched_at": 0.0, "fetched_until": None}
 
@@ -308,7 +334,7 @@ SOLAR_HISTORY_TIMEOUT = 6
 
 
 def solar_history(config: dict[str, str], start: datetime, end: datetime) -> dict[str, Points]:
-    ids = [SOLAR_ENTITIES[key] for key in (*SOLAR_SERIES, *SOLAR_TOTALS)]
+    ids = [SOLAR_ENTITIES[key] for key in SOLAR_HISTORY]
     query = urlencode({
         "filter_entity_id": ",".join(ids),
         "end_time": end.isoformat(),
@@ -393,6 +419,17 @@ def integrate_kwh(points: Points, start: float, end: float) -> float:
     return total / 3600
 
 
+def grid_energy_kwh(points: Points, start: float, end: float) -> tuple[float, float]:
+    """(imported, exported) kWh from grid power, where positive means export.
+
+    The meter's own import and export registers stop counting for hours at a
+    time, so integrate the power instead. Gaps are handled like integrate_kwh.
+    """
+    exported = integrate_kwh([(stamp, max(0.0, value) if value is not None else None) for stamp, value in points], start, end)
+    imported = integrate_kwh([(stamp, max(0.0, -value) if value is not None else None) for stamp, value in points], start, end)
+    return imported, exported
+
+
 def solar_status(config: dict[str, str]) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     # One request for every state, filtered here, instead of one per sensor.
@@ -406,20 +443,25 @@ def solar_status(config: dict[str, str]) -> dict[str, Any]:
     points = refresh_solar_history(config, now)
     midnight = datetime.combine(now.astimezone(SOLAR_ZONE).date(), datetime.min.time(), SOLAR_ZONE)
 
-    def since_midnight(key: str) -> float | None:
-        first = next((row[1] for row in points.get(key, []) if row[1] is not None), None)
-        current = value[key]
-        return round(max(0.0, current - first), 2) if first is not None and current is not None else None
-
     series = {
         key: bucket_averages(points.get(key, []), midnight.timestamp(), now.timestamp(), SOLAR_STEP.total_seconds())
-        for key in SOLAR_SERIES
+        for key in (*SOLAR_SERIES, "possible")
     }
+    # History comes back in the sensor's own unit, which is W for the forecast.
+    # Forecast.Solar reports W. Keep that if the sensor is briefly missing, so
+    # cached history isn't shown 1000 times too big.
+    possible_divisor = kilo_divisor(states["possible"], default=1000)
+    forecast_states = {key: by_id.get(entity) or {} for key, entity in SOLAR_FORECAST_ENTITIES.items()}
+    peak_forecast = (by_id.get(SOLAR_FORECAST_PEAK) or {}).get("state")
     # The inverter keeps its clock (and its "today" counter) in UTC, which
     # resets at 8am in Perth. Integrate the power history instead.
     solar_points = points.get("solar", [])
     generated = round(integrate_kwh(solar_points, midnight.timestamp(), now.timestamp()), 2) if any(row[1] is not None for row in solar_points) else None
-    imported, exported = since_midnight("imported"), since_midnight("exported")
+    grid_points = points.get("grid", [])
+    if any(row[1] is not None for row in grid_points):
+        imported, exported = (round(kwh, 2) for kwh in grid_energy_kwh(grid_points, midnight.timestamp(), now.timestamp()))
+    else:
+        imported = exported = None
     consumed = round(generated + imported - exported, 2) if None not in (generated, imported, exported) else None
     peak = max(((row[1], row[0]) for row in solar_points if row[1] is not None), default=None)
     grid = value["grid"]
@@ -428,7 +470,8 @@ def solar_status(config: dict[str, str]) -> dict[str, Any]:
         "connected": True,
         # last_reported moves on every poll even when the value is unchanged, so
         # it shows whether the integration is still alive.
-        "updatedAt": max((state.get("last_reported") or state.get("last_updated", "") for state in states.values()), default=None) or None,
+        # The forecast is a model, not the inverter, so it can't vouch for freshness.
+        "updatedAt": max((state.get("last_reported") or state.get("last_updated", "") for key, state in states.items() if key != "possible"), default=None) or None,
         "status": states["status"].get("state"),
         "now": {
             "solarKw": value["solar"],
@@ -453,7 +496,30 @@ def solar_status(config: dict[str, str]) -> dict[str, Any]:
             "solar": series["solar"],
             "house": series["house"],
             "grid": [-point if point is not None else None for point in series["grid"]],
+            "possible": [round(point / possible_divisor, 3) if point is not None else None for point in series["possible"]],
         },
+        # Forecast.Solar estimates. Each is null if its sensor is missing.
+        "forecast": {
+            "potentialKw": in_kilo(states["possible"]),
+            **{key: in_kilo(state) for key, state in forecast_states.items()},
+            "peakAt": peak_forecast if peak_forecast not in {None, "unknown", "unavailable"} else None,
+        },
+    }
+
+
+def sun_status(config: dict[str, str]) -> dict[str, Any]:
+    """Sunrise and sunset from Home Assistant's sun.sun, for the evening dimming."""
+    state = home_assistant_request(config, "/api/states/sun.sun", timeout=SOLAR_STATES_TIMEOUT)
+    if not isinstance(state, dict):
+        raise ValueError("Home Assistant sent an unexpected sun state")
+    attributes = state.get("attributes") if isinstance(state.get("attributes"), dict) else {}
+    return {
+        "configured": True,
+        "state": state.get("state"),
+        "elevation": number(attributes.get("elevation")),
+        "rising": attributes.get("rising") is True,
+        "nextRising": attributes.get("next_rising"),
+        "nextSetting": attributes.get("next_setting"),
     }
 
 
@@ -674,6 +740,16 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         except Exception as error:  # The response deliberately avoids leaking network or token details.
             self.home_assistant_error(error)
 
+    def get_sun(self, query: str) -> None:
+        config = load_config()
+        if not config:
+            self.send_json(200, {"configured": False})
+            return
+        try:
+            self.send_json(200, sun_status(config))
+        except Exception as error:  # The response deliberately avoids leaking network or token details.
+            self.home_assistant_error(error)
+
     def get_home_assistant_status(self, query: str) -> None:
         config = load_config()
         if not config:
@@ -778,6 +854,7 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         "/api/inventory": get_inventory,
         "/api/unifi/status": get_unifi_status,
         "/api/solar": get_solar,
+        "/api/sun": get_sun,
         "/api/home-assistant/status": get_home_assistant_status,
         "/api/heartbeat": heartbeat,
         "/api/health": health,

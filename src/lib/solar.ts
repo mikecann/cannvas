@@ -1,5 +1,3 @@
-import { useEffect, useState } from "react";
-
 export type SolarStatus = {
   configured: boolean;
   connected?: boolean;
@@ -28,8 +26,32 @@ export type SolarStatus = {
     solar: Array<number | null>;
     house: Array<number | null>;
     grid: Array<number | null>;
+    /** Forecast.Solar's modelled output. Missing on older servers. */
+    possible?: Array<number | null>;
+  };
+  /** Forecast.Solar estimates. Each value is null if its sensor is missing. */
+  forecast?: {
+    potentialKw: number | null;
+    todayKwh: number | null;
+    remainingKwh: number | null;
+    tomorrowKwh: number | null;
+    peakAt: string | null;
   };
 };
+
+/**
+ * Sun the panels could have turned into power but didn't. The system is zero
+ * export with no battery, so the inverter only makes what the house uses.
+ * Returns null unless the forecast is clearly above actual output, since the
+ * forecast is a model and small gaps are just noise.
+ */
+export function spareSolarKw(actualKw: number | null | undefined, potentialKw: number | null | undefined): number | null {
+  if (actualKw == null || potentialKw == null) return null;
+  // Compare in watts so a gap of exactly 300 W isn't lost to float rounding.
+  const spareW = Math.round((potentialKw - Math.max(0, actualKw)) * 1000);
+  const thresholdW = Math.round(Math.max(0.3, potentialKw * 0.15) * 1000);
+  return spareW >= thresholdW ? Math.round(spareW / 10) / 100 : null;
+}
 
 export type SolarState =
   | { kind: "loading" }
@@ -37,48 +59,13 @@ export type SolarState =
   | { kind: "ready"; solar: SolarStatus };
 
 // Ride out a brief Home Assistant blip, but never show old numbers as live.
-const STALE_AFTER_MS = 2 * 60 * 1000;
-// Without Home Assistant there is nothing to show, so only check back occasionally.
-const UNCONFIGURED_INTERVAL_MS = 5 * 60 * 1000;
-
-export function useSolar(intervalMs: number): SolarState {
-  const [state, setState] = useState<SolarState>({ kind: "loading" });
-
-  useEffect(() => {
-    let cancelled = false;
-    let timer: number | undefined;
-    let lastSuccess = 0;
-    const load = async () => {
-      let nextDelay = intervalMs;
-      try {
-        const response = await fetch("/api/solar");
-        const body = (await response.json()) as SolarStatus & { error?: string };
-        if (!response.ok) throw new Error(body.error ?? "Solar data is unavailable");
-        lastSuccess = Date.now();
-        if (!body.configured) nextDelay = UNCONFIGURED_INTERVAL_MS;
-        if (!cancelled) setState({ kind: "ready", solar: body });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Solar data is unavailable";
-        if (!cancelled) setState((current) => current.kind === "ready" && Date.now() - lastSuccess < STALE_AFTER_MS ? current : { kind: "error", message });
-      } finally {
-        if (!cancelled) timer = window.setTimeout(load, nextDelay);
-      }
-    };
-    void load();
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [intervalMs]);
-
-  return state;
-}
+export const SOLAR_STALE_AFTER_MS = 2 * 60 * 1000;
 
 // HTTP success isn't enough: Home Assistant can answer with readings from an
 // integration that stopped polling the inverter.
 export function isSolarFresh(solar: Pick<SolarStatus, "updatedAt">, now = Date.now()): boolean {
   const updated = solar.updatedAt ? Date.parse(solar.updatedAt) : Number.NaN;
-  return Number.isFinite(updated) && now - updated < STALE_AFTER_MS;
+  return Number.isFinite(updated) && now - updated < SOLAR_STALE_AFTER_MS;
 }
 
 export function formatKw(value: number | null | undefined): string {
