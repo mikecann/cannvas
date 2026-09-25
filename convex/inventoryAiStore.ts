@@ -1,6 +1,12 @@
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { MAX_INVENTORY_PHOTOS } from "./inventoryConstants";
+import { buildSearchText } from "./lib/inventorySearch";
+
+// Enrichment normally takes well under a minute. If the action dies (deploy,
+// timeout, crash) nothing else would ever move the item out of "processing".
+export const ENRICHMENT_TIMEOUT_MS = 15 * 60_000;
 
 const enrichment = v.object({
   title: v.string(),
@@ -13,21 +19,6 @@ const enrichment = v.object({
   needsReview: v.boolean(),
   reviewReason: v.string(),
 });
-
-function buildSearchText(item: {
-  title: string;
-  description: string;
-  category: string;
-  tags: string[];
-  condition: string;
-  attributes: Array<{ label: string; value: string }>;
-  currentLocationName: string;
-}) {
-  return [
-    item.title, item.description, item.category, item.condition, item.currentLocationName,
-    ...item.tags, ...item.attributes.flatMap(({ label, value }) => [label, value]),
-  ].join(" ");
-}
 
 export const getContext = internalQuery({
   args: { itemId: v.id("inventoryItems"), generation: v.number() },
@@ -69,6 +60,10 @@ export const markProcessing = internalMutation({
     const item = await ctx.db.get(args.itemId);
     if (!item || (item.enrichmentGeneration ?? 0) !== args.generation) return false;
     await ctx.db.patch(args.itemId, { enrichmentStatus: "processing", enrichmentError: undefined });
+    await ctx.scheduler.runAfter(ENRICHMENT_TIMEOUT_MS, internal.inventoryAiStore.expireProcessing, {
+      itemId: args.itemId,
+      generation: args.generation,
+    });
     return true;
   },
 });
@@ -150,6 +145,21 @@ export const markFailed = internalMutation({
       note: args.error.slice(0, 300),
       occurredAt: now,
     });
+    return null;
+  },
+});
+
+export const expireProcessing = internalMutation({
+  args: { itemId: v.id("inventoryItems"), generation: v.number() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const item = await ctx.db.get(args.itemId);
+    if (!item || (item.enrichmentGeneration ?? 0) !== args.generation) return null;
+    if (item.enrichmentStatus !== "processing") return null;
+    const now = Date.now();
+    const error = "AI enrichment stopped without finishing. Add another photo to try again.";
+    await ctx.db.patch(args.itemId, { enrichmentStatus: "failed", enrichmentError: error, updatedAt: now });
+    await ctx.db.insert("inventoryEvents", { itemId: args.itemId, type: "ai_failed", note: error, occurredAt: now });
     return null;
   },
 });

@@ -64,6 +64,7 @@ export const enrich = internalAction({
       generation: args.generation,
     });
     if (!isCurrent) return null;
+    let threadId: string | undefined;
     try {
       if (!process.env.OPENAI_API_KEY?.trim()) throw new Error("OPENAI_API_KEY is not configured.");
       const context = await ctx.runQuery(internal.inventoryAiStore.getContext, {
@@ -74,7 +75,7 @@ export const enrich = internalAction({
       if (context.photoUrls.length === 0) throw new Error("No inventory photos are available.");
 
       const imageParts = context.photoUrls.map((image) => ({ type: "image" as const, image }));
-      const { threadId } = await researcher.createThread(ctx, { userId: `inventory:${args.itemId}` });
+      ({ threadId } = await researcher.createThread(ctx, { userId: `inventory:${args.itemId}` }));
       const research = await researcher.generateText(ctx, { threadId }, {
         prompt: [{
           role: "user",
@@ -124,6 +125,14 @@ export const enrich = internalAction({
         generation: args.generation,
         error: errorMessage(error),
       });
+    } finally {
+      // The record keeps what matters. The agent thread holds copies of the
+      // photos and research messages that nothing reads again.
+      if (threadId) {
+        await researcher.deleteThreadAsync(ctx, { threadId }).catch((error: unknown) => {
+          console.error(`Could not delete inventory thread ${threadId}: ${errorMessage(error)}`);
+        });
+      }
     }
     return null;
   },
