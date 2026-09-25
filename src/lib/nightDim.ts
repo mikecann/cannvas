@@ -1,6 +1,8 @@
 // Gentle evening dimming for the wall screen. There is no light sensor, so
 // the sun stands in for the room: start dimming at sunset, reach the deepest
 // level at 21:00 (the Pi powers off at 21:15) and stay there until sunrise.
+// A light sensor or camera could replace this later: only nightDimLevel and
+// useNightDim decide the level, and the overlay just shows what they return.
 
 /** Opacity of the black overlay at its darkest, so about 45% brightness. */
 export const DEEPEST_DIM = 0.55;
