@@ -29,6 +29,7 @@
     "ai": "6.0.76",
     "convex": "latest",
     "convex-helpers": "0.1.120",
+    "fluent-convex": "^0.13.0",
     "leaflet": "^1.9.4",
     "lucide-react": "latest",
     "node-ical": "^0.27.0",
