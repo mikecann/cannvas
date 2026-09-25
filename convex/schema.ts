@@ -78,6 +78,7 @@ export default defineSchema({
     .index("by_deleted_at_and_created_at", ["deletedAt", "createdAt"])
     .index("by_legacy_id", ["legacyId"])
     .index("by_sync_state", ["syncState"])
+    .index("by_sync_state_and_next_sync_at", ["syncState", "nextSyncAt"])
     .index("by_google_task_list_id_and_google_task_id", ["googleTaskListId", "googleTaskId"]),
   googleTasksConnections: defineTable({
     key: v.string(),
@@ -87,7 +88,17 @@ export default defineSchema({
     mumListId: v.optional(v.string()),
     dadListId: v.optional(v.string()),
     joshListId: v.optional(v.string()),
+    // When dadListId was last confirmed by title. Pushes only trust a
+    // recently confirmed ID.
+    dadListCheckedAt: v.optional(v.number()),
     lastPolledAt: v.optional(v.number()),
+    // Where a poll that hit the page limit stopped. The next poll resumes
+    // here instead of starting again at page one.
+    pollCursor: v.optional(v.object({
+      pageToken: v.string(),
+      updatedMin: v.optional(v.string()),
+      startedAt: v.number(),
+    })),
     lastPollError: v.optional(v.string()),
     lastPollErrorAt: v.optional(v.number()),
     updatedAt: v.number(),

@@ -7,7 +7,7 @@ import { syncBackoffMs } from "./lib/backoff";
 import { todoAssignee as assignee, todoPriority as priority } from "./lib/validators";
 
 // A push that dies mid-flight releases its claim after this long.
-const SYNC_LEASE_MS = 2 * 60_000;
+const SYNC_LEASE_MS = 5 * 60_000;
 
 function isWaitingForRetry(row: Doc<"todos">, now: number) {
   return row.syncState === "error" && (row.nextSyncAt ?? 0) > now;
@@ -269,13 +269,16 @@ export const listNeedingSync = internalQuery({
     const now = Date.now();
     const pending = await ctx.db
       .query("todos")
-      .withIndex("by_sync_state", (q) => q.eq("syncState", "pending"))
+      .withIndex("by_sync_state_and_next_sync_at", (q) => q.eq("syncState", "pending"))
       .take(250);
-    const failed = await ctx.db
+    // Select only failures that are due before the limit, so ones still
+    // backing off can't crowd out ones that are ready to retry. Rows without
+    // nextSyncAt sort first and count as due.
+    const due = await ctx.db
       .query("todos")
-      .withIndex("by_sync_state", (q) => q.eq("syncState", "error"))
+      .withIndex("by_sync_state_and_next_sync_at", (q) => q.eq("syncState", "error").lte("nextSyncAt", now))
       .take(250);
-    return [...pending, ...failed.filter((row) => !isWaitingForRetry(row, now))].map((row) => row._id);
+    return [...pending, ...due].map((row) => row._id);
   },
 });
 
@@ -313,9 +316,14 @@ export const listActiveGoogleTaskIds = internalQuery({
   },
 });
 
-function releaseLease(row: Doc<"todos">, leaseId: string) {
-  return row.syncLeaseId === leaseId ? { syncLeaseId: undefined, syncLeaseUntil: undefined } : {};
+// A push can outlive its lease. If another push has claimed the to-do since,
+// that one owns the result and this late completion is dropped, so a stale
+// response can't overwrite the newer Google task link.
+function ownsLease(row: Doc<"todos">, leaseId: string) {
+  return row.syncLeaseId === leaseId;
 }
+
+const clearedLease = { syncLeaseId: undefined, syncLeaseUntil: undefined };
 
 export const markSynced = internalMutation({
   args: {
@@ -331,13 +339,13 @@ export const markSynced = internalMutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.todoId);
-    if (!row) return null;
+    if (!row || !ownsLease(row, args.leaseId)) return null;
     const editedSincePush = row.updatedAt > args.pushedUpdatedAt;
     await ctx.db.patch(args.todoId, {
       googleTaskId: args.googleTaskId ?? row.googleTaskId,
       googleTaskListId: args.googleTaskListId ?? row.googleTaskListId,
       googleUpdatedAt: args.googleUpdatedAt ?? row.googleUpdatedAt,
-      ...releaseLease(row, args.leaseId),
+      ...clearedLease,
       ...(editedSincePush
         ? { syncState: "pending" as const }
         : { syncState: "synced" as const, syncError: undefined, syncAttempts: undefined, nextSyncAt: undefined }),
@@ -356,7 +364,7 @@ export const markSyncError = internalMutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.todoId);
-    if (!row) return null;
+    if (!row || !ownsLease(row, args.leaseId)) return null;
     const syncAttempts = (row.syncAttempts ?? 0) + 1;
     const editedSincePush = row.updatedAt > args.pushedUpdatedAt;
     await ctx.db.patch(args.todoId, {
@@ -364,18 +372,29 @@ export const markSyncError = internalMutation({
       syncError: args.error.slice(0, 500),
       syncAttempts,
       nextSyncAt: Date.now() + syncBackoffMs(syncAttempts),
-      ...releaseLease(row, args.leaseId),
+      ...clearedLease,
     });
     return null;
   },
 });
 
-export const releaseSyncLease = internalMutation({
-  args: { todoId: v.id("todos"), leaseId: v.string() },
+// A push that waited too long for another push's lease gives up. Record it,
+// because notes passed only to that run never reach Google.
+export const markPushAbandoned = internalMutation({
+  args: { todoId: v.id("todos"), droppedNotes: v.boolean() },
   returns: v.null(),
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.todoId);
-    if (row) await ctx.db.patch(args.todoId, releaseLease(row, args.leaseId));
+    if (!row) return null;
+    const syncAttempts = (row.syncAttempts ?? 0) + 1;
+    await ctx.db.patch(args.todoId, {
+      syncState: "error",
+      syncError: args.droppedNotes
+        ? "Gave up waiting for another Google Tasks push. Notes from this edit were not sent."
+        : "Gave up waiting for another Google Tasks push.",
+      syncAttempts,
+      nextSyncAt: Date.now() + syncBackoffMs(syncAttempts),
+    });
     return null;
   },
 });

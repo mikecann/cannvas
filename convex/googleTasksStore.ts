@@ -6,7 +6,13 @@ const connection = v.object({
   accessToken: v.optional(v.string()),
   accessTokenExpiresAt: v.optional(v.number()),
   dadListId: v.optional(v.string()),
+  dadListCheckedAt: v.optional(v.number()),
   lastPolledAt: v.optional(v.number()),
+  pollCursor: v.optional(v.object({
+    pageToken: v.string(),
+    updatedMin: v.optional(v.string()),
+    startedAt: v.number(),
+  })),
 });
 
 export const getConnection = internalQuery({
@@ -23,7 +29,9 @@ export const getConnection = internalQuery({
       accessToken: row.accessToken,
       accessTokenExpiresAt: row.accessTokenExpiresAt,
       dadListId: row.dadListId,
+      dadListCheckedAt: row.dadListCheckedAt,
       lastPolledAt: row.lastPolledAt,
+      pollCursor: row.pollCursor,
     };
   },
 });
@@ -97,6 +105,7 @@ export const savePersonalListId = internalMutation({
     if (!existing) throw new Error("Google Tasks is not connected");
     await ctx.db.patch(existing._id, {
       dadListId: args.dadListId,
+      dadListCheckedAt: Date.now(),
       updatedAt: Date.now(),
     });
     return null;
@@ -106,7 +115,16 @@ export const savePersonalListId = internalMutation({
 // Poll problems are stored on the connection so a stalled sync is visible in
 // the dashboard instead of only in old logs.
 export const recordPoll = internalMutation({
-  args: { lastPolledAt: v.optional(v.number()), error: v.optional(v.string()) },
+  args: {
+    lastPolledAt: v.optional(v.number()),
+    // Set to continue next time, or null to clear. Left out keeps it as is.
+    pollCursor: v.optional(v.union(v.null(), v.object({
+      pageToken: v.string(),
+      updatedMin: v.optional(v.string()),
+      startedAt: v.number(),
+    }))),
+    error: v.optional(v.string()),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -117,6 +135,7 @@ export const recordPoll = internalMutation({
     const now = Date.now();
     await ctx.db.patch(existing._id, {
       ...(args.lastPolledAt !== undefined ? { lastPolledAt: args.lastPolledAt } : {}),
+      ...(args.pollCursor !== undefined ? { pollCursor: args.pollCursor ?? undefined } : {}),
       lastPollError: args.error?.slice(0, 1000),
       lastPollErrorAt: args.error ? now : undefined,
       updatedAt: now,

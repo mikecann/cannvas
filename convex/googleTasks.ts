@@ -8,13 +8,18 @@ const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const PERSONAL_LIST_TITLE = "Personal";
 const MAX_GOOGLE_DELETIONS_PER_POLL = 5;
 const MAX_POLL_PAGES = 50;
+// poll re-confirms the Personal list every two minutes. A push trusts the
+// cached ID only if it was confirmed recently.
+const LIST_ID_FRESH_MS = 15 * 60_000;
 
 type Connection = {
   refreshToken: string;
   accessToken?: string;
   accessTokenExpiresAt?: number;
   dadListId?: string;
+  dadListCheckedAt?: number;
   lastPolledAt?: number;
+  pollCursor?: { pageToken: string; updatedMin?: string; startedAt: number };
 };
 type GoogleTaskList = { id: string; title: string };
 type GoogleTask = {
@@ -109,11 +114,10 @@ async function findPersonalList(ctx: ActionCtx, connection: Connection, accessTo
   }
 
   // Always resolve by title so an older cached "Cannvas - Dad" ID is replaced.
-  if (connection.dadListId !== personal.id) {
-    await ctx.runMutation(internal.googleTasksStore.savePersonalListId, {
-      dadListId: personal.id,
-    });
-  }
+  // Saving also records when the ID was last confirmed.
+  await ctx.runMutation(internal.googleTasksStore.savePersonalListId, {
+    dadListId: personal.id,
+  });
   return personal.id;
 }
 
@@ -138,6 +142,7 @@ export const setupPersonalList = internalAction({
 });
 
 const MAX_BUSY_RETRIES = 20;
+const BUSY_RETRY_MS = 20_000;
 
 export const pushTodo = internalAction({
   args: {
@@ -160,7 +165,12 @@ export const pushTodo = internalAction({
       // so notes passed only to this run are not dropped.
       const busyRetries = (args.busyRetries ?? 0) + 1;
       if (busyRetries <= MAX_BUSY_RETRIES) {
-        await ctx.scheduler.runAfter(10_000, internal.googleTasks.pushTodo, { ...args, busyRetries });
+        await ctx.scheduler.runAfter(BUSY_RETRY_MS, internal.googleTasks.pushTodo, { ...args, busyRetries });
+      } else {
+        await ctx.runMutation(internal.todos.markPushAbandoned, {
+          todoId: args.todoId,
+          droppedNotes: args.notes !== undefined,
+        });
       }
       return null;
     }
@@ -183,9 +193,14 @@ export const pushTodo = internalAction({
       }
 
       const accessToken = await getAccessToken(ctx, connection);
-      // poll() resolves the Personal list by title every cycle, so a cached ID
-      // is current. Listing every task list on each push is wasted quota.
-      const targetListId = connection.dadListId ?? await findPersonalList(ctx, connection, accessToken);
+      // poll() resolves the Personal list by title every cycle. Listing every
+      // task list on each push is wasted quota, so reuse a recently confirmed
+      // ID and only look it up again when it is stale or missing.
+      const cachedListIsFresh = connection.dadListId !== undefined
+        && (connection.dadListCheckedAt ?? 0) > Date.now() - LIST_ID_FRESH_MS;
+      const targetListId = cachedListIsFresh
+        ? connection.dadListId!
+        : await findPersonalList(ctx, connection, accessToken);
 
       let googleTaskId = todo.googleTaskId;
       let googleTaskListId = todo.googleTaskListId;
@@ -266,14 +281,19 @@ export const poll = internalAction({
       for (const todoId of new Set([...todoIds, ...wrongListTodoIds])) {
         await ctx.scheduler.runAfter(0, internal.googleTasks.pushTodo, { todoId });
       }
-      const updatedMin = !args.fullSync && connection.lastPolledAt
-        ? new Date(connection.lastPolledAt - 5 * 60_000).toISOString()
-        : undefined;
+      // Resume a poll that stopped at the page limit, so a long list is worked
+      // through a batch at a time instead of re-reading the first pages forever.
+      const resume = !args.fullSync ? connection.pollCursor : undefined;
+      const pollStartedAt = resume?.startedAt ?? startedAt;
+      const updatedMin = resume
+        ? resume.updatedMin
+        : !args.fullSync && connection.lastPolledAt
+          ? new Date(connection.lastPolledAt - 5 * 60_000).toISOString()
+          : undefined;
 
       const tasks: GoogleTask[] = [];
-      let pageToken: string | undefined;
+      let pageToken: string | undefined = resume?.pageToken;
       let pageCount = 0;
-      let truncated = false;
       do {
         const query = new URLSearchParams({
           maxResults: "100",
@@ -283,18 +303,25 @@ export const poll = internalAction({
         });
         if (updatedMin) query.set("updatedMin", updatedMin);
         if (pageToken) query.set("pageToken", pageToken);
-        const page = await googleRequest<{ items?: GoogleTask[]; nextPageToken?: string }>(
-          accessToken,
-          `/lists/${encodeURIComponent(personalListId)}/tasks?${query.toString()}`,
-        );
+        let page: { items?: GoogleTask[]; nextPageToken?: string };
+        try {
+          page = await googleRequest<{ items?: GoogleTask[]; nextPageToken?: string }>(
+            accessToken,
+            `/lists/${encodeURIComponent(personalListId)}/tasks?${query.toString()}`,
+          );
+        } catch (error) {
+          // A saved page token can expire. Drop it so the next poll starts
+          // the window again rather than failing on it forever.
+          if (resume && pageToken === resume.pageToken) {
+            await ctx.runMutation(internal.googleTasksStore.recordPoll, { pollCursor: null });
+          }
+          throw error;
+        }
         tasks.push(...(page.items ?? []));
         pageToken = page.nextPageToken;
         pageCount += 1;
-        if (pageCount >= MAX_POLL_PAGES && pageToken) {
-          truncated = true;
-          break;
-        }
-      } while (pageToken);
+      } while (pageToken && pageCount < MAX_POLL_PAGES);
+      const nextCursor = pageToken ? { pageToken, updatedMin, startedAt: pollStartedAt } : null;
 
       const activeGoogleTaskIds = new Set(
         await ctx.runQuery(internal.todos.listActiveGoogleTaskIds, {
@@ -328,15 +355,13 @@ export const poll = internalAction({
           ? [`Skipped ${linkedDeletions.length} linked deletions (limit ${deletionLimit}). `
             + `If they are real, run googleTasks:poll with {"fullSync":true,"allowDeletions":${linkedDeletions.length}}.`]
           : []),
-        ...(truncated
-          ? [`Personal has more than ${MAX_POLL_PAGES * 100} tasks in this poll window; only the first pages were synced.`]
-          : []),
       ];
       if (problems.length > 0) console.error(`Google Tasks poll: ${problems.join(" ")}`);
-      // A truncated poll has not seen every change, so keep the old watermark
-      // and look at the same window again next time.
+      // Only move the watermark once the whole window has been read. Until
+      // then the cursor carries on from where this batch stopped.
       await ctx.runMutation(internal.googleTasksStore.recordPoll, {
-        ...(truncated ? {} : { lastPolledAt: startedAt }),
+        ...(nextCursor ? {} : { lastPolledAt: pollStartedAt }),
+        pollCursor: nextCursor,
         error: problems.length > 0 ? problems.join(" ") : undefined,
       });
     } catch (error) {
