@@ -49,7 +49,7 @@ export function HomeSettingsDialog({ initialUrl, configured, onClose, onConnecte
         <p>The token is stored only on this mirror. In Home Assistant, open your profile and create a Long-Lived Access Token.</p>
         <label><span>Home Assistant address</span><input type="url" value={url} onChange={(event) => setUrl(event.target.value)} autoComplete="off" inputMode="url" /></label>
         <label><span>Long-lived access token</span><input type="password" value={token} onChange={(event) => setToken(event.target.value)} autoComplete="off" placeholder={configured ? "Enter a new token to reconnect" : "Paste token here"} /></label>
-        {error && <div className="home-settings-error">{error}</div>}
+        {error && <div className="home-settings-error" role="alert">{error}</div>}
         <div className="dialog-actions">
           <button type="button" className="button secondary" onClick={onClose} disabled={saving}>Cancel</button>
           <button className="button primary" type="submit" disabled={!url.trim() || !token.trim() || saving}>{saving ? "Connecting…" : "Connect"}</button>

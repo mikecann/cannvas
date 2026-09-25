@@ -16,8 +16,11 @@ type LocationGroup = {
 function groupLocations(people: HomeAssistantEntity[]): LocationGroup[] {
   const groups = new Map<string, Array<{ person: HomeAssistantEntity; latitude: number; longitude: number }>>();
   for (const person of people) {
-    const latitude = Number(person.attributes.latitude);
-    const longitude = Number(person.attributes.longitude);
+    const { latitude: rawLatitude, longitude: rawLongitude } = person.attributes;
+    // Number(null) is 0, which would put someone off the coast of Africa.
+    if (rawLatitude == null || rawLongitude == null || String(rawLatitude) === "" || String(rawLongitude) === "") continue;
+    const latitude = Number(rawLatitude);
+    const longitude = Number(rawLongitude);
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) continue;
     // Trackers at home normally report identical coordinates. Group anything
     // within roughly ten metres so one family member cannot hide another.
@@ -90,7 +93,10 @@ export function HomeLocationMap({ people }: { people: HomeAssistantEntity[] }) {
       } else {
         const grouped = group.avatars.length > 1;
         const marker = L.marker([group.latitude, group.longitude], { icon: markerIcon(group) }).addTo(map);
-        marker.bindTooltip(group.names, {
+        // Names come from Home Assistant, so set them as text, never as HTML.
+        const label = document.createElement("span");
+        label.textContent = group.names;
+        marker.bindTooltip(label, {
           permanent: true,
           direction: "right",
           offset: [grouped ? 34 : 18, -31],

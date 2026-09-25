@@ -24,6 +24,7 @@ import { SammyTabletTickerApp } from "./apps/SammyTabletTickerApp";
 import { SolarApp } from "./apps/SolarApp";
 import { TodosApp } from "./apps/TodosApp";
 import { WhiteboardApp } from "./apps/WhiteboardApp";
+import { AppErrorBoundary } from "./components/AppErrorBoundary";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { useDeviceStatus } from "./data/DataProvider";
 import type { BackupStatus } from "./data/types";
@@ -185,18 +186,20 @@ export function App() {
         {/* Only a brand new screen waits here, while its backup is restored. */}
         {!isReady && <RestoringCard backupStatus={backupStatus} />}
         {isReady && (
-          <Suspense fallback={<div className="loading-card"><LoaderCircle className="spin" /></div>}>
-            {activeApp === "whiteboard" && <WhiteboardApp />}
-            {activeApp === "chores" && <ChoresApp />}
-            {activeApp === "todos" && <TodosApp />}
-            {activeApp === "calendar" && <CalendarApp />}
-            {activeApp === "weather" && <WeatherApp />}
-            {activeApp === "solar" && <SolarApp />}
-            {activeApp === "home-automation" && <HomeAutomationApp />}
-            {activeApp === "sammy-tablets" && <SammyTabletTickerApp />}
-            {activeApp === "inventory" && <KioskInventoryApp />}
-            {activeApp === "display" && <DisplayApp displaySession={displaySession} onActivity={resetIdleTimer} onOpenCalendar={() => openApp("calendar")} onOpenWeather={() => openApp("weather")} onOpenSolar={() => openApp("solar")} />}
-          </Suspense>
+          <AppErrorBoundary key={activeApp}>
+            <Suspense fallback={<div className="loading-card"><LoaderCircle className="spin" /></div>}>
+              {activeApp === "whiteboard" && <WhiteboardApp />}
+              {activeApp === "chores" && <ChoresApp />}
+              {activeApp === "todos" && <TodosApp />}
+              {activeApp === "calendar" && <CalendarApp />}
+              {activeApp === "weather" && <WeatherApp />}
+              {activeApp === "solar" && <SolarApp />}
+              {activeApp === "home-automation" && <HomeAutomationApp />}
+              {activeApp === "sammy-tablets" && <SammyTabletTickerApp />}
+              {activeApp === "inventory" && <KioskInventoryApp />}
+              {activeApp === "display" && <DisplayApp displaySession={displaySession} onActivity={resetIdleTimer} onOpenCalendar={() => openApp("calendar")} onOpenWeather={() => openApp("weather")} onOpenSolar={() => openApp("solar")} />}
+            </Suspense>
+          </AppErrorBoundary>
         )}
       </div>
 

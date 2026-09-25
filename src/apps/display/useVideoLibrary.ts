@@ -9,6 +9,8 @@ const RECRAWL_MS = 30 * 60_000;
 // While Bruce can't be reached, look again every minute. The Pi answers
 // straight away while Bruce is down, so this costs nothing.
 const UNREACHABLE_RETRY_MS = 60_000;
+// A big library takes a while to list, but a stalled Bruce must not hang it.
+const CRAWL_TIMEOUT_MS = 90_000;
 
 export type VideoLibrary = {
   videos: string[];
@@ -34,35 +36,30 @@ function writeCache(videos: string[]) {
   }
 }
 
-async function crawlVideos(root = VIDEO_ROOT, depth = 0, visited = new Set<string>()): Promise<string[]> {
+async function crawlVideos(signal: AbortSignal, root = VIDEO_ROOT, depth = 0, visited = new Set<string>()): Promise<string[]> {
   if (depth > 10 || visited.has(root)) return [];
   visited.add(root);
-  const response = await fetch(root);
+  const response = await fetch(root, { signal });
   if (!response.ok) throw new Error(`Video server returned ${response.status}`);
   const { videos, folders } = parseVideoListing(await response.text(), root, window.location.origin);
-  const nested = await Promise.all(folders.map((folder) => crawlVideos(folder, depth + 1, visited)));
+  const nested = await Promise.all(folders.map((folder) => crawlVideos(signal, folder, depth + 1, visited)));
   return [...videos, ...nested.flat()];
 }
 
 // Shared by every visit to the home screen in this page load.
 let library: VideoLibrary = { videos: readCache(), reachable: null, checkedAt: 0 };
+// A quick reopen (or StrictMode's second effect) joins the crawl already
+// running instead of starting another that could finish out of order.
+let crawling: Promise<void> | null = null;
 
 function nextCheckIn(current: VideoLibrary) {
   return current.reachable === false || current.videos.length === 0 ? UNREACHABLE_RETRY_MS : RECRAWL_MS;
 }
 
-export function useVideoLibrary(): VideoLibrary {
-  const [snapshot, setSnapshot] = useState(library);
-
-  usePolling(async () => {
-    const age = Date.now() - library.checkedAt;
-    const wait = nextCheckIn(library);
-    if (library.checkedAt > 0 && age < wait) {
-      setSnapshot(library);
-      return wait - age;
-    }
+function refreshLibrary(): Promise<void> {
+  crawling ??= (async () => {
     try {
-      const found = await crawlVideos();
+      const found = await crawlVideos(AbortSignal.timeout(CRAWL_TIMEOUT_MS));
       // An empty listing is more likely a share that hasn't mounted than a
       // library that was emptied, so keep the last good list in that case.
       const videos = found.length > 0 ? found : library.videos;
@@ -71,9 +68,27 @@ export function useVideoLibrary(): VideoLibrary {
     } catch {
       library = { ...library, reachable: false, checkedAt: Date.now() };
     }
+  })().finally(() => {
+    crawling = null;
+  });
+  return crawling;
+}
+
+export function useVideoLibrary(): VideoLibrary {
+  const [snapshot, setSnapshot] = useState(library);
+
+  usePolling(async (signal) => {
+    const age = Date.now() - library.checkedAt;
+    const wait = nextCheckIn(library);
+    if (library.checkedAt > 0 && age < wait) {
+      setSnapshot(library);
+      return wait - age;
+    }
+    await refreshLibrary();
+    if (signal.aborted) return;
     setSnapshot(library);
     return nextCheckIn(library);
-  }, RECRAWL_MS);
+  }, RECRAWL_MS, { timeoutMs: CRAWL_TIMEOUT_MS + 5_000 });
 
   return snapshot;
 }

@@ -21,8 +21,9 @@ export function HomeNetworkSection({ network }: { network: NetworkStatus }) {
             <article><span className="upload"><Upload /></span><div><strong>{formatRate(network.uploadBps)}</strong><small>Internet upload</small></div></article>
           </div>
           <div className="home-network-clients">
-            {clients.map((client) => (
-              <article key={`${client.name}-${client.ip ?? client.network}`}>
+            {clients.map((client, index) => (
+              // Several phones can share a name and have no IP, so add the position.
+              <article key={`${client.name}-${client.ip ?? client.network}-${index}`}>
                 <span className="home-network-client-icon"><Wifi /></span>
                 <div className="home-network-client-name"><strong>{client.name}</strong><small>{client.ip ?? "No IP"} · {client.isWired ? "Wired" : client.network}</small></div>
                 <div className="home-network-rate download"><Download /><strong>{formatRate(client.downloadBps)}</strong></div>

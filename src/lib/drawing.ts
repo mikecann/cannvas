@@ -14,6 +14,7 @@ export function drawStroke(context: CanvasRenderingContext2D, stroke: Stroke, wi
     context.font = `${stroke.width}px system-ui, sans-serif`;
     context.textAlign = "center";
     context.textBaseline = "middle";
+    context.fillStyle = stroke.color;
     context.fillText(stroke.sticker, point.x, point.y);
     context.restore();
     return;

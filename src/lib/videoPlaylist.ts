@@ -20,8 +20,10 @@ export function parseVideoListing(html: string, folder: string, origin: string) 
     .filter((href) => href !== "../" && href !== "./../")
     // Keep proxy URLs relative to Cannvas. `new URL(href, root)` turns them
     // into absolute browser URLs, which then fail the VIDEO_ROOT safety check.
-    .map((href) => new URL(href, new URL(folder, origin)).pathname)
-    .filter((url) => url.startsWith(VIDEO_ROOT));
+    .map((href) => new URL(href, new URL(folder, origin)))
+    // A link to another host is not one of Bruce's files, whatever its path.
+    .filter((url) => url.origin === new URL(origin).origin && url.pathname.startsWith(VIDEO_ROOT))
+    .map((url) => url.pathname);
   return {
     videos: urls.filter((url) => VIDEO_FILE.test(url)),
     folders: urls.filter((url) => url.endsWith("/") && url !== folder),

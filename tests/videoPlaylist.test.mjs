@@ -27,7 +27,7 @@ test("reads video files and sub-folders from a listing", () => {
 });
 
 test("ignores links that escape the video root", () => {
-  const html = '<a href="/assets/app.js">x</a><a href="../../secret.mp4">y</a>';
+  const html = '<a href="/assets/app.js">x</a><a href="../../secret.mp4">y</a><a href="http://elsewhere.example/videos/a.mp4">z</a>';
   assert.deepEqual(parseVideoListing(html, "/videos/", "http://127.0.0.1:4173"), { videos: [], folders: [] });
 });
 

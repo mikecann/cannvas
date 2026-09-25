@@ -38,7 +38,7 @@ export function ChoresApp() {
   const isThisWeek = dateKey(weekStart) === dateKey(startOfWeek(new Date()));
   const editingChore = chores.find((chore) => chore.id === choreToEdit);
   // The backdrop may only close a form with nothing typed into it.
-  const addFormEmpty = !name.trim();
+  const addFormEmpty = !name.trim() && value === "0.50";
   const editFormUnchanged = editingChore !== undefined
     && name === editingChore.name
     && category === editingChore.category

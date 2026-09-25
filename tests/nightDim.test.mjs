@@ -24,6 +24,11 @@ test("uses Home Assistant's next times, shifted back once they are tomorrow's", 
   assert.equal(sun.sunrise.toISOString(), at("2026-09-25T05:59:00").toISOString());
   assert.equal(sun.sunset.toISOString(), at("2026-09-25T18:19:00").toISOString());
 
+  // In daylight, Home Assistant already reports tomorrow's sunrise but today's sunset.
+  const midday = sunTimesFromNext(at("2026-09-25T12:00:00"), at("2026-09-26T05:59:00"), at("2026-09-25T18:18:00"));
+  assert.equal(midday.sunrise.toISOString(), at("2026-09-25T05:59:00").toISOString());
+  assert.equal(midday.sunset.toISOString(), at("2026-09-25T18:18:00").toISOString());
+
   const morning = at("2026-09-25T05:30:00");
   const early = sunTimesFromNext(morning, at("2026-09-25T06:00:00"), at("2026-09-25T18:18:00"));
   assert.equal(early.sunrise.toISOString(), at("2026-09-25T06:00:00").toISOString());

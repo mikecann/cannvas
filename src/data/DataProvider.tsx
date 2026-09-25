@@ -827,7 +827,11 @@ function useCalendarFeed(): CalendarData {
   const loadCalendarRange = useCallback(async (start: string, end: string) => {
     const request = ++monthRequest.current;
     const isSameRange = (month: CalendarMonth | null): month is CalendarMonth => month?.start === start && month.end === end;
-    setCalendarMonth((current) => isSameRange(current) ? current : { start, end, events: [], status: "loading" });
+    setCalendarMonth((current) => {
+      if (!isSameRange(current)) return { start, end, events: [], status: "loading" };
+      // A retry after a failure shows as loading, so a second failure registers.
+      return current.status === "error" ? { ...current, status: "loading" } : current;
+    });
     try {
       const result = await fetchRange(start, end);
       if (request !== monthRequest.current) return;

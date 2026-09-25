@@ -42,6 +42,8 @@ export function TodosApp() {
   const [listError, setListError] = useState("");
   const [confirmClearFinished, setConfirmClearFinished] = useState(false);
   const [clearing, setClearing] = useState(false);
+  // A quick double tap would toggle twice and land back where it started.
+  const [toggling, setToggling] = useState<ReadonlySet<string>>(() => new Set());
   const openCount = todos.filter((todo) => !todo.completed).length;
   const completedCount = todos.length - openCount;
   const editingTodo = todos.find((todo) => todo.id === editingId);
@@ -97,11 +99,19 @@ export function TodosApp() {
   };
 
   const toggle = async (todo: Todo) => {
+    if (toggling.has(todo.id)) return;
+    setToggling((current) => new Set(current).add(todo.id));
     setListError("");
     try {
       await toggleTodo(todo.id);
     } catch (error) {
       setListError(`Couldn't update "${todo.title}". ${errorText(error, "Try again in a moment.")}`);
+    } finally {
+      setToggling((current) => {
+        const next = new Set(current);
+        next.delete(todo.id);
+        return next;
+      });
     }
   };
 
@@ -160,7 +170,7 @@ export function TodosApp() {
               <div className="todo-list">
                 {personTodos.map((todo) => (
                   <article className={todo.completed ? "todo-card completed" : "todo-card"} key={todo.id}>
-                    <button className="todo-check" onClick={() => void toggle(todo)} aria-label={`${todo.completed ? "Reopen" : "Finish"} ${todo.title}`} aria-pressed={todo.completed}>
+                    <button className="todo-check" onClick={() => void toggle(todo)} disabled={toggling.has(todo.id)} aria-label={`${todo.completed ? "Reopen" : "Finish"} ${todo.title}`} aria-pressed={todo.completed}>
                       {todo.completed && <Check strokeWidth={4} />}
                     </button>
                     <div className="todo-copy">

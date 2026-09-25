@@ -29,6 +29,14 @@ export function CalendarApp() {
     void loadCalendarRange(range.start, range.end);
   }, [loadCalendarRange, range]);
 
+  // A month that failed to load tries again every minute while it's on screen.
+  const monthFailed = viewed?.status === "error";
+  useEffect(() => {
+    if (!monthFailed) return;
+    const timer = window.setTimeout(() => void loadCalendarRange(range.start, range.end), 60_000);
+    return () => window.clearTimeout(timer);
+  }, [loadCalendarRange, monthFailed, range]);
+
   const moveMonth = (offset: number) => {
     const next = new Date(month.getFullYear(), month.getMonth() + offset, 1);
     setMonth(next);

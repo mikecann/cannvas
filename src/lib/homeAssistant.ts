@@ -118,7 +118,8 @@ export function stateLabel(entity: HomeAssistantEntity) {
   const unit = entity.attributes.unit_of_measurement ? ` ${entity.attributes.unit_of_measurement}` : "";
   if (isUnavailable(entity)) return "Unavailable";
   if (entity.domain === "person") return state === "home" ? "Home" : state === "not_home" ? "Away" : entity.state;
-  if (entity.domain === "lock") return state === "locked" ? "Locked" : "Unlocked";
+  // Jammed, locking and unlocking must not read as a plain "Unlocked".
+  if (entity.domain === "lock") return state === "locked" ? "Locked" : state === "unlocked" ? "Unlocked" : entity.state.charAt(0).toUpperCase() + entity.state.slice(1);
   if (entity.domain === "cover") return entity.state.charAt(0).toUpperCase() + entity.state.slice(1);
   if (SWITCH_DOMAINS.includes(entity.domain) || entity.domain === "light" || entity.domain === "media_player") {
     return isOn(entity) ? "On" : "Off";
