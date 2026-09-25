@@ -24,8 +24,10 @@ fi
 
 # Leave a kiosk that is stopped (systemd restarts it) or still starting alone.
 [ "$(/usr/bin/systemctl --user is-active cannvas-kiosk.service)" = active ] || exit 0
+# systemd records this on CLOCK_MONOTONIC, so compare it with that clock.
 started=$(/usr/bin/systemctl --user show cannvas-kiosk.service -p ActiveEnterTimestampMonotonic --value)
-if [ $((now - started / 1000000)) -le "$stale_after" ]; then
+monotonic=$(/usr/bin/python3 -c 'import time; print(int(time.clock_gettime(time.CLOCK_MONOTONIC)))')
+if [ $((monotonic - started / 1000000)) -le "$stale_after" ]; then
   exit 0
 fi
 
@@ -34,7 +36,8 @@ fi
 if [ -r "$state" ] && [ "$(cat "$state")" = "$last" ]; then
   exit 0
 fi
-echo "$last" >"$state"
 # <4> marks the line as a warning so it passes the unit's LogLevelMax.
 echo "<4>Cannvas page has not pinged for ${age}s; restarting the kiosk"
+# Record the silence only once the restart worked, so a failed restart is retried.
 /usr/bin/systemctl --user restart cannvas-kiosk.service
+echo "$last" >"$state"

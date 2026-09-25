@@ -3,6 +3,8 @@ Description=Restart the Cannvas kiosk if its page stops pinging
 
 [Service]
 Type=oneshot
+# A oneshot has no start timeout by default. A hung run would stop the timer.
+TimeoutStartSec=30
 ExecStart=/usr/local/bin/cannvas-kiosk-watchdog
 # Runs every minute. Keep routine start and finish lines out of the journal.
 LogLevelMax=notice
