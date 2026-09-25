@@ -21,5 +21,6 @@ if [ ! -f "$marker" ]; then
 fi
 
 rm -f "$marker"
-echo 'Cannvas desktop is absent or inactive across two checks; restarting LightDM for autologin'
+# <4> marks the line as a warning so it passes the unit's LogLevelMax.
+echo '<4>Cannvas desktop is absent or inactive across two checks; restarting LightDM for autologin'
 /usr/bin/systemctl restart lightdm.service

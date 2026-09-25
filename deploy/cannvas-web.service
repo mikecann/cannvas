@@ -8,17 +8,42 @@ Type=simple
 User=pi
 Group=pi
 WorkingDirectory=/opt/cannvas/current
+# The server serves the www/ directory beside its own script, so this always
+# serves /opt/cannvas/current/www. Set CANNVAS_WEB_ROOT to override.
 ExecStart=/opt/cannvas/current/cannvas-server
 Restart=on-failure
 RestartSec=2
 StateDirectory=cannvas
+# /run/cannvas/heartbeat records the kiosk page's latest ping for the watchdog.
+RuntimeDirectory=cannvas
+RuntimeDirectoryPreserve=yes
+UMask=0077
 
-# The app only writes its private integration configuration directory.
+# The app only writes its private integration configuration directory and its
+# runtime heartbeat. It needs the network, and D-Bus only so polkit can let it
+# start cannvas-poweroff.service. It never needs capabilities or devices.
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/cannvas
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+MemoryMax=256M
+TasksMax=256
 
 [Install]
 WantedBy=multi-user.target
