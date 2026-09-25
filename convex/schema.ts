@@ -1,54 +1,36 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { authTables } from "@convex-dev/auth/server";
-
-const point = v.object({ x: v.number(), y: v.number() });
-const stroke = v.object({
-  id: v.string(),
-  kind: v.optional(v.union(v.literal("stroke"), v.literal("sticker"))),
-  color: v.string(),
-  width: v.number(),
-  points: v.array(point),
-  sticker: v.optional(v.string()),
-});
-const todoAssignee = v.union(v.literal("mum"), v.literal("dad"), v.literal("josh"));
-const todoPriority = v.union(v.literal("low"), v.literal("medium"), v.literal("high"));
-const todoSyncState = v.union(v.literal("pending"), v.literal("synced"), v.literal("error"));
-const inventoryStatus = v.union(
-  v.literal("active"),
-  v.literal("disposed"),
-  v.literal("donated"),
-  v.literal("sold"),
-  v.literal("lost"),
-);
-const inventoryEnrichmentStatus = v.union(
-  v.literal("queued"),
-  v.literal("processing"),
-  v.literal("ready"),
-  v.literal("failed"),
-);
-const inventoryEventType = v.union(
-  v.literal("added"),
-  v.literal("edited"),
-  v.literal("moved"),
-  v.literal("photo_added"),
-  v.literal("ai_enriched"),
-  v.literal("ai_failed"),
-  v.literal("disposed"),
-  v.literal("donated"),
-  v.literal("sold"),
-  v.literal("lost"),
-  v.literal("restored"),
-);
+import {
+  choreCategory,
+  inventoryEnrichmentStatus,
+  inventoryEventType,
+  inventoryRole,
+  inventoryStatus,
+  stroke,
+  todoAssignee,
+  todoPriority,
+  todoSyncState,
+} from "./lib/validators";
 
 export default defineSchema({
   ...authTables,
   deviceBackups: defineTable({
     deviceId: v.string(),
     revision: v.number(),
+    // Older kiosk builds stored the whole device, whiteboards included, in
+    // this one document. Newer builds store a validated deviceState without
+    // boards. Saving in the new format moves any inline boards to deviceBoards.
     state: v.any(),
     updatedAt: v.number(),
   }).index("by_device_id", ["deviceId"]),
+  deviceBoards: defineTable({
+    deviceId: v.string(),
+    date: v.string(),
+    revision: v.number(),
+    strokes: v.array(stroke),
+    updatedAt: v.number(),
+  }).index("by_device_id_and_date", ["deviceId", "date"]),
   boards: defineTable({
     date: v.string(),
     strokes: v.array(stroke),
@@ -58,7 +40,7 @@ export default defineSchema({
     name: v.string(),
     valueCents: v.number(),
     // Optional keeps existing production chores valid; the app treats missing as Standard.
-    category: v.optional(v.union(v.literal("standard"), v.literal("bonus"))),
+    category: v.optional(choreCategory),
     color: v.string(),
     position: v.number(),
     active: v.boolean(),
@@ -85,6 +67,13 @@ export default defineSchema({
     googleUpdatedAt: v.optional(v.string()),
     syncState: v.optional(todoSyncState),
     syncError: v.optional(v.string()),
+    // Failed pushes back off instead of retrying every poll.
+    syncAttempts: v.optional(v.number()),
+    nextSyncAt: v.optional(v.number()),
+    // Only one pushTodo run may talk to Google for a to-do at a time, or two
+    // overlapping runs can both create the Google task.
+    syncLeaseId: v.optional(v.string()),
+    syncLeaseUntil: v.optional(v.number()),
   })
     .index("by_deleted_at_and_created_at", ["deletedAt", "createdAt"])
     .index("by_legacy_id", ["legacyId"])
@@ -99,6 +88,8 @@ export default defineSchema({
     dadListId: v.optional(v.string()),
     joshListId: v.optional(v.string()),
     lastPolledAt: v.optional(v.number()),
+    lastPollError: v.optional(v.string()),
+    lastPollErrorAt: v.optional(v.number()),
     updatedAt: v.number(),
   }).index("by_key", ["key"]),
   googleTasksOAuthStates: defineTable({
@@ -107,7 +98,7 @@ export default defineSchema({
   }).index("by_state", ["state"]),
   inventoryAccess: defineTable({
     userId: v.id("users"),
-    role: v.union(v.literal("owner"), v.literal("member")),
+    role: inventoryRole,
     grantedAt: v.number(),
   }).index("by_user_id", ["userId"]),
   inventoryLocations: defineTable({
