@@ -631,7 +631,11 @@ function useDeviceBackup(
       }
       failures.current = 0;
       window.clearTimeout(retryTimer.current);
-      setStatus({ state: "ok", lastBackedUpAt: Date.now() });
+      // Every change re-renders the whole app through this context, so only
+      // refresh the timestamp occasionally.
+      setStatus((current) => current.state === "ok" && Date.now() - current.lastBackedUpAt < 60_000
+        ? current
+        : { state: "ok", lastBackedUpAt: Date.now() });
     } catch (error) {
       console.error("Cannvas backup failed", error);
       fail(`Backup failed: ${errorMessage(error)}`);

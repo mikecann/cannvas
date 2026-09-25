@@ -25,6 +25,7 @@ import type * as inventoryAi from "../inventoryAi.js";
 import type * as inventoryAiStore from "../inventoryAiStore.js";
 import type * as inventoryConstants from "../inventoryConstants.js";
 import type * as inventoryKioskStore from "../inventoryKioskStore.js";
+import type * as lib_backoff from "../lib/backoff.js";
 import type * as lib_inventorySearch from "../lib/inventorySearch.js";
 import type * as lib_tokens from "../lib/tokens.js";
 import type * as lib_validators from "../lib/validators.js";
@@ -55,6 +56,7 @@ declare const fullApi: ApiFromModules<{
   inventoryAiStore: typeof inventoryAiStore;
   inventoryConstants: typeof inventoryConstants;
   inventoryKioskStore: typeof inventoryKioskStore;
+  "lib/backoff": typeof lib_backoff;
   "lib/inventorySearch": typeof lib_inventorySearch;
   "lib/tokens": typeof lib_tokens;
   "lib/validators": typeof lib_validators;
