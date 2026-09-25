@@ -1,0 +1,11 @@
+[Unit]
+Description=Check the Cannvas page heartbeat every minute
+
+[Timer]
+OnStartupSec=5min
+OnUnitInactiveSec=60
+AccuracySec=10
+Unit=cannvas-kiosk-watchdog.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,8 @@
+[Unit]
+Description=Restart the Cannvas kiosk if its page stops pinging
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/cannvas-kiosk-watchdog
+# Runs every minute. Keep routine start and finish lines out of the journal.
+LogLevelMax=notice
