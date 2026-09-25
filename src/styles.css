@@ -48,8 +48,13 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .dock-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 12px; background: #ebe4d7; color: var(--ink); }
 .dock-item.active .dock-icon { background: var(--orange); color: white; }
 .dock-icon svg { width: 22px; }
-.backup-error-badge { position: fixed; z-index: 110; top: 18px; right: 18px; display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; color: white; background: #b3412f; box-shadow: 0 8px 24px rgba(32,29,25,.24); font-weight: 800; pointer-events: none; }
-.backup-error-badge svg { width: 20px; height: 20px; }
+/* Quiet, like the dock: it is a heads-up, not an alarm. Nothing is lost. */
+.backup-error-badge { position: fixed; z-index: 110; top: 16px; right: 16px; display: flex; align-items: center; gap: 10px; padding: 7px 16px 7px 7px; border: 1px solid rgba(205,196,183,.85); border-radius: 18px; color: var(--ink); background: rgba(255,253,248,.96); box-shadow: 0 10px 28px rgba(54,45,34,.16); pointer-events: none; }
+.backup-error-icon { width: 36px; height: 36px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 12px; color: #b3412f; background: #fbe4dd; }
+.backup-error-icon svg { width: 20px; height: 20px; }
+.backup-error-badge > span:last-child { display: flex; flex-direction: column; line-height: 1.15; }
+.backup-error-badge strong { font-size: .88rem; font-weight: 800; }
+.backup-error-badge small { color: var(--muted); font-size: .72rem; font-weight: 600; }
 .keyboard-dismiss-button { position: fixed; z-index: 120; right: 28px; bottom: calc(var(--native-keyboard-height) + 24px); min-height: 58px; padding: 0 22px; display: flex; align-items: center; gap: 10px; border: 2px solid rgba(255,255,255,.88); border-radius: 18px; color: white; background: var(--ink); box-shadow: 0 12px 34px rgba(32,29,25,.3); font-weight: 800; cursor: pointer; }
 .keyboard-dismiss-button svg { width: 23px; }
 .keyboard-dismiss-button:active { transform: scale(.97); }

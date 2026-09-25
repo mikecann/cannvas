@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import {
   CalendarDays,
   CheckSquare2,
@@ -13,22 +13,27 @@ import {
   Power,
   CloudSun,
   CloudOff,
+  LoaderCircle,
   Sun,
 } from "lucide-react";
 import { CalendarApp } from "./apps/CalendarApp";
 import { ChoresApp } from "./apps/ChoresApp";
 import { DisplayApp } from "./apps/DisplayApp";
-import { HomeAutomationApp } from "./apps/HomeAutomationApp";
 import { KioskInventoryApp } from "./apps/KioskInventoryApp";
 import { SammyTabletTickerApp } from "./apps/SammyTabletTickerApp";
 import { SolarApp } from "./apps/SolarApp";
 import { TodosApp } from "./apps/TodosApp";
 import { WhiteboardApp } from "./apps/WhiteboardApp";
-import { WeatherApp } from "./apps/WeatherApp";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { useDeviceStatus } from "./data/DataProvider";
+import type { BackupStatus } from "./data/types";
 import { POWER_OFF_RECOVERY_MESSAGE, schedulePowerOffRecovery } from "./lib/actionTiming";
 import { dismissNativeKeyboard, installNativeKeyboard } from "./lib/nativeKeyboard";
+import { useHeartbeat } from "./lib/useHeartbeat";
+
+// Leaflet and the bigger dashboards load only when first opened.
+const WeatherApp = lazy(() => import("./apps/WeatherApp").then((module) => ({ default: module.WeatherApp })));
+const HomeAutomationApp = lazy(() => import("./apps/HomeAutomationApp").then((module) => ({ default: module.HomeAutomationApp })));
 
 type AppId =
   | "whiteboard"
@@ -61,6 +66,7 @@ const DEFAULT_IDLE_TIMEOUT = 5 * 60 * 1000;
 
 export function App() {
   const { isReady, backupStatus } = useDeviceStatus();
+  useHeartbeat();
   const [activeApp, setActiveApp] = useState<AppId>("whiteboard");
   const [displaySession, setDisplaySession] = useState(0);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -174,24 +180,31 @@ export function App() {
       onPointerDown={wake}
     >
       <div className="app-stage" aria-live="polite">
-        {!isReady && <div className="loading-card">Opening Cannvas…</div>}
-        {isReady && activeApp === "whiteboard" && <WhiteboardApp />}
-        {isReady && activeApp === "chores" && <ChoresApp />}
-        {isReady && activeApp === "todos" && <TodosApp />}
-        {isReady && activeApp === "calendar" && <CalendarApp />}
-        {isReady && activeApp === "weather" && <WeatherApp />}
-        {isReady && activeApp === "solar" && <SolarApp />}
-        {isReady && activeApp === "home-automation" && <HomeAutomationApp />}
-        {isReady && activeApp === "sammy-tablets" && <SammyTabletTickerApp />}
-        {isReady && activeApp === "inventory" && <KioskInventoryApp />}
-        {isReady && activeApp === "display" && <DisplayApp displaySession={displaySession} onActivity={resetIdleTimer} onOpenCalendar={() => openApp("calendar")} onOpenWeather={() => openApp("weather")} onOpenSolar={() => openApp("solar")} />}
+        {/* Only a brand new screen waits here, while its backup is restored. */}
+        {!isReady && <RestoringCard backupStatus={backupStatus} />}
+        {isReady && (
+          <Suspense fallback={<div className="loading-card"><LoaderCircle className="spin" /></div>}>
+            {activeApp === "whiteboard" && <WhiteboardApp />}
+            {activeApp === "chores" && <ChoresApp />}
+            {activeApp === "todos" && <TodosApp />}
+            {activeApp === "calendar" && <CalendarApp />}
+            {activeApp === "weather" && <WeatherApp />}
+            {activeApp === "solar" && <SolarApp />}
+            {activeApp === "home-automation" && <HomeAutomationApp />}
+            {activeApp === "sammy-tablets" && <SammyTabletTickerApp />}
+            {activeApp === "inventory" && <KioskInventoryApp />}
+            {activeApp === "display" && <DisplayApp displaySession={displaySession} onActivity={resetIdleTimer} onOpenCalendar={() => openApp("calendar")} onOpenWeather={() => openApp("weather")} onOpenSolar={() => openApp("solar")} />}
+          </Suspense>
+        )}
       </div>
 
-      {backupStatus.state === "error" && activeApp !== "display" && (
-        // Placeholder styling. Everything is still saved on the screen itself.
+      {backupStatus.state === "error" && isReady && activeApp !== "display" && (
         <div className="backup-error-badge" role="status" title={backupStatus.message}>
-          <CloudOff />
-          <span>Backup paused</span>
+          <span className="backup-error-icon"><CloudOff /></span>
+          <span>
+            <strong>Backup paused</strong>
+            <small>Everything is still saved on this screen</small>
+          </span>
         </div>
       )}
 
@@ -271,6 +284,19 @@ export function App() {
         <p>This safely shuts down the Cannvas computer. You will need to turn its power back on to start it again.</p>
         {powerOffError && <p className="dialog-error">{powerOffError}</p>}
       </ConfirmDialog>
+
     </main>
+  );
+}
+
+function RestoringCard({ backupStatus }: { backupStatus: BackupStatus }) {
+  return (
+    <div className="loading-card restoring-card" role="status">
+      <LoaderCircle className="spin" />
+      <strong>Opening Cannvas…</strong>
+      <span>{backupStatus.state === "error"
+        ? "This screen is new, so it's fetching its backup first. It can't reach the backup yet and will keep trying."
+        : "This screen is new, so it's fetching its backup first."}</span>
+    </div>
   );
 }

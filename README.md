@@ -341,9 +341,8 @@ automation uses a fixed wait.
 
 ### Kiosk watchdog
 
-The page pings `/api/heartbeat` (GET, or POST with a JSON body) every 30
-seconds. The ping is added to the touchscreen page in a separate change, and
-until it lands the watchdog stays idle. The server records the time in `/run/cannvas/heartbeat`, and the
+The page POSTs to `/api/heartbeat` every 30 seconds from the app shell, so
+the pings stop if React stops rendering. The server records the time in `/run/cannvas/heartbeat`, and the
 `cannvas-kiosk-watchdog` user timer restarts `cannvas-kiosk.service` if no ping
 has arrived for three minutes. It does nothing until the first ping after boot,
 skips a kiosk that started in the last three minutes or a web server that is

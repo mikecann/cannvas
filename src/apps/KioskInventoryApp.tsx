@@ -102,7 +102,7 @@ export function KioskInventoryApp() {
           {visibleItems.map((item) => (
             <article className="kiosk-inventory-card" key={item._id}>
               <div className="kiosk-inventory-photo">
-                {item.photoUrl ? <img src={item.photoUrl} alt="" /> : <Box />}
+                {item.photoUrl ? <img src={item.photoUrl} alt="" loading="lazy" decoding="async" /> : <Box />}
               </div>
               <div className="kiosk-inventory-copy">
                 <span>{item.category}</span>
