@@ -57,8 +57,8 @@ function PowerFlow({ solar }: { solar: SolarStatus }) {
   return (
     <div className="solar-flow-card">
       <svg className="solar-flow" viewBox="0 0 1000 520" role="img" aria-label={`Solar ${formatKw(solarKw)}, home using ${formatKw(houseKw)}, grid ${importing ? "supplying" : exporting ? "receiving" : "idle"} ${formatKw(gridKw)}`}>
-        <FlowLine d="M 210 170 C 210 330, 330 400, 430 400" active={producing} kw={solarKw} tone="solar" />
-        <FlowLine d="M 790 170 C 790 330, 670 400, 570 400" active={importing} kw={gridKw} tone="grid" />
+        <FlowLine d="M 210 238 C 210 350, 320 400, 430 400" active={producing} kw={solarKw} tone="solar" />
+        <FlowLine d="M 790 238 C 790 350, 680 400, 570 400" active={importing} kw={gridKw} tone="grid" />
         <FlowLine d="M 290 110 L 710 110" active={exporting} kw={gridKw} tone="export" />
       </svg>
       <FlowNode className="solar" x={21} y={21} icon={<Sun />} label="Solar" value={formatKw(solarKw)} />
