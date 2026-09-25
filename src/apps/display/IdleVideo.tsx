@@ -1,7 +1,19 @@
 import { CloudOff, Film, LoaderCircle } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useBoards } from "../../data/DataProvider";
+import type { Stroke } from "../../data/types";
+import { dateKey } from "../../lib/dates";
 import { keepPlayingFirst, shuffledVideos, VIDEO_OFFLINE_AFTER_ERRORS, videoRetryDelayMs } from "../../lib/videoPlaylist";
 import { useVideoLibrary } from "./useVideoLibrary";
+import { WhiteboardSlide } from "./WhiteboardSlide";
+
+// Today's drawing shows for a while after every few clips.
+const SLIDE_EVERY_CLIPS = 3;
+const SLIDE_MS = 10_000;
+// Without videos, show the drawing once a minute over the gradient instead.
+const SLIDE_WITHOUT_VIDEO_EVERY_MS = 60_000;
+
+type Slide = { strokes: Stroke[]; thenNextClip: boolean };
 
 type IdleVideoProps = {
   muted: boolean;
@@ -16,6 +28,11 @@ type Notice = { kind: "loading" | "offline" | "empty"; title: string; detail?: s
 // grey or black screen.
 export function IdleVideo({ muted, onPlayableChange }: IdleVideoProps) {
   const { videos: library, reachable } = useVideoLibrary();
+  const { getBoard } = useBoards();
+  const todayStrokes = getBoard(dateKey(new Date()));
+  const hasDrawing = todayStrokes.length > 0;
+  const [slide, setSlide] = useState<Slide | null>(null);
+  const clipsSinceSlide = useRef(0);
   const [playlist, setPlaylist] = useState(() => shuffledVideos(library));
   const [index, setIndex] = useState(0);
   // Bumped after a failure so the same file is fetched again, not reused.
@@ -55,15 +72,17 @@ export function IdleVideo({ muted, onPlayableChange }: IdleVideoProps) {
     return () => window.clearTimeout(timer);
   }, [consecutiveErrors, retrying]);
 
-  // A clip that was preloaded underneath has to be started by hand.
+  // A clip that was preloaded underneath has to be started by hand, and a
+  // single clip that finished before a slide has to start again.
   useEffect(() => {
-    if (!current || retrying) return;
+    if (!current || retrying || slide) return;
     const element = elements.current.get(current);
     if (!element) return;
     if (element.error) {
       failed();
       return;
     }
+    if (element.ended) element.currentTime = 0;
     if (element.paused) {
       void element.play().catch((error: unknown) => {
         const name = error instanceof DOMException ? error.name : "";
@@ -72,11 +91,40 @@ export function IdleVideo({ muted, onPlayableChange }: IdleVideoProps) {
         if (name !== "AbortError" && name !== "NotAllowedError") failed();
       });
     }
-  }, [attempt, current, failed, retrying]);
+  }, [attempt, current, failed, index, retrying, slide]);
+
+  const clipEnded = () => {
+    clipsSinceSlide.current += 1;
+    if (hasDrawing && clipsSinceSlide.current >= SLIDE_EVERY_CLIPS) {
+      clipsSinceSlide.current = 0;
+      setSlide({ strokes: todayStrokes, thenNextClip: true });
+    } else {
+      setIndex((value) => value + 1);
+    }
+  };
+
+  useEffect(() => {
+    if (!slide) return;
+    const timer = window.setTimeout(() => {
+      setSlide(null);
+      if (slide.thenNextClip) setIndex((value) => value + 1);
+    }, SLIDE_MS);
+    return () => window.clearTimeout(timer);
+  }, [slide]);
 
   const offline = consecutiveErrors >= VIDEO_OFFLINE_AFTER_ERRORS || (reachable === false && playlist.length === 0);
   const playable = Boolean(current) && !offline;
   useEffect(() => onPlayableChange(playable), [onPlayableChange, playable]);
+
+  const latestStrokes = useRef(todayStrokes);
+  latestStrokes.current = todayStrokes;
+  useEffect(() => {
+    if (playable || !hasDrawing) return;
+    const timer = window.setInterval(() => {
+      setSlide((currentSlide) => currentSlide ?? { strokes: latestStrokes.current, thenNextClip: false });
+    }, SLIDE_WITHOUT_VIDEO_EVERY_MS);
+    return () => window.clearInterval(timer);
+  }, [hasDrawing, playable]);
 
   const notice: Notice | null = offline
     ? {
@@ -105,7 +153,7 @@ export function IdleVideo({ muted, onPlayableChange }: IdleVideoProps) {
       autoPlay={role === "current"}
       preload="auto"
       muted={role === "current" ? muted : true}
-      loop={role === "current" && playlist.length === 1}
+      loop={role === "current" && playlist.length === 1 && !hasDrawing}
       playsInline
       onLoadedData={(event) => { event.currentTarget.dataset.ready = "true"; }}
       onPlaying={() => {
@@ -114,7 +162,7 @@ export function IdleVideo({ muted, onPlayableChange }: IdleVideoProps) {
         setHasPlayed(true);
       }}
       onEnded={() => {
-        if (currentRef.current === url) setIndex((value) => value + 1);
+        if (currentRef.current === url) clipEnded();
       }}
       onError={() => {
         // A clip that fails while preloading is handled when its turn comes.
@@ -138,6 +186,7 @@ export function IdleVideo({ muted, onPlayableChange }: IdleVideoProps) {
           </span>
         </div>
       )}
+      {slide && <WhiteboardSlide strokes={slide.strokes} />}
     </div>
   );
 }
