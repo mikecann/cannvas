@@ -12,6 +12,7 @@ import {
   PencilLine,
   Power,
   CloudSun,
+  Sun,
 } from "lucide-react";
 import { CalendarApp } from "./apps/CalendarApp";
 import { ChoresApp } from "./apps/ChoresApp";
@@ -19,6 +20,7 @@ import { DisplayApp } from "./apps/DisplayApp";
 import { HomeAutomationApp } from "./apps/HomeAutomationApp";
 import { KioskInventoryApp } from "./apps/KioskInventoryApp";
 import { SammyTabletTickerApp } from "./apps/SammyTabletTickerApp";
+import { SolarApp } from "./apps/SolarApp";
 import { TodosApp } from "./apps/TodosApp";
 import { WhiteboardApp } from "./apps/WhiteboardApp";
 import { WeatherApp } from "./apps/WeatherApp";
@@ -33,6 +35,7 @@ type AppId =
   | "todos"
   | "calendar"
   | "weather"
+  | "solar"
   | "home-automation"
   | "sammy-tablets"
   | "inventory"
@@ -44,6 +47,7 @@ const primaryApps = [
   { id: "todos" as const, label: "To-do's", icon: ListTodo },
   { id: "calendar" as const, label: "Calendar", icon: CalendarDays },
   { id: "weather" as const, label: "Weather", icon: CloudSun },
+  { id: "solar" as const, label: "Solar", icon: Sun },
   { id: "home-automation" as const, label: "Home controls", icon: HousePlug },
 ];
 
@@ -175,10 +179,11 @@ export function App() {
         {isReady && activeApp === "todos" && <TodosApp />}
         {isReady && activeApp === "calendar" && <CalendarApp />}
         {isReady && activeApp === "weather" && <WeatherApp />}
+        {isReady && activeApp === "solar" && <SolarApp />}
         {isReady && activeApp === "home-automation" && <HomeAutomationApp />}
         {isReady && activeApp === "sammy-tablets" && <SammyTabletTickerApp />}
         {isReady && activeApp === "inventory" && <KioskInventoryApp />}
-        {isReady && activeApp === "display" && <DisplayApp displaySession={displaySession} onActivity={resetIdleTimer} onOpenCalendar={() => openApp("calendar")} onOpenWeather={() => openApp("weather")} />}
+        {isReady && activeApp === "display" && <DisplayApp displaySession={displaySession} onActivity={resetIdleTimer} onOpenCalendar={() => openApp("calendar")} onOpenWeather={() => openApp("weather")} onOpenSolar={() => openApp("solar")} />}
       </div>
 
       {keyboardVisible && activeApp !== "display" && (

@@ -1,7 +1,8 @@
-import { CheckCircle2, Clock3, Volume2, VolumeX } from "lucide-react";
+import { CheckCircle2, Clock3, Home, Sun, UtilityPole, Volume2, VolumeX } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useCannvasData } from "../data/DataProvider";
 import { addCalendarDays, calendarDateKey, calendarEventTime, eventsForDate } from "../lib/calendar";
+import { FLOW_THRESHOLD_KW, formatKw, formatKwh, useSolar } from "../lib/solar";
 import { shuffledVideos } from "../lib/videoPlaylist";
 
 // The mirror proxies Bruce's private media service so the browser only needs
@@ -35,11 +36,13 @@ export function DisplayApp({
   onActivity,
   onOpenCalendar,
   onOpenWeather,
+  onOpenSolar,
 }: {
   displaySession: number;
   onActivity: () => void;
   onOpenCalendar: () => void;
   onOpenWeather: () => void;
+  onOpenSolar: () => void;
 }) {
   const { calendarEvents, calendarStatus, newsHeadlines } = useCannvasData();
   const [now, setNow] = useState(new Date());
@@ -118,6 +121,7 @@ export function DisplayApp({
       <div className="display-content">
         <p className="display-date">{now.toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" })}</p>
         <div className="display-time">{now.toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit", hour12: false })}</div>
+        <SolarHomeWidget onOpen={onOpenSolar} />
       </div>
 
       <aside
@@ -207,5 +211,28 @@ export function DisplayApp({
         )}
       </div>
     </section>
+  );
+}
+
+function SolarHomeWidget({ onOpen }: { onOpen: () => void }) {
+  const state = useSolar(15000);
+  if (state.kind !== "ready" || !state.solar.configured || !state.solar.now) return null;
+  const { now, today } = state.solar;
+  const gridKw = now.gridKw ?? 0;
+  return (
+    <button
+      type="button"
+      className="solar-home-widget"
+      aria-label="Open solar details"
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={onOpen}
+    >
+      <span className="solar"><Sun aria-hidden="true" />{formatKw(now.solarKw)}</span>
+      <span><Home aria-hidden="true" />{formatKw(now.houseKw)}</span>
+      <span className={gridKw > FLOW_THRESHOLD_KW ? "buying" : gridKw < -FLOW_THRESHOLD_KW ? "selling" : undefined}>
+        <UtilityPole aria-hidden="true" />{Math.abs(gridKw) > FLOW_THRESHOLD_KW ? formatKw(gridKw) : "0 W"}
+      </span>
+      {today?.generatedKwh != null && <small>{formatKwh(today.generatedKwh)} made today</small>}
+    </button>
   );
 }
