@@ -9,6 +9,7 @@ from importlib.util import module_from_spec, spec_from_loader
 import json
 import os
 from pathlib import Path
+import socket
 import tempfile
 import threading
 import time
@@ -180,6 +181,25 @@ class CannvasServerTest(unittest.TestCase):
         response, _ = self.request("GET", "/api/heartbeat")
         self.assertEqual(response.status, 204)
 
+    def test_concurrent_heartbeats_all_succeed(self) -> None:
+        statuses: list[int] = []
+
+        def ping() -> None:
+            response, _ = self.request("GET", "/api/heartbeat")
+            statuses.append(response.status)
+
+        threads = [threading.Thread(target=ping) for _ in range(20)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(statuses, [204] * 20)
+
+    def test_health_does_not_need_home_assistant(self) -> None:
+        response, body = self.request("GET", "/api/health")
+        self.assertEqual(response.status, 200)
+        self.assertEqual(json.loads(body), {"ok": True})
+
     def test_solar_uses_one_states_request(self) -> None:
         (self.temp / "home-assistant.json").write_text(json.dumps({"url": self.upstream_url, "token": "t" * 40}))
         self.module._SOLAR_CACHE.update(key=None)
@@ -211,8 +231,11 @@ class CannvasServerTest(unittest.TestCase):
         self.assertEqual(response.getheader("Content-Range"), "bytes */1234")
 
     def test_video_circuit_breaker(self) -> None:
-        # Nothing listens on port 9 locally, so the first request fails to connect.
-        self.module.VIDEO_URL = "http://127.0.0.1:9"
+        # Take a free loopback port and close it, so connecting is refused at once.
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            closed_port = probe.getsockname()[1]
+        self.module.VIDEO_URL = f"http://127.0.0.1:{closed_port}"
         response, _ = self.request("GET", "/videos/a.mp4")
         self.assertEqual(response.status, 502)
         started = time.monotonic()

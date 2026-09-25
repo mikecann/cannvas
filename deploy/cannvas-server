@@ -301,7 +301,9 @@ def parse_time(value: str) -> datetime:
 Points = list[tuple[float, float | None]]
 
 
-SOLAR_STATES_TIMEOUT = 3
+# /api/states is about 180 KB and answers in well under 100 ms on the LAN.
+# 5 s leaves room for a busy Home Assistant without letting the kiosk hang.
+SOLAR_STATES_TIMEOUT = 5
 SOLAR_HISTORY_TIMEOUT = 6
 
 
@@ -457,6 +459,7 @@ def solar_status(config: dict[str, str]) -> dict[str, Any]:
 
 VIDEO_RETRY_SECONDS = 60
 _VIDEO_LOCK = Lock()
+_HEARTBEAT_LOCK = Lock()
 _VIDEO_DOWN_UNTIL = 0.0
 IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
 
@@ -479,8 +482,10 @@ def mark_video_unavailable() -> bool:
 def write_heartbeat() -> None:
     clock = getattr(time, "CLOCK_BOOTTIME", time.CLOCK_MONOTONIC)
     temporary = HEARTBEAT_PATH.with_suffix(".new")
-    temporary.write_text(f"{time.clock_gettime(clock):.0f}\n", encoding="utf-8")
-    temporary.replace(HEARTBEAT_PATH)
+    # Two pings at once would otherwise share the temporary file.
+    with _HEARTBEAT_LOCK:
+        temporary.write_text(f"{time.clock_gettime(clock):.0f}\n", encoding="utf-8")
+        temporary.replace(HEARTBEAT_PATH)
 
 
 class CannvasHandler(SimpleHTTPRequestHandler):
@@ -704,6 +709,10 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
 
+    def health(self, query: str = "") -> None:
+        # Answers from this process alone, so deploys don't depend on Home Assistant.
+        self.send_json(200, {"ok": True})
+
     def post_poweroff(self) -> None:
         try:
             body = self.read_json()
@@ -771,6 +780,7 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         "/api/solar": get_solar,
         "/api/home-assistant/status": get_home_assistant_status,
         "/api/heartbeat": heartbeat,
+        "/api/health": health,
     }
     POST_ROUTES = {
         "/api/system/poweroff": post_poweroff,
