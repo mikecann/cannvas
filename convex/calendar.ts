@@ -2,7 +2,7 @@
 
 import ical, { type Attendee, type EventInstance, type ParameterValue, type VEvent } from "node-ical";
 import { v } from "convex/values";
-import { action } from "./_generated/server";
+import { deviceAction } from "./fluent";
 
 const MAX_RANGE_MS = 370 * 24 * 60 * 60 * 1000;
 
@@ -47,16 +47,24 @@ function toCalendarEvent(event: VEvent, instance: EventInstance) {
   };
 }
 
-export const events = action({
-  args: {
-    accessToken: v.string(),
+const calendarEvent = v.object({
+  id: v.string(),
+  title: v.string(),
+  start: v.string(),
+  end: v.string(),
+  allDay: v.boolean(),
+  location: v.optional(v.string()),
+});
+
+export const events = deviceAction
+  .input({
     start: v.string(),
     end: v.string(),
-  },
-  handler: async (_ctx, args) => {
+  })
+  .returns(v.object({ configured: v.boolean(), events: v.array(calendarEvent) }))
+  .handler(async (_ctx, args) => {
     const feedUrl = process.env.GOOGLE_CALENDAR_ICAL_URL;
-    const expectedToken = process.env.CALENDAR_ACCESS_TOKEN;
-    if (!feedUrl || !expectedToken || args.accessToken !== expectedToken) {
+    if (!feedUrl) {
       return { configured: false, events: [] };
     }
 
@@ -97,5 +105,5 @@ export const events = action({
         .sort((left, right) => left.start.localeCompare(right.start))
         .slice(0, 750),
     };
-  },
-});
+  })
+  .public();

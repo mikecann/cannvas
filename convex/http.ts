@@ -2,6 +2,7 @@ import { httpRouter } from "convex/server";
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 import { auth } from "./auth";
+import { bearerTokenMatches, tokensMatch } from "./lib/tokens";
 
 const http = httpRouter();
 auth.addHttpRoutes(http);
@@ -36,7 +37,7 @@ http.route({
   method: "GET",
   handler: httpAction(async (ctx, request) => {
     const url = new URL(request.url);
-    if (url.searchParams.get("setupToken") !== requiredEnv("GOOGLE_TASKS_SETUP_TOKEN")) {
+    if (!tokensMatch(url.searchParams.get("setupToken") ?? "", requiredEnv("GOOGLE_TASKS_SETUP_TOKEN"))) {
       return new Response("Not found", { status: 404 });
     }
     const state = crypto.randomUUID();
@@ -112,8 +113,7 @@ http.route({
   path: "/quick-add-todo",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
-    const expected = requiredEnv("CANNVAS_QUICK_ADD_TOKEN");
-    if (request.headers.get("Authorization") !== `Bearer ${expected}`) {
+    if (!bearerTokenMatches(request.headers.get("Authorization"), requiredEnv("CANNVAS_QUICK_ADD_TOKEN"))) {
       return json({ error: "Unauthorized" }, 401);
     }
     let body: {
@@ -158,8 +158,7 @@ http.route({
   path: "/kiosk-inventory",
   method: "GET",
   handler: httpAction(async (ctx, request) => {
-    const expected = requiredEnv("CANNVAS_KIOSK_INVENTORY_TOKEN");
-    if (request.headers.get("Authorization") !== `Bearer ${expected}`) {
+    if (!bearerTokenMatches(request.headers.get("Authorization"), requiredEnv("CANNVAS_KIOSK_INVENTORY_TOKEN"))) {
       return json({ error: "Unauthorized" }, 401);
     }
     const cursor = new URL(request.url).searchParams.get("cursor");
