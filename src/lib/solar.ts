@@ -36,23 +36,32 @@ export type SolarState =
   | { kind: "error"; message: string }
   | { kind: "ready"; solar: SolarStatus };
 
+// Ride out a brief Home Assistant blip, but never show old numbers as live.
+const STALE_AFTER_MS = 2 * 60 * 1000;
+// Without Home Assistant there is nothing to show, so only check back occasionally.
+const UNCONFIGURED_INTERVAL_MS = 5 * 60 * 1000;
+
 export function useSolar(intervalMs: number): SolarState {
   const [state, setState] = useState<SolarState>({ kind: "loading" });
 
   useEffect(() => {
     let cancelled = false;
     let timer: number | undefined;
+    let lastSuccess = 0;
     const load = async () => {
+      let nextDelay = intervalMs;
       try {
         const response = await fetch("/api/solar");
         const body = (await response.json()) as SolarStatus & { error?: string };
         if (!response.ok) throw new Error(body.error ?? "Solar data is unavailable");
+        lastSuccess = Date.now();
+        if (!body.configured) nextDelay = UNCONFIGURED_INTERVAL_MS;
         if (!cancelled) setState({ kind: "ready", solar: body });
       } catch (error) {
-        // Keep showing the last good reading through a brief Home Assistant blip.
-        if (!cancelled) setState((current) => current.kind === "ready" ? current : { kind: "error", message: error instanceof Error ? error.message : "Solar data is unavailable" });
+        const message = error instanceof Error ? error.message : "Solar data is unavailable";
+        if (!cancelled) setState((current) => current.kind === "ready" && Date.now() - lastSuccess < STALE_AFTER_MS ? current : { kind: "error", message });
       } finally {
-        if (!cancelled) timer = window.setTimeout(load, intervalMs);
+        if (!cancelled) timer = window.setTimeout(load, nextDelay);
       }
     };
     void load();

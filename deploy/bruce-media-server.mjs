@@ -102,7 +102,13 @@ export function createMediaServer({
     }
 
     try {
-      const pathname = decodeURIComponent(new URL(request.url, "http://localhost").pathname);
+      let pathname;
+      try {
+        pathname = decodeURIComponent(new URL(request.url, "http://localhost").pathname);
+      } catch {
+        sendError(response, 400, "Bad request");
+        return;
+      }
       const target = resolve(resolvedRoot, pathname.replace(/^\/+/, ""));
       if (!isInside(resolvedRoot, target)) {
         sendError(response, 403, "Forbidden");

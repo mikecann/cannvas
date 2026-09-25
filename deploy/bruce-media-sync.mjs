@@ -7,9 +7,15 @@ import { fileURLToPath } from "node:url";
 const sourceRoot = resolve(process.env.CANNVAS_MEDIA_SOURCE_ROOT ?? "/Volumes/CannMedia/PhotoArchive");
 const cacheRoot = resolve(process.env.CANNVAS_MEDIA_ROOT ?? "/Volumes/CannMedia/CannvasVideoCache");
 const maxConversions = Number(process.env.CANNVAS_MEDIA_MAX_CONVERSIONS ?? Number.POSITIVE_INFINITY);
-const scanConcurrency = Math.max(1, Number(process.env.CANNVAS_MEDIA_SCAN_CONCURRENCY ?? 8));
+const scanConcurrency = positiveInteger(process.env.CANNVAS_MEDIA_SCAN_CONCURRENCY, 8);
 const videoExtensions = new Set([".m4v", ".mov", ".mp4", ".webm"]);
 const failureBackoffs = [60_000, 5 * 60_000, 15 * 60_000, 30 * 60_000];
+
+// A typo in the env var must not quietly turn the scan into a no-op.
+export function positiveInteger(value, fallback) {
+  const number = Number(value ?? fallback);
+  return Number.isFinite(number) && number >= 1 ? Math.floor(number) : fallback;
+}
 
 export function isBrowserCompatibleCodec(codecs) {
   return /H\.264|AVC|VP8|VP9/i.test(codecs) && !/HEVC|H\.265/i.test(codecs);
@@ -36,8 +42,14 @@ export function conversionFailureBackoffMs(consecutiveFailures) {
   return failureBackoffs[Math.min(Math.floor(consecutiveFailures), failureBackoffs.length) - 1];
 }
 
+// Partials are dotfiles so the media server never lists a half-written video.
+// The unhidden form is what older syncs wrote, and is still cleaned up.
 export function isGeneratedPartialName(name) {
   return /\.m4v\.partial-\d+\.m4v$/i.test(name);
+}
+
+export function partialPath(converted, pid = process.pid) {
+  return join(dirname(converted), `.${basename(converted)}.partial-${pid}.m4v`);
 }
 
 export function cachePaths(source) {
@@ -112,7 +124,7 @@ async function removeGeneratedArtifacts({ direct, converted }) {
   }
   const partialPrefix = `${basename(converted)}.partial-`;
   await Promise.all(entries
-    .filter((name) => name.startsWith(partialPrefix))
+    .filter((name) => name.startsWith(partialPrefix) || name.startsWith(`.${partialPrefix}`))
     .map((name) => removeIfPresent(join(directory, name))));
 }
 
@@ -122,6 +134,22 @@ async function removeStalePartials(directory) {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) removed += await removeStalePartials(path);
     else if (entry.isFile() && isGeneratedPartialName(entry.name)) {
+      await unlink(path);
+      removed += 1;
+    }
+  }
+  return removed;
+}
+
+// Drop cache entries whose source was deleted or renamed in PhotoArchive, so
+// the display stops playing them and converted files don't pile up forever.
+export async function removeOrphans(directory, keep) {
+  let removed = 0;
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    if (entry.name.startsWith(".")) continue;
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) removed += await removeOrphans(path, keep);
+    else if ((entry.isFile() || entry.isSymbolicLink()) && videoExtensions.has(extname(entry.name).toLowerCase()) && !keep.has(path)) {
       await unlink(path);
       removed += 1;
     }
@@ -176,7 +204,7 @@ async function convertVideo(source, direct, converted) {
   await removeIfPresent(direct);
   // Keep the temporary filename's media extension because avconvert selects
   // its output container from that suffix.
-  const temporary = `${converted}.partial-${process.pid}.m4v`;
+  const temporary = partialPath(converted);
   await removeIfPresent(temporary);
   try {
     // Cannvas is a 1080p display. This preset produces H.264/AAC M4V files
@@ -208,6 +236,9 @@ export async function syncVideos() {
   let excludedShort = 0;
   let excludedLandscape = 0;
   let excludedUnknown = 0;
+  let inspectFailed = 0;
+  // Every cache path that still belongs to a current source.
+  const keep = new Set();
 
   let nextSource = 0;
   async function inspectNext() {
@@ -220,7 +251,17 @@ export async function syncVideos() {
         excludedScreen += 1;
         continue;
       }
-      const media = await inspectMedia(source);
+      let media;
+      try {
+        media = await inspectMedia(source);
+      } catch (error) {
+        // One unreadable file must not abort the whole scan. Keep whatever is
+        // already cached for it and try again next time.
+        inspectFailed += 1;
+        keep.add(paths.direct).add(paths.converted);
+        console.error(`Cannvas media scan could not inspect ${relative(sourceRoot, source)}: ${error instanceof Error ? error.message : String(error)}`);
+        continue;
+      }
       inspected += 1;
 
       if (!isEligibleVideo(media)) {
@@ -233,11 +274,13 @@ export async function syncVideos() {
         continue;
       }
 
+      keep.add(paths.direct).add(paths.converted);
       if (await hasCurrentConversion(source, paths.converted)) {
         cached += 1;
         continue;
       }
-      if (await hasCurrentDirectLink(source, paths.direct)) {
+      // A file replaced in place with HEVC keeps its old symlink, so check the codec too.
+      if (isBrowserCompatibleCodec(media.codecs) && await hasCurrentDirectLink(source, paths.direct)) {
         direct += 1;
         continue;
       }
@@ -255,7 +298,10 @@ export async function syncVideos() {
     () => inspectNext(),
   ));
 
-  console.log(`Cannvas media scan complete: ${direct} direct, ${cached} cached, ${pending.length} conversions pending, ${excludedScreen} screen recordings excluded, ${excludedShort} short excluded, ${excludedLandscape} landscape excluded, ${excludedUnknown} unknown excluded, ${inspected} inspected`);
+  // An unmounted or empty archive would otherwise look like "everything was deleted".
+  const orphans = sources.length > 0 ? await removeOrphans(cacheRoot, keep) : 0;
+
+  console.log(`Cannvas media scan complete: ${direct} direct, ${cached} cached, ${pending.length} conversions pending, ${excludedScreen} screen recordings excluded, ${excludedShort} short excluded, ${excludedLandscape} landscape excluded, ${excludedUnknown} unknown excluded, ${inspectFailed} could not be inspected, ${orphans} orphans removed, ${inspected} inspected`);
 
   let converted = 0;
   let failed = 0;

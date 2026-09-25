@@ -260,7 +260,7 @@ SOLAR_ENTITIES = {
 SOLAR_SERIES = ("solar", "house", "grid")
 SOLAR_TOTALS = ("imported", "exported")
 _SOLAR_LOCK = Lock()
-_SOLAR_CACHE: dict[str, Any] = {"day": None, "points": {}, "fetched_at": 0.0, "fetched_until": None}
+_SOLAR_CACHE: dict[str, Any] = {"key": None, "points": {}, "fetched_at": 0.0, "fetched_until": None}
 
 
 def number(value: Any) -> float | None:
@@ -275,7 +275,12 @@ def parse_time(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def solar_history(config: dict[str, str], start: datetime, end: datetime) -> dict[str, list[tuple[float, float]]]:
+# A None value marks "unknown"/"unavailable" so an outage ends the previous
+# reading instead of stretching it across the gap.
+Points = list[tuple[float, float | None]]
+
+
+def solar_history(config: dict[str, str], start: datetime, end: datetime) -> dict[str, Points]:
     ids = [SOLAR_ENTITIES[key] for key in (*SOLAR_SERIES, *SOLAR_TOTALS)]
     query = urlencode({
         "filter_entity_id": ",".join(ids),
@@ -285,7 +290,7 @@ def solar_history(config: dict[str, str], start: datetime, end: datetime) -> dic
     })
     result = home_assistant_request(config, f"/api/history/period/{start.isoformat()}?{query}")
     keys = {entity: key for key, entity in SOLAR_ENTITIES.items()}
-    points: dict[str, list[tuple[float, float]]] = {}
+    points: dict[str, Points] = {}
     for rows in result or []:
         if not rows:
             continue
@@ -296,37 +301,50 @@ def solar_history(config: dict[str, str], start: datetime, end: datetime) -> dic
         for row in rows:
             value = number(row.get("state", row.get("s")))
             stamp = row.get("last_changed") or row.get("lc") or row.get("last_updated") or row.get("lu")
-            if value is None or stamp is None:
+            if stamp is None:
                 continue
             seconds = float(stamp) if isinstance(stamp, (int, float)) else parse_time(stamp).timestamp()
             series.append((seconds, value))
     return points
 
 
-def refresh_solar_history(config: dict[str, str], now: datetime) -> dict[str, list[tuple[float, float]]]:
-    """Keep today's change points, fetching only what changed since the last call."""
+def refresh_solar_history(config: dict[str, str], now: datetime) -> dict[str, Points]:
+    """Keep today's change points, fetching only what changed since the last call.
+
+    The Home Assistant request happens outside the lock so a slow response
+    never queues up other requests behind it.
+    """
     day = now.astimezone(SOLAR_ZONE).date()
+    # A new day or a different Home Assistant server starts a fresh history.
+    key = (day, config["url"])
     with _SOLAR_LOCK:
-        cache = _SOLAR_CACHE
-        if cache["day"] != day:
-            midnight = datetime.combine(day, datetime.min.time(), SOLAR_ZONE)
-            cache.update(day=day, points=solar_history(config, midnight, now), fetched_at=time.monotonic(), fetched_until=now)
-        elif time.monotonic() - cache["fetched_at"] >= SOLAR_HISTORY_TTL:
-            fresh = solar_history(config, cache["fetched_until"], now)
-            for key, rows in fresh.items():
-                series = cache["points"].setdefault(key, [])
-                last = series[-1][0] if series else 0
-                series.extend(row for row in rows if row[0] > last)
-            cache.update(fetched_at=time.monotonic(), fetched_until=now)
-        return {key: list(rows) for key, rows in cache["points"].items()}
+        cache = dict(_SOLAR_CACHE)
+    if cache["key"] != key:
+        midnight = datetime.combine(day, datetime.min.time(), SOLAR_ZONE)
+        points = solar_history(config, midnight, now)
+        with _SOLAR_LOCK:
+            _SOLAR_CACHE.update(key=key, points=points, fetched_at=time.monotonic(), fetched_until=now)
+    elif time.monotonic() - cache["fetched_at"] >= SOLAR_HISTORY_TTL:
+        fresh = solar_history(config, cache["fetched_until"], now)
+        with _SOLAR_LOCK:
+            if _SOLAR_CACHE["key"] == key:
+                for name, rows in fresh.items():
+                    series = _SOLAR_CACHE["points"].setdefault(name, [])
+                    last = series[-1][0] if series else 0
+                    series.extend(row for row in rows if row[0] > last)
+                _SOLAR_CACHE.update(fetched_at=time.monotonic(), fetched_until=now)
+    with _SOLAR_LOCK:
+        return {name: list(rows) for name, rows in _SOLAR_CACHE["points"].items()}
 
 
-def bucket_averages(points: list[tuple[float, float]], start: float, end: float, step: float) -> list[float | None]:
+def bucket_averages(points: Points, start: float, end: float, step: float) -> list[float | None]:
     """Time-weighted averages. HA only records changes, so each value holds until the next one."""
     count = max(0, int((end - start) // step) + 1)
     totals = [0.0] * count
     covered = [0.0] * count
     for index, (stamp, value) in enumerate(points):
+        if value is None:
+            continue
         until = points[index + 1][0] if index + 1 < len(points) else end
         begin, finish = max(stamp, start), min(until, end)
         while begin < finish:
@@ -338,9 +356,11 @@ def bucket_averages(points: list[tuple[float, float]], start: float, end: float,
     return [round(totals[i] / covered[i], 3) if covered[i] else None for i in range(count)]
 
 
-def integrate_kwh(points: list[tuple[float, float]], start: float, end: float) -> float:
+def integrate_kwh(points: Points, start: float, end: float) -> float:
     total = 0.0
     for index, (stamp, value) in enumerate(points):
+        if value is None:
+            continue
         until = points[index + 1][0] if index + 1 < len(points) else end
         total += value * max(0.0, min(until, end) - max(stamp, start))
     return total / 3600
@@ -357,8 +377,9 @@ def solar_status(config: dict[str, str]) -> dict[str, Any]:
     midnight = datetime.combine(now.astimezone(SOLAR_ZONE).date(), datetime.min.time(), SOLAR_ZONE)
 
     def since_midnight(key: str) -> float | None:
-        rows, current = points.get(key), value[key]
-        return round(max(0.0, current - rows[0][1]), 2) if rows and current is not None else None
+        first = next((row[1] for row in points.get(key, []) if row[1] is not None), None)
+        current = value[key]
+        return round(max(0.0, current - first), 2) if first is not None and current is not None else None
 
     series = {
         key: bucket_averages(points.get(key, []), midnight.timestamp(), now.timestamp(), SOLAR_STEP.total_seconds())
@@ -367,10 +388,10 @@ def solar_status(config: dict[str, str]) -> dict[str, Any]:
     # The inverter keeps its clock (and its "today" counter) in UTC, which
     # resets at 8am in Perth. Integrate the power history instead.
     solar_points = points.get("solar", [])
-    generated = round(integrate_kwh(solar_points, midnight.timestamp(), now.timestamp()), 2) if solar_points else None
+    generated = round(integrate_kwh(solar_points, midnight.timestamp(), now.timestamp()), 2) if any(row[1] is not None for row in solar_points) else None
     imported, exported = since_midnight("imported"), since_midnight("exported")
     consumed = round(generated + imported - exported, 2) if None not in (generated, imported, exported) else None
-    peak = max(((row[1], row[0]) for row in points.get("solar", [])), default=None)
+    peak = max(((row[1], row[0]) for row in solar_points if row[1] is not None), default=None)
     grid = value["grid"]
     return {
         "configured": True,

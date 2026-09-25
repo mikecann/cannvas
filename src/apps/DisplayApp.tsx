@@ -74,15 +74,21 @@ export function DisplayApp({
   useEffect(() => {
     void crawlVideos().then((found) => {
       if (found.length > 0) {
+        // Keep the clip that started from the cached list at the front, so the
+        // fresh listing doesn't cut it off a few seconds into playback.
+        const playing = playingVideo.current;
         const randomized = shuffledVideos(found);
-        setVideos(randomized);
+        const ordered = playing && randomized.includes(playing) ? [playing, ...randomized.filter((video) => video !== playing)] : randomized;
+        setVideos(ordered);
         setVideoIndex(0);
-        localStorage.setItem(VIDEO_CACHE_KEY, JSON.stringify(randomized));
+        localStorage.setItem(VIDEO_CACHE_KEY, JSON.stringify(ordered));
       }
     }).catch(() => undefined);
   }, []);
 
   const currentVideo = videos[videoIndex % Math.max(1, videos.length)];
+  const playingVideo = useRef(currentVideo);
+  playingVideo.current = currentVideo;
   const todayKey = calendarDateKey(now);
   const todayEvents = useMemo(() => eventsForDate(calendarEvents, todayKey), [calendarEvents, todayKey]);
   const upcomingEvents = useMemo(() => {
@@ -218,7 +224,7 @@ function SolarHomeWidget({ onOpen }: { onOpen: () => void }) {
   const state = useSolar(15000);
   if (state.kind !== "ready" || !state.solar.configured || !state.solar.now) return null;
   const { now } = state.solar;
-  const gridKw = now.gridKw ?? 0;
+  const gridKw = now.gridKw;
   return (
     <button
       type="button"
@@ -229,8 +235,8 @@ function SolarHomeWidget({ onOpen }: { onOpen: () => void }) {
     >
       <span className="solar"><Sun aria-hidden="true" />{formatKw(now.solarKw)}</span>
       <span><Home aria-hidden="true" />{formatKw(now.houseKw)}</span>
-      <span className={gridKw > FLOW_THRESHOLD_KW ? "buying" : gridKw < -FLOW_THRESHOLD_KW ? "selling" : undefined}>
-        <UtilityPole aria-hidden="true" />{Math.abs(gridKw) > FLOW_THRESHOLD_KW ? formatKw(gridKw) : "0 W"}
+      <span className={gridKw == null ? undefined : gridKw > FLOW_THRESHOLD_KW ? "buying" : gridKw < -FLOW_THRESHOLD_KW ? "selling" : undefined}>
+        <UtilityPole aria-hidden="true" />{gridKw == null ? "–" : Math.abs(gridKw) > FLOW_THRESHOLD_KW ? formatKw(gridKw) : "0 W"}
       </span>
     </button>
   );

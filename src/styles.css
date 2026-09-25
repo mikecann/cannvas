@@ -751,7 +751,7 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .solar-flow { position: absolute; inset: 0; width: 100%; height: 100%; }
 .solar-flow-line path { fill: none; stroke-width: 10; stroke-linecap: round; }
 .solar-flow-line .track { stroke: #ebe4d7; }
-.solar-flow-line .dots { stroke-width: 12; stroke-dasharray: 2 34; animation: solar-flow linear infinite; }
+.solar-flow-line .dots { stroke-width: 12; stroke-dasharray: 2 34; animation: solar-flow 2.4s linear infinite; }
 .solar-flow-line.solar .dots { stroke: #f5a524; }
 .solar-flow-line.grid .dots { stroke: #5b7fd6; }
 .solar-flow-line.export .dots { stroke: var(--green); }
@@ -793,7 +793,7 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .solar-chart-house { fill: none; stroke: var(--ink); stroke-width: 3; stroke-linejoin: round; }
 .solar-chart-now { stroke: var(--orange); stroke-width: 2; stroke-dasharray: 6 6; }
 
-.solar-home-widget { position: absolute; left: 4px; bottom: 100%; margin-bottom: 12px; padding: 0; display: flex; align-items: center; gap: 18px; border: 0; color: rgba(255,255,255,.82); background: none; font: 700 1.05rem "DM Sans", sans-serif; text-shadow: 0 1px 3px rgba(0,0,0,.7); white-space: nowrap; cursor: pointer; }
+.solar-home-widget { position: absolute; left: 4px; bottom: 100%; margin-bottom: 2px; min-height: 52px; padding: 0 4px; display: flex; align-items: center; gap: 18px; border: 0; color: rgba(255,255,255,.82); background: none; font: 700 1.05rem "DM Sans", sans-serif; text-shadow: 0 1px 3px rgba(0,0,0,.7); white-space: nowrap; cursor: pointer; }
 .solar-home-widget span { display: flex; align-items: center; gap: 7px; }
 .solar-home-widget svg { width: 19px; height: 19px; filter: drop-shadow(0 1px 2px rgba(0,0,0,.6)); }
 .solar-home-widget .solar svg { color: #ffc84d; }

@@ -12,7 +12,7 @@ export function SolarApp() {
           <p className="eyebrow">Solar</p>
           <h1>Right now</h1>
         </div>
-        {state.kind === "ready" && <SolarStatusPill solar={state.solar} />}
+        {state.kind === "ready" && state.solar.configured && <SolarStatusPill solar={state.solar} />}
       </header>
 
       {state.kind === "loading" && <div className="solar-message">Reading the inverter…</div>}
@@ -47,19 +47,20 @@ function SolarStatusPill({ solar }: { solar: SolarStatus }) {
 }
 
 function PowerFlow({ solar }: { solar: SolarStatus }) {
-  const solarKw = solar.now?.solarKw ?? 0;
-  const houseKw = solar.now?.houseKw ?? 0;
-  const gridKw = solar.now?.gridKw ?? 0;
-  const importing = gridKw > FLOW_THRESHOLD_KW;
-  const exporting = gridKw < -FLOW_THRESHOLD_KW;
-  const producing = solarKw > FLOW_THRESHOLD_KW;
+  // Keep missing readings as null so they show "–" rather than a false 0 W.
+  const solarKw = solar.now?.solarKw ?? null;
+  const houseKw = solar.now?.houseKw ?? null;
+  const gridKw = solar.now?.gridKw ?? null;
+  const importing = gridKw != null && gridKw > FLOW_THRESHOLD_KW;
+  const exporting = gridKw != null && gridKw < -FLOW_THRESHOLD_KW;
+  const producing = solarKw != null && solarKw > FLOW_THRESHOLD_KW;
 
   return (
     <div className="solar-flow-card">
       <svg className="solar-flow" viewBox="0 0 1000 520" role="img" aria-label={`Solar ${formatKw(solarKw)}, home using ${formatKw(houseKw)}, grid ${importing ? "supplying" : exporting ? "receiving" : "idle"} ${formatKw(gridKw)}`}>
-        <FlowLine d="M 210 238 C 210 350, 320 400, 430 400" active={producing} kw={solarKw} tone="solar" />
-        <FlowLine d="M 790 238 C 790 350, 680 400, 570 400" active={importing} kw={gridKw} tone="grid" />
-        <FlowLine d="M 290 110 L 710 110" active={exporting} kw={gridKw} tone="export" />
+        <FlowLine d="M 210 238 C 210 350, 320 400, 430 400" active={producing} kw={solarKw ?? 0} tone="solar" />
+        <FlowLine d="M 790 238 C 790 350, 680 400, 570 400" active={importing} kw={gridKw ?? 0} tone="grid" />
+        <FlowLine d="M 290 110 L 710 110" active={exporting} kw={gridKw ?? 0} tone="export" />
       </svg>
       <FlowNode className="solar" x={21} y={21} icon={<Sun />} label="Solar" value={formatKw(solarKw)} />
       <FlowNode className="grid" x={79} y={21} icon={<UtilityPole />} label={exporting ? "Selling" : "Grid"} value={formatKw(gridKw)} />
