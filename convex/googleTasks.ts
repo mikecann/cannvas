@@ -19,7 +19,13 @@ type Connection = {
   dadListId?: string;
   dadListCheckedAt?: number;
   lastPolledAt?: number;
-  pollCursor?: { pageToken: string; updatedMin?: string; startedAt: number };
+  pollCursor?: {
+    pageToken: string;
+    updatedMin?: string;
+    startedAt: number;
+    skippedDeletions?: number;
+    allowDeletions?: number;
+  };
 };
 type GoogleTaskList = { id: string; title: string };
 type GoogleTask = {
@@ -321,7 +327,6 @@ export const poll = internalAction({
         pageToken = page.nextPageToken;
         pageCount += 1;
       } while (pageToken && pageCount < MAX_POLL_PAGES);
-      const nextCursor = pageToken ? { pageToken, updatedMin, startedAt: pollStartedAt } : null;
 
       const activeGoogleTaskIds = new Set(
         await ctx.runQuery(internal.todos.listActiveGoogleTaskIds, {
@@ -331,8 +336,15 @@ export const poll = internalAction({
       const linkedDeletions = tasks.filter(
         (task) => task.deleted === true && activeGoogleTaskIds.has(task.id),
       );
-      const deletionLimit = Math.max(MAX_GOOGLE_DELETIONS_PER_POLL, args.allowDeletions ?? 0);
+      // A manual allowance carries through every batch of the same window.
+      const allowDeletions = args.allowDeletions ?? resume?.allowDeletions;
+      const deletionLimit = Math.max(MAX_GOOGLE_DELETIONS_PER_POLL, allowDeletions ?? 0);
       const skipLinkedDeletions = linkedDeletions.length > deletionLimit;
+      const skippedDeletions = (resume?.skippedDeletions ?? 0)
+        + (skipLinkedDeletions ? linkedDeletions.length : 0);
+      const nextCursor = pageToken
+        ? { pageToken, updatedMin, startedAt: pollStartedAt, skippedDeletions, allowDeletions }
+        : null;
 
       // Everything else still syncs. Skipped deletions leave the Cannvas
       // to-dos in place, which is the safe direction.
@@ -351,16 +363,18 @@ export const poll = internalAction({
       }
 
       const problems = [
-        ...(skipLinkedDeletions
-          ? [`Skipped ${linkedDeletions.length} linked deletions (limit ${deletionLimit}). `
-            + `If they are real, run googleTasks:poll with {"fullSync":true,"allowDeletions":${linkedDeletions.length}}.`]
+        ...(skippedDeletions > 0
+          ? [`Skipped ${skippedDeletions} linked deletions in this poll window (limit ${deletionLimit} per batch). `
+            + `If they are real, run googleTasks:poll with {"fullSync":true,"allowDeletions":${skippedDeletions}}.`]
           : []),
       ];
       if (problems.length > 0) console.error(`Google Tasks poll: ${problems.join(" ")}`);
-      // Only move the watermark once the whole window has been read. Until
-      // then the cursor carries on from where this batch stopped.
+      // Only move the watermark once the whole window has been read, and not
+      // at all while deletions were skipped: the next poll reads the same
+      // window again, so they stay reported until someone deals with them.
+      const windowComplete = nextCursor === null;
       await ctx.runMutation(internal.googleTasksStore.recordPoll, {
-        ...(nextCursor ? {} : { lastPolledAt: pollStartedAt }),
+        ...(windowComplete && skippedDeletions === 0 ? { lastPolledAt: pollStartedAt } : {}),
         pollCursor: nextCursor,
         error: problems.length > 0 ? problems.join(" ") : undefined,
       });

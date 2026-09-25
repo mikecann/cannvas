@@ -12,6 +12,8 @@ const connection = v.object({
     pageToken: v.string(),
     updatedMin: v.optional(v.string()),
     startedAt: v.number(),
+    skippedDeletions: v.optional(v.number()),
+    allowDeletions: v.optional(v.number()),
   })),
 });
 
@@ -122,6 +124,9 @@ export const recordPoll = internalMutation({
       pageToken: v.string(),
       updatedMin: v.optional(v.string()),
       startedAt: v.number(),
+      // Linked deletions skipped in earlier batches of this window.
+      skippedDeletions: v.optional(v.number()),
+      allowDeletions: v.optional(v.number()),
     }))),
     error: v.optional(v.string()),
   },

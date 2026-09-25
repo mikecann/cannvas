@@ -77,7 +77,6 @@ export default defineSchema({
   })
     .index("by_deleted_at_and_created_at", ["deletedAt", "createdAt"])
     .index("by_legacy_id", ["legacyId"])
-    .index("by_sync_state", ["syncState"])
     .index("by_sync_state_and_next_sync_at", ["syncState", "nextSyncAt"])
     .index("by_google_task_list_id_and_google_task_id", ["googleTaskListId", "googleTaskId"]),
   googleTasksConnections: defineTable({
@@ -98,6 +97,9 @@ export default defineSchema({
       pageToken: v.string(),
       updatedMin: v.optional(v.string()),
       startedAt: v.number(),
+      // Linked deletions skipped in earlier batches of this window.
+      skippedDeletions: v.optional(v.number()),
+      allowDeletions: v.optional(v.number()),
     })),
     lastPollError: v.optional(v.string()),
     lastPollErrorAt: v.optional(v.number()),
