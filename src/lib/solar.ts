@@ -26,8 +26,30 @@ export type SolarStatus = {
     solar: Array<number | null>;
     house: Array<number | null>;
     grid: Array<number | null>;
+    /** Forecast.Solar's modelled output. Missing on older servers. */
+    possible?: Array<number | null>;
+  };
+  /** Forecast.Solar estimates. Each value is null if its sensor is missing. */
+  forecast?: {
+    potentialKw: number | null;
+    todayKwh: number | null;
+    remainingKwh: number | null;
+    tomorrowKwh: number | null;
+    peakAt: string | null;
   };
 };
+
+/**
+ * Sun the panels could have turned into power but didn't. The system is zero
+ * export with no battery, so the inverter only makes what the house uses.
+ * Returns null unless the forecast is clearly above actual output, since the
+ * forecast is a model and small gaps are just noise.
+ */
+export function spareSolarKw(actualKw: number | null | undefined, potentialKw: number | null | undefined): number | null {
+  if (actualKw == null || potentialKw == null) return null;
+  const spare = potentialKw - Math.max(0, actualKw);
+  return spare >= Math.max(0.3, potentialKw * 0.15) ? Math.round(spare * 100) / 100 : null;
+}
 
 export type SolarState =
   | { kind: "loading" }

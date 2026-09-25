@@ -277,9 +277,33 @@ SOLAR_ENTITIES = {
     "exported": "sensor.solis_total_grid_export",
     "status": "sensor.solis_inverter_status",
     "temperature": "sensor.solis_inverter_temperature",
+    # Forecast.Solar's modelled output for the 8 kWp array right now. The
+    # system is zero export with no battery, so actual solar is capped at what
+    # the house uses. The gap between the two is sun going unused.
+    "possible": "sensor.power_production_now",
 }
+# Forecast.Solar's estimates for the day. Missing entities read as null.
+SOLAR_FORECAST_ENTITIES = {
+    "todayKwh": "sensor.energy_production_today",
+    "remainingKwh": "sensor.energy_production_today_remaining",
+    "tomorrowKwh": "sensor.energy_production_tomorrow",
+}
+SOLAR_FORECAST_PEAK = "sensor.power_highest_peak_time_today"
 SOLAR_SERIES = ("solar", "house", "grid")
 SOLAR_TOTALS = ("imported", "exported")
+SOLAR_HISTORY = (*SOLAR_SERIES, "possible", *SOLAR_TOTALS)
+
+
+def kilo_divisor(state: dict[str, Any]) -> int:
+    """1000 for a sensor reporting W or Wh, 1 for kW or kWh."""
+    attributes = state.get("attributes") if isinstance(state.get("attributes"), dict) else {}
+    return 1000 if attributes.get("unit_of_measurement") in {"W", "Wh"} else 1
+
+
+def in_kilo(state: dict[str, Any]) -> float | None:
+    """A power or energy reading in kW or kWh, whatever unit Home Assistant uses."""
+    value = number(state.get("state"))
+    return round(value / kilo_divisor(state), 3) if value is not None else None
 _SOLAR_LOCK = Lock()
 _SOLAR_CACHE: dict[str, Any] = {"key": None, "points": {}, "fetched_at": 0.0, "fetched_until": None}
 
@@ -308,7 +332,7 @@ SOLAR_HISTORY_TIMEOUT = 6
 
 
 def solar_history(config: dict[str, str], start: datetime, end: datetime) -> dict[str, Points]:
-    ids = [SOLAR_ENTITIES[key] for key in (*SOLAR_SERIES, *SOLAR_TOTALS)]
+    ids = [SOLAR_ENTITIES[key] for key in SOLAR_HISTORY]
     query = urlencode({
         "filter_entity_id": ",".join(ids),
         "end_time": end.isoformat(),
@@ -413,8 +437,12 @@ def solar_status(config: dict[str, str]) -> dict[str, Any]:
 
     series = {
         key: bucket_averages(points.get(key, []), midnight.timestamp(), now.timestamp(), SOLAR_STEP.total_seconds())
-        for key in SOLAR_SERIES
+        for key in (*SOLAR_SERIES, "possible")
     }
+    # History comes back in the sensor's own unit, which is W for the forecast.
+    possible_divisor = kilo_divisor(states["possible"])
+    forecast_states = {key: by_id.get(entity) or {} for key, entity in SOLAR_FORECAST_ENTITIES.items()}
+    peak_forecast = (by_id.get(SOLAR_FORECAST_PEAK) or {}).get("state")
     # The inverter keeps its clock (and its "today" counter) in UTC, which
     # resets at 8am in Perth. Integrate the power history instead.
     solar_points = points.get("solar", [])
@@ -428,7 +456,8 @@ def solar_status(config: dict[str, str]) -> dict[str, Any]:
         "connected": True,
         # last_reported moves on every poll even when the value is unchanged, so
         # it shows whether the integration is still alive.
-        "updatedAt": max((state.get("last_reported") or state.get("last_updated", "") for state in states.values()), default=None) or None,
+        # The forecast is a model, not the inverter, so it can't vouch for freshness.
+        "updatedAt": max((state.get("last_reported") or state.get("last_updated", "") for key, state in states.items() if key != "possible"), default=None) or None,
         "status": states["status"].get("state"),
         "now": {
             "solarKw": value["solar"],
@@ -453,6 +482,13 @@ def solar_status(config: dict[str, str]) -> dict[str, Any]:
             "solar": series["solar"],
             "house": series["house"],
             "grid": [-point if point is not None else None for point in series["grid"]],
+            "possible": [round(point / possible_divisor, 3) if point is not None else None for point in series["possible"]],
+        },
+        # Forecast.Solar estimates. Each is null if its sensor is missing.
+        "forecast": {
+            "potentialKw": in_kilo(states["possible"]),
+            **{key: in_kilo(state) for key, state in forecast_states.items()},
+            "peakAt": peak_forecast if peak_forecast not in {None, "unknown", "unavailable"} else None,
         },
     }
 

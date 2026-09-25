@@ -49,6 +49,10 @@ class FakeUpstream(BaseHTTPRequestHandler):
                 {"entity_id": "sensor.solis_load_power", "state": "2.5", "last_updated": "2026-09-25T01:00:00+00:00"},
                 {"entity_id": "sensor.solis_grid_power", "state": "1.0", "last_updated": "2026-09-25T01:00:00+00:00"},
                 {"entity_id": "sensor.solis_inverter_status", "state": "Normal", "last_updated": "2026-09-25T01:00:00+00:00"},
+                {"entity_id": "sensor.power_production_now", "state": "3450", "attributes": {"unit_of_measurement": "W"}, "last_updated": "2026-09-25T02:00:00+00:00"},
+                {"entity_id": "sensor.energy_production_today", "state": "15.889", "attributes": {"unit_of_measurement": "kWh"}},
+                {"entity_id": "sensor.energy_production_tomorrow", "state": "8856", "attributes": {"unit_of_measurement": "Wh"}},
+                {"entity_id": "sensor.power_highest_peak_time_today", "state": "2026-09-25T04:00:00+00:00"},
                 {"entity_id": "light.kitchen", "state": "on"},
             ]).encode()
             self.reply(200, body, "application/json")
@@ -223,6 +227,24 @@ class CannvasServerTest(unittest.TestCase):
         self.assertEqual(value["status"], "Normal")
         state_requests = [path for path, _ in FakeUpstream.requests if path.startswith("/api/states")]
         self.assertEqual(state_requests, ["/api/states"])
+
+    def test_solar_includes_forecast_in_kilowatts(self) -> None:
+        (self.temp / "home-assistant.json").write_text(json.dumps({"url": self.upstream_url, "token": "t" * 40}))
+        self.module._SOLAR_CACHE.update(key=None)
+        response, body = self.request("GET", "/api/solar")
+        self.assertEqual(response.status, 200)
+        value = json.loads(body)
+        self.assertEqual(value["forecast"], {
+            "potentialKw": 3.45,
+            "todayKwh": 15.889,
+            # Not reported by the fake Home Assistant.
+            "remainingKwh": None,
+            "tomorrowKwh": 8.856,
+            "peakAt": "2026-09-25T04:00:00+00:00",
+        })
+        # The forecast's newer timestamp must not make stale inverter data look live.
+        self.assertEqual(value["updatedAt"], "2026-09-25T01:00:00+00:00")
+        self.assertIn("possible", value["series"])
 
     def test_sun_without_home_assistant(self) -> None:
         response, body = self.request("GET", "/api/sun")

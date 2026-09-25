@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isSolarFresh } from "../src/lib/solar.ts";
+import { isSolarFresh, spareSolarKw } from "../src/lib/solar.ts";
 
 const now = Date.parse("2026-09-25T08:00:00+08:00");
 const secondsAgo = (seconds) => new Date(now - seconds * 1000).toISOString();
@@ -19,4 +19,14 @@ test("treats missing or unreadable timestamps as stale", () => {
   assert.equal(isSolarFresh({ updatedAt: null }, now), false);
   assert.equal(isSolarFresh({}, now), false);
   assert.equal(isSolarFresh({ updatedAt: "not a date" }, now), false);
+});
+
+test("reports spare solar only when the estimate is clearly higher", () => {
+  assert.equal(spareSolarKw(1.2, 5.4), 4.2);
+  // Within the model's noise.
+  assert.equal(spareSolarKw(2.19, 2.3), null);
+  // Actual above the estimate happens too.
+  assert.equal(spareSolarKw(2.19, 1.85), null);
+  assert.equal(spareSolarKw(null, 5), null);
+  assert.equal(spareSolarKw(1, null), null);
 });

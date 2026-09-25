@@ -821,6 +821,13 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .solar-chart-import { fill: rgba(91,127,214,.3); }
 .solar-chart-house { fill: none; stroke: var(--ink); stroke-width: 3; stroke-linejoin: round; }
 .solar-chart-now { stroke: var(--orange); stroke-width: 2; stroke-dasharray: 6 6; }
+.solar-chart-possible { fill: none; stroke: #e3a33a; stroke-width: 2.5; stroke-dasharray: 3 7; stroke-linecap: round; opacity: .75; }
+.solar-chart-legend .possible::before { height: 0; border-top: 3px dotted #e3a33a; border-radius: 0; }
+.solar-flow-note { margin-top: 3px; color: #b86f00; font-size: .8rem; font-style: normal; font-weight: 800; }
+.solar-potential { flex: 0 0 auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 4px; border: 1px solid #e2dbd0; border-radius: 22px; background: var(--paper); box-shadow: 0 8px 22px rgba(64,53,38,.06); }
+.solar-potential.has-spare { border-color: #f7d68e; background: #fff6de; }
+.solar-potential strong { font: 700 1.3rem "Fraunces", serif; }
+.solar-potential span { color: var(--muted); font-size: .9rem; font-weight: 600; line-height: 1.4; }
 
 .solar-home-widget { position: absolute; left: 4px; bottom: 100%; margin-bottom: 2px; min-height: 52px; padding: 0 4px; display: flex; align-items: center; gap: 18px; border: 0; color: rgba(255,255,255,.82); background: none; font: 700 1.05rem "DM Sans", sans-serif; text-shadow: 0 1px 3px rgba(0,0,0,.7); white-space: nowrap; cursor: pointer; }
 .solar-home-widget span { display: flex; align-items: center; gap: 7px; }
