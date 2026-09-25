@@ -36,8 +36,8 @@ keep=${3:-5}
 healthy() {
   attempt=0
   while [ "$attempt" -lt 20 ]; do
-    if curl -fsS -o /dev/null --max-time 5 http://127.0.0.1:4173/ \
-      && curl -fsS -o /dev/null --max-time 15 http://127.0.0.1:4173/api/solar; then
+    if curl -fs -o /dev/null --max-time 5 http://127.0.0.1:4173/ \
+      && curl -fs -o /dev/null --max-time 15 http://127.0.0.1:4173/api/solar; then
       # Releases with www/ must not expose the files beside it.
       if [ ! -d "$root/current/www" ] \
         || [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:4173/cannvas-server)" = 404 ]; then

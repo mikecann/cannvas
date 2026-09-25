@@ -96,15 +96,15 @@ items placed in Giveaway or To Giveaway and leaves out household locations,
 history, creator details, and AI research sources.
 
 The family touchscreen has a separate read-only Inventory view that does not
-ask for a login. Its access token stays on the mirror and is never included in
-the public browser bundle. When setting up a new mirror, configure it with:
+ask for a login. Its access token stays on the Pi and is never included in
+the public browser bundle. When setting up a new Pi, configure it with:
 
 ```sh
 ./deploy/configure-kiosk-inventory https://your-deployment.convex.site
 ```
 
-You can pass the mirror's Tailscale hostname as a second argument when it is not
-named `mirror`.
+You can pass the Pi's Tailscale hostname as a second argument when it is not
+named `cannvas`.
 
 ### Google Calendar
 
@@ -216,6 +216,104 @@ trigger for the display permission loss was not established. Recovery should
 not depend on that trigger: killing Chromium must restart its user service,
 and terminating Pi's Labwc must restore the desktop through the timer. A full
 reboot should start the desktop, browser, keyboard and timer without a login.
+
+### Deploying
+
+`deploy/deploy.sh` builds the app and ships it to the Pi (Tailscale host
+`cannvas`):
+
+```sh
+deploy/deploy.sh            # build, upload, switch, health check
+deploy/deploy.sh rollback   # switch back to the previous release
+```
+
+Each release lives in `/opt/cannvas/releases/<YYYYmmdd-HHMMSS>-<sha>`, owned by
+root, with the web build in `www/` and `cannvas-server` beside it. The server
+only serves `www/`, so the script and anything else in the release stay
+private. The deploy switches `/opt/cannvas/current` with an atomic rename,
+restarts `cannvas-web` and the kiosk, and checks that `/` and `/api/solar`
+answer. If they don't, it switches back on its own. It keeps the newest five
+releases plus the previous one.
+
+Set `CANNVAS_HOST`, `CANNVAS_BUILD`, `CANNVAS_DIST` or `CANNVAS_SKIP_BUILD=1`
+to change the host, build command, build output directory, or to reuse an
+existing build. The build reads `VITE_CALENDAR_ACCESS_TOKEN` from the untracked
+`.env.local`.
+
+The server has tests you can run on any machine with Python 3.11 or newer:
+
+```sh
+python3 -m unittest deploy/cannvas_server_test.py
+```
+
+### Installing the system pieces
+
+The deploy script only ships the app. The units and helper scripts are
+installed once:
+
+```sh
+# Web server and the power-off helper it may start through polkit
+sudo install -m 0644 deploy/cannvas-web.service deploy/cannvas-poweroff.service \
+  deploy/cannvas-ha-shutdown.service /etc/systemd/system/
+sudo install -m 0644 deploy/50-cannvas-poweroff.rules /etc/polkit-1/rules.d/
+sudo install -m 0755 deploy/cannvas-ha-shutdown /usr/local/bin/
+
+# Kiosk watchdog (a user timer, like the kiosk itself)
+sudo install -m 0755 deploy/cannvas-kiosk-watchdog /usr/local/bin/
+install -m 0644 deploy/cannvas-kiosk-watchdog.service \
+  deploy/cannvas-kiosk-watchdog.timer ~/.config/systemd/user/
+
+# Smaller journal on the SD card
+sudo install -D -m 0644 deploy/journald-cannvas.conf \
+  /etc/systemd/journald.conf.d/cannvas.conf
+
+sudo systemctl daemon-reload
+sudo systemctl restart systemd-journald
+sudo systemctl enable --now cannvas-web.service cannvas-ha-shutdown.service
+systemctl --user daemon-reload
+systemctl --user enable --now cannvas-kiosk-watchdog.timer
+```
+
+`cannvas-web.service` runs as `pi` with no capabilities, no devices, a
+read-only system, and a 256M memory cap. It can write only
+`/var/lib/cannvas` (integration settings) and `/run/cannvas` (the kiosk
+heartbeat). The 30 second display recovery check and the kiosk watchdog use
+`LogLevelMax=notice`, so they only log when they act.
+
+### Nightly power off
+
+Home Assistant switches the smart plug feeding the TV and Pi off at 21:15 and
+on at 07:00. Cutting power to a running Pi risks the SD card, so the Pi now
+shuts itself down first:
+
+1. At 21:15 the Home Assistant automation turns on
+   `input_boolean.cannvas_shutdown`.
+2. `cannvas-ha-shutdown.service` on the Pi polls that helper every 10 seconds,
+   using the Home Assistant token the web server already stores. When it sees
+   the helper on, it turns it back off as an acknowledgement and starts
+   `cannvas-poweroff.service`, the same polkit-approved helper the on-screen
+   power button uses.
+3. The automation waits up to 60 seconds for that acknowledgement, then 60
+   seconds more for the Pi to halt, then cuts the plug and clears the helper.
+
+If the Pi never answers, the plug still goes off after two minutes, as before.
+The Pi only makes outgoing requests, so nothing new listens on the network. It
+ignores a request more than ten minutes old (measured on Home Assistant's
+clock, because the Pi has no real-time clock), and the 07:00 automation clears
+the helper before switching the plug on, so a leftover request cannot switch the
+display straight back off in the morning. The plug's power sensor can't show
+when the Pi has halted because the TV draws most of the power, which is why the
+automation uses a fixed wait.
+
+### Kiosk watchdog
+
+The page can ping `/api/heartbeat` (GET, or POST with a JSON body) every 30
+seconds. The server records the time in `/run/cannvas/heartbeat`, and the
+`cannvas-kiosk-watchdog` user timer restarts `cannvas-kiosk.service` if no ping
+has arrived for three minutes. It does nothing until the first ping after boot,
+skips a kiosk that started in the last three minutes or a web server that is
+down, and restarts only once per silence, so a page that never pings can't
+cause a restart loop.
 
 ## How the data is handled
 

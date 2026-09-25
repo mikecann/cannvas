@@ -2,7 +2,7 @@
 """Serve Cannvas and proxy its private local integrations.
 
 The browser only talks to this loopback server. Home Assistant and Inventory
-credentials stay in mode-0600 files on the mirror instead of being compiled
+credentials stay in mode-0600 files on the Pi instead of being compiled
 into the public JavaScript bundle.
 """
 
