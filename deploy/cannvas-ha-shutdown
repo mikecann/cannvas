@@ -135,7 +135,7 @@ def main() -> None:
             except (TypeError, ValueError):
                 age = None
             if age is None or age > MAX_REQUEST_AGE:
-                log(f"Ignoring a stale or unreadable shutdown request (age {age}s)")
+                log(f"Ignoring a stale or unreadable shutdown request (age {'unknown' if age is None else f'{age:.0f}s'})")
                 acknowledge(config)
             elif start_poweroff():
                 log("Home Assistant requested a shutdown before cutting power; powering off")
