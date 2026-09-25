@@ -24,6 +24,12 @@ dist=${CANNVAS_DIST:-dist}
 keep=${CANNVAS_KEEP:-5}
 command=${1:-deploy}
 
+# These values end up in a remote shell command, so accept only plain values.
+if ! [[ $keep =~ ^[0-9]+$ ]]; then
+  echo "CANNVAS_KEEP must be a whole number" >&2
+  exit 2
+fi
+
 # Runs on the Pi as root. $1 is the action, $2 the release name.
 read -r -d '' remote <<'REMOTE' || true
 set -eu
@@ -36,11 +42,14 @@ keep=${3:-5}
 healthy() {
   attempt=0
   while [ "$attempt" -lt 20 ]; do
-    if curl -fs -o /dev/null --max-time 5 http://127.0.0.1:4173/ \
-      && curl -fs -o /dev/null --max-time 15 http://127.0.0.1:4173/api/solar; then
-      # Releases with www/ must not expose the files beside it.
-      if [ ! -d "$root/current/www" ] \
-        || [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:4173/cannvas-server)" = 404 ]; then
+    if curl -fs -o /dev/null --max-time 5 http://127.0.0.1:4173/; then
+      # Releases with www/ have /api/health, which checks only the server
+      # (not Home Assistant), and must not expose the files beside www/.
+      # Older releases predate both.
+      if [ ! -d "$root/current/www" ] || {
+        curl -fs -o /dev/null --max-time 5 http://127.0.0.1:4173/api/health \
+          && [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:4173/cannvas-server)" = 404 ]
+      }; then
         return 0
       fi
     fi
@@ -89,21 +98,31 @@ prune() {
 
 activate() {
   target=$1
-  before=$(readlink -f "$root/current")
+  # On the very first deploy there is no current release to return to.
+  before=
+  if [ -d "$root/current" ]; then
+    before=$(readlink -f "$root/current")
+  fi
   point_current_at "$target"
-  restart_web
-  if healthy; then
-    ln -sfn "$before" "$root/previous"
+  # A failed restart counts as a failed health check, so it rolls back too.
+  if restart_web && healthy; then
+    [ -z "$before" ] || ln -sfn "$before" "$root/previous"
     restart_kiosk
     prune
-    echo "Cannvas is running $(basename "$target") (previous: $(basename "$before"))"
+    echo "Cannvas is running $(basename "$target") (previous: ${before:+$(basename "$before")})"
     return 0
   fi
-  echo "$(basename "$target") failed its health check; restoring $(basename "$before")" >&2
   journalctl -u cannvas-web.service -n 20 --no-pager >&2 || true
+  if [ -z "$before" ]; then
+    echo "$(basename "$target") failed its health check and there is no earlier release" >&2
+    rm -f "$root/current"
+    exit 1
+  fi
+  echo "$(basename "$target") failed its health check; restoring $(basename "$before")" >&2
   point_current_at "$before"
-  restart_web
-  healthy || echo "Warning: $(basename "$before") is not healthy either" >&2
+  if ! restart_web || ! healthy; then
+    echo "Warning: $(basename "$before") is not healthy either" >&2
+  fi
   exit 1
 }
 
@@ -112,13 +131,19 @@ case "$action" in
     release="$releases/$name"
     archive="/tmp/cannvas-$name.tgz"
     [ ! -e "$release" ] || { echo "$release already exists" >&2; exit 1; }
+    # Remove a half-extracted release so the same name can be retried.
+    trap 'rm -rf "$release" "$archive"' EXIT
     mkdir -p "$release"
     tar -xzf "$archive" -C "$release"
     rm -f "$archive"
     chown -R root:root "$release"
     chmod -R u+rwX,go+rX,go-w "$release"
     touch "$release"
-    [ -f "$release/www/index.html" ] && [ -x "$release/cannvas-server" ] || { echo "Incomplete release" >&2; exit 1; }
+    if [ ! -f "$release/www/index.html" ] || [ ! -x "$release/cannvas-server" ]; then
+      echo "Incomplete release" >&2
+      exit 1
+    fi
+    trap - EXIT
     activate "$release"
     ;;
   rollback)
@@ -138,7 +163,8 @@ esac
 REMOTE
 
 run_remote() {
-  ssh "$host" "sudo sh -s -- $*" <<<"$remote"
+  # Quote each argument for the remote shell.
+  ssh "$host" "sudo sh -s -- $(printf '%q ' "$@")" <<<"$remote"
 }
 
 case "$command" in
@@ -167,7 +193,12 @@ case "$command" in
     find "$stage" -name .DS_Store -delete
 
     # Root-owned files with no macOS extended attributes or ._ resource files.
-    COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata --owner=0 --group=0 -czf - -C "$stage" . \
+    # --no-mac-metadata exists only in bsdtar (macOS); GNU tar rejects it.
+    tar_flags=(--no-xattrs --owner=0 --group=0)
+    if tar --version 2>/dev/null | grep -q bsdtar; then
+      tar_flags+=(--no-mac-metadata)
+    fi
+    COPYFILE_DISABLE=1 tar "${tar_flags[@]}" -czf - -C "$stage" . \
       | ssh "$host" "cat > /tmp/cannvas-$name.tgz"
     run_remote deploy "$name" "$keep"
     ;;
