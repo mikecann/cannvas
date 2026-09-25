@@ -8,3 +8,5 @@ ExecStart=/usr/local/sbin/cannvas-display-recover
 RuntimeDirectory=cannvas-display-recover
 RuntimeDirectoryPreserve=yes
 TimeoutStartSec=45
+# Runs every 30 seconds. Keep routine start and finish lines out of the journal.
+LogLevelMax=notice
