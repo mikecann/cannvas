@@ -2,7 +2,7 @@ import { CheckCircle2, Clock3, Home, Sun, UtilityPole, Volume2, VolumeX } from "
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useCannvasData } from "../data/DataProvider";
 import { addCalendarDays, calendarDateKey, calendarEventTime, eventsForDate } from "../lib/calendar";
-import { FLOW_THRESHOLD_KW, formatKw, formatKwh, useSolar } from "../lib/solar";
+import { FLOW_THRESHOLD_KW, formatKw, useSolar } from "../lib/solar";
 import { shuffledVideos } from "../lib/videoPlaylist";
 
 // The mirror proxies Bruce's private media service so the browser only needs
@@ -119,9 +119,9 @@ export function DisplayApp({
       </div>
 
       <div className="display-content">
+        <SolarHomeWidget onOpen={onOpenSolar} />
         <p className="display-date">{now.toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" })}</p>
         <div className="display-time">{now.toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit", hour12: false })}</div>
-        <SolarHomeWidget onOpen={onOpenSolar} />
       </div>
 
       <aside
@@ -217,7 +217,7 @@ export function DisplayApp({
 function SolarHomeWidget({ onOpen }: { onOpen: () => void }) {
   const state = useSolar(15000);
   if (state.kind !== "ready" || !state.solar.configured || !state.solar.now) return null;
-  const { now, today } = state.solar;
+  const { now } = state.solar;
   const gridKw = now.gridKw ?? 0;
   return (
     <button
@@ -232,7 +232,6 @@ function SolarHomeWidget({ onOpen }: { onOpen: () => void }) {
       <span className={gridKw > FLOW_THRESHOLD_KW ? "buying" : gridKw < -FLOW_THRESHOLD_KW ? "selling" : undefined}>
         <UtilityPole aria-hidden="true" />{Math.abs(gridKw) > FLOW_THRESHOLD_KW ? formatKw(gridKw) : "0 W"}
       </span>
-      {today?.generatedKwh != null && <small>{formatKwh(today.generatedKwh)} made today</small>}
     </button>
   );
 }

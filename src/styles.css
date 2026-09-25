@@ -793,11 +793,10 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .solar-chart-house { fill: none; stroke: var(--ink); stroke-width: 3; stroke-linejoin: round; }
 .solar-chart-now { stroke: var(--orange); stroke-width: 2; stroke-dasharray: 6 6; }
 
-.solar-home-widget { margin-top: 14px; padding: 10px 16px; display: flex; align-items: center; gap: 18px; border: 1px solid rgba(255,255,255,.25); border-radius: 18px; color: white; background: rgba(16,22,29,.5); backdrop-filter: blur(20px); font: 700 1.25rem "DM Sans", sans-serif; text-shadow: none; cursor: pointer; }
+.solar-home-widget { position: absolute; left: 0; bottom: 100%; margin-bottom: 6px; padding: 0; display: flex; align-items: center; gap: 18px; border: 0; color: rgba(255,255,255,.82); background: none; font: 700 1.05rem "DM Sans", sans-serif; text-shadow: 0 1px 3px rgba(0,0,0,.7); white-space: nowrap; cursor: pointer; }
 .solar-home-widget span { display: flex; align-items: center; gap: 7px; }
-.solar-home-widget svg { width: 22px; height: 22px; }
+.solar-home-widget svg { width: 19px; height: 19px; filter: drop-shadow(0 1px 2px rgba(0,0,0,.6)); }
 .solar-home-widget .solar svg { color: #ffc84d; }
 .solar-home-widget .buying svg { color: #9db3e8; }
 .solar-home-widget .selling svg { color: #75d3b6; }
-.solar-home-widget small { color: rgba(255,255,255,.72); font-size: .85rem; font-weight: 700; }
 .solar-home-widget:active { transform: scale(.98); }
