@@ -27,6 +27,7 @@ import {
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
+import { preparePhotoForUpload } from "./photoPrep";
 
 type InventoryStatus = "active" | "disposed" | "donated" | "sold" | "lost";
 type InventoryItemSummary = {
@@ -131,11 +132,13 @@ async function uploadFiles(
   generateUploadUrl: () => Promise<string>,
 ) {
   return await Promise.all(files.map(async (file) => {
+    // Strip EXIF (including GPS) before anything leaves the phone.
+    const photo = await preparePhotoForUpload(file);
     const uploadUrl = await generateUploadUrl();
     const response = await fetch(uploadUrl, {
       method: "POST",
-      headers: { "Content-Type": file.type || "image/jpeg" },
-      body: file,
+      headers: { "Content-Type": "image/jpeg" },
+      body: photo,
     });
     if (!response.ok) throw new Error("A photo could not be uploaded. Please try again.");
     return (await response.json() as { storageId: Id<"_storage"> }).storageId;
