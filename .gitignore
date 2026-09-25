@@ -10,3 +10,4 @@ coverage/
 .wrangler/
 tmp/
 __pycache__/
+.claude/worktrees/

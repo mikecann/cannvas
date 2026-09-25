@@ -24,13 +24,13 @@ importers:
         specifier: 0.0.94
         version: 0.0.94(@auth/core@0.41.3)(convex@1.42.3(react@19.2.8))(react@19.2.8)
       '@vitejs/plugin-react':
-        specifier: latest
-        version: 6.0.5(vite@8.2.0(@types/node@26.1.1)(esbuild@0.27.0))
+        specifier: 6.0.5
+        version: 6.0.5(vite@8.2.0(@types/node@26.1.1)(esbuild@0.28.1))
       ai:
         specifier: 6.0.76
         version: 6.0.76(zod@4.4.3)
       convex:
-        specifier: latest
+        specifier: 1.42.3
         version: 1.42.3(react@19.2.8)
       convex-helpers:
         specifier: 0.1.120
@@ -42,20 +42,20 @@ importers:
         specifier: ^1.9.4
         version: 1.9.4
       lucide-react:
-        specifier: latest
+        specifier: 1.28.0
         version: 1.28.0(react@19.2.8)
       node-ical:
         specifier: ^0.27.0
         version: 0.27.0
       react:
-        specifier: latest
+        specifier: 19.2.8
         version: 19.2.8
       react-dom:
-        specifier: latest
+        specifier: 19.2.8
         version: 19.2.8(react@19.2.8)
       vite:
-        specifier: latest
-        version: 8.2.0(@types/node@26.1.1)(esbuild@0.27.0)
+        specifier: 8.2.0
+        version: 8.2.0(@types/node@26.1.1)(esbuild@0.28.1)
       zod:
         specifier: 4.4.3
         version: 4.4.3
@@ -67,10 +67,10 @@ importers:
         specifier: ^26.1.1
         version: 26.1.1
       '@types/react':
-        specifier: latest
+        specifier: 19.2.18
         version: 19.2.18
       '@types/react-dom':
-        specifier: latest
+        specifier: 19.2.4
         version: 19.2.4(@types/react@19.2.18)
       typescript:
         specifier: 6.0.2
@@ -1782,10 +1782,10 @@ snapshots:
 
   '@vercel/oidc@3.1.0': {}
 
-  '@vitejs/plugin-react@6.0.5(vite@8.2.0(@types/node@26.1.1)(esbuild@0.27.0))':
+  '@vitejs/plugin-react@6.0.5(vite@8.2.0(@types/node@26.1.1)(esbuild@0.28.1))':
     dependencies:
       '@rolldown/pluginutils': 1.0.1
-      vite: 8.2.0(@types/node@26.1.1)(esbuild@0.27.0)
+      vite: 8.2.0(@types/node@26.1.1)(esbuild@0.28.1)
 
   ai@6.0.76(zod@4.4.3):
     dependencies:
@@ -1893,7 +1893,7 @@ snapshots:
     dependencies:
       convex: 1.42.3(react@19.2.8)
     optionalDependencies:
-      convex-helpers: convex-helpers@0.1.120(@standard-schema/spec@1.1.0)(convex@1.42.3(react@19.2.8))(react@19.2.8)(typescript@6.0.2)(zod@4.4.3)
+      convex-helpers: 0.1.120(@standard-schema/spec@1.1.0)(convex@1.42.3(react@19.2.8))(react@19.2.8)(typescript@6.0.2)(zod@4.4.3)
       zod: 4.4.3
 
   fsevents@2.3.3:
@@ -2114,7 +2114,7 @@ snapshots:
     dependencies:
       pathe: 2.0.3
 
-  vite@8.2.0(@types/node@26.1.1)(esbuild@0.27.0):
+  vite@8.2.0(@types/node@26.1.1)(esbuild@0.28.1):
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.5
@@ -2123,7 +2123,7 @@ snapshots:
       tinyglobby: 0.2.17
     optionalDependencies:
       '@types/node': 26.1.1
-      esbuild: 0.27.0
+      esbuild: 0.28.1
       fsevents: 2.3.3
 
   workerd@1.20260730.1:
