@@ -105,6 +105,12 @@ export function ReticApp() {
           {!retic.available && (
             <div className="retic-alert">Home Assistant can't reach the controller right now. Check that it's plugged in and on Wi-Fi.</div>
           )}
+          {retic.available && (retic.zones ?? []).some(({ state }) => state == null) && (
+            <div className="retic-alert">
+              Home Assistant can't read {(retic.zones ?? []).filter(({ state }) => state == null).map(({ name }) => name).join(", ")}.
+              Runs are paused in case it's still watering.
+            </div>
+          )}
           {retic.available && dialBlocksWatering(retic.dial) && (
             <div className="retic-alert">The dial on the controller is set to {retic.dial}. Turn it to RUN so zones can water.</div>
           )}
