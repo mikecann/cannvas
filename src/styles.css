@@ -318,6 +318,11 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .calendar-actions .button { min-width: 155px; }
 
 /* Sammy tablet ticker */
+.sammy-cam-app { position: relative; height: 100%; background: var(--cream); }
+.sammy-cam-frame { width: 100%; height: 100%; display: block; border: 0; opacity: 0; transition: opacity .25s; }
+.sammy-cam-frame.ready { opacity: 1; }
+.sammy-cam-offline > svg { color: #d74c43; }
+.sammy-cam-offline .button { margin-top: 8px; }
 .sammy-tablets-app { height: 100%; padding: 54px 52px 30px; overflow-y: auto; background: radial-gradient(circle at 88% 6%, rgba(237,106,90,.2), transparent 25%), radial-gradient(circle at 4% 76%, rgba(95,143,218,.16), transparent 30%), var(--cream); }
 .sammy-tablets-header { display: flex; align-items: center; gap: 22px; }
 .sammy-title-icon { width: 84px; height: 84px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 28px; color: white; background: var(--ink); box-shadow: var(--shadow); }
