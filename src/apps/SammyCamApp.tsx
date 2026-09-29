@@ -12,18 +12,23 @@ export function SammyCamApp() {
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    // An iframe still "loads" Chromium's error page when Bruce is down, so ask
-    // first. no-cors can't read the reply but only rejects when nothing answers.
+    // An iframe still "loads" an error page when Bruce is down, so ask first.
+    // Sammy Cam's icon only decodes when its own server answers with a 200,
+    // so Caddy's 502 while the app restarts also counts as offline.
     let active = true;
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 8000);
-    fetch(SAMMY_CAM_URL, { mode: "no-cors", cache: "no-store", signal: controller.signal })
-      .then(() => active && setState("loading"))
-      .catch(() => active && setState("offline"))
-      .finally(() => window.clearTimeout(timeout));
+    const probe = new Image();
+    const finish = (next: State) => {
+      window.clearTimeout(timeout);
+      if (active) setState(next);
+    };
+    const timeout = window.setTimeout(() => finish("offline"), 8000);
+    probe.onload = () => finish("loading");
+    probe.onerror = () => finish("offline");
+    probe.src = `${SAMMY_CAM_URL}icon.svg?check=${Date.now()}`;
     return () => {
       active = false;
-      controller.abort();
+      window.clearTimeout(timeout);
+      probe.src = "";
     };
   }, [attempt]);
 

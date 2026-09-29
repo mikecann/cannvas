@@ -86,6 +86,8 @@ export function App() {
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const moreWrap = useRef<HTMLDivElement>(null);
   const lastInteractiveApp = useRef<AppId>("whiteboard");
+  // What the idle timer is timing. State lags a render behind openApp.
+  const shownApp = useRef<AppId>("whiteboard");
   const idleTimer = useRef<number | undefined>(undefined);
   const idleTimeout = Number(import.meta.env.VITE_IDLE_TIMEOUT_MS) || DEFAULT_IDLE_TIMEOUT;
 
@@ -96,6 +98,7 @@ export function App() {
     // This also fires when the display is already active. Give DisplayApp an
     // explicit reset signal so an idle timeout always mutes the video again.
     setDisplaySession((session) => session + 1);
+    shownApp.current = "display";
     setActiveApp("display");
   }, []);
 
@@ -103,7 +106,7 @@ export function App() {
     window.clearTimeout(idleTimer.current);
     idleTimer.current = window.setTimeout(() => {
       openDisplay();
-    }, lastInteractiveApp.current === "sammy-cam" ? Math.max(idleTimeout, SAMMY_CAM_IDLE_TIMEOUT) : idleTimeout);
+    }, shownApp.current === "sammy-cam" ? Math.max(idleTimeout, SAMMY_CAM_IDLE_TIMEOUT) : idleTimeout);
   }, [idleTimeout, openDisplay]);
 
   useEffect(() => {
@@ -143,6 +146,7 @@ export function App() {
       openDisplay();
     } else {
       lastInteractiveApp.current = app;
+      shownApp.current = app;
       setActiveApp(app);
     }
     resetIdleTimer();
