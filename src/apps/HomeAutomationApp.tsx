@@ -28,6 +28,7 @@ import {
   type HomeAssistantEntity,
   type HomeAssistantStatus,
   isGlanceSensor,
+  isReticEntity,
   isHome,
   isOn,
   isOpeningSensor,
@@ -101,7 +102,7 @@ export function HomeAutomationApp() {
     }
   }, NETWORK_REFRESH_MS, { enabled: network?.configured === true, immediate: false });
 
-  const entities = useMemo(() => status?.entities ?? [], [status?.entities]);
+  const entities = useMemo(() => (status?.entities ?? []).filter((entity) => !isReticEntity(entity)), [status?.entities]);
   const people = useMemo(() => entities.filter((entity) => entity.domain === "person"), [entities]);
   const family = useMemo(() => FAMILY.map((member) => ({
     ...member,

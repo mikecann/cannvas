@@ -1,0 +1,323 @@
+# Home Assistant package for the Holman WX8 retic behind the Cannvas Retic app.
+# Copy to /config/packages/retic.yaml. configuration.yaml needs:
+#
+#   homeassistant:
+#     packages: !include_dir_named packages
+#
+# The zone valves come from tuya-local. Everything else is here.
+
+input_boolean:
+  # The master switch. Off stops any run, closes every zone, closes any zone
+  # opened elsewhere (controller, Smart Life) and skips the schedule.
+  retic_enabled:
+    name: Retic enabled
+    icon: mdi:sprinkler-variant
+
+input_datetime:
+  # When the current timed run ends, for the Cannvas countdown.
+  retic_run_ends:
+    name: Retic run ends
+    has_date: true
+    has_time: true
+
+input_text:
+  retic_last_result:
+    name: Retic last scheduled run
+    max: 255
+
+# Rain from Open-Meteo, which needs no key and returns yesterday's modelled rain
+# with the forecast in one call. Each hourly value is the rain in the hour
+# before that time.
+rest:
+  - resource: https://api.open-meteo.com/v1/forecast?latitude=-33.6337&longitude=115.3948&hourly=precipitation&past_days=1&forecast_days=2&timezone=Australia%2FPerth
+    scan_interval: 1800
+    timeout: 20
+    sensor:
+      - name: Retic rain last 24h
+        unique_id: retic_rain_last_24h
+        unit_of_measurement: mm
+        device_class: precipitation
+        state_class: measurement
+        value_template: >
+          {% set times = value_json.hourly.time %}
+          {% set rain = value_json.hourly.precipitation %}
+          {% set i = times.index(now().strftime('%Y-%m-%dT%H:00')) %}
+          {% set first = [i - 23, 0] | max %}
+          {{ rain[first:i + 1] | reject('none') | sum | round(1) }}
+      - name: Retic rain next 12h
+        unique_id: retic_rain_next_12h
+        unit_of_measurement: mm
+        device_class: precipitation
+        state_class: measurement
+        value_template: >
+          {% set times = value_json.hourly.time %}
+          {% set rain = value_json.hourly.precipitation %}
+          {% set i = times.index(now().strftime('%Y-%m-%dT%H:00')) %}
+          {{ rain[i + 1:i + 13] | reject('none') | sum | round(1) }}
+
+template:
+  - triggers:
+      - trigger: homeassistant
+        event: start
+      - trigger: event
+        event_type: event_template_reloaded
+      - trigger: time_pattern
+        minutes: /5
+    # The schedule. Busselton Water's roster for a house number ending in 5 is
+    # Sunday and Wednesday, once a day, before 9am or after 6pm, from
+    # 1 September to 31 May.
+    variables:
+      days: [3, 7]
+      start: "06:00"
+      off_months: [6, 7, 8]
+      zones:
+        - entity: valve.retic_back_grass_right
+          minutes: 15
+        - entity: valve.retic_back_grass_left
+          minutes: 15
+        - entity: valve.retic_back_flower_beds
+          minutes: 10
+        - entity: valve.retic_front_garden_beds
+          minutes: 10
+        - entity: valve.retic_front_grass
+          minutes: 15
+      # Skip when the grass is likely wet already, or about to be.
+      skip_past_mm: 3
+      skip_forecast_mm: 5
+    sensor:
+      - name: Retic next run
+        unique_id: retic_next_run
+        device_class: timestamp
+        icon: mdi:calendar-clock
+        state: >
+          {% set ns = namespace(next=none) %}
+          {% for day in range(0, 120) %}
+            {% set at = today_at(start) + timedelta(days=day) %}
+            {# Keep today's run for a few minutes past its start, so the sensor
+               doesn't move on before the automation's time trigger fires. #}
+            {% if ns.next is none and at + timedelta(minutes=5) > now() and at.isoweekday() in days and at.month not in off_months %}
+              {% set ns.next = at %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.next.isoformat() if ns.next else none }}
+        attributes:
+          days: "{{ days }}"
+          start: "{{ start }}"
+          zones: "{{ zones }}"
+          skip_past_mm: "{{ skip_past_mm }}"
+          skip_forecast_mm: "{{ skip_forecast_mm }}"
+
+script:
+  retic_run_zone:
+    alias: Retic run zone
+    description: >-
+      Runs one retic zone for a set number of minutes, closing any other open
+      zone first. If Home Assistant stops mid-run, the WX8 closes the zone by
+      itself after its own 15-16 minute manual run time.
+    icon: mdi:sprinkler-variant
+    mode: restart
+    fields:
+      zone:
+        name: Zone
+        required: true
+        selector:
+          entity:
+            domain: valve
+            integration: tuya_local
+      minutes:
+        name: Minutes
+        required: true
+        default: 10
+        selector:
+          number:
+            min: 1
+            max: 15
+            unit_of_measurement: min
+    sequence:
+      - variables:
+          run_minutes: "{{ [[minutes | int(0), 1] | max, 15] | min }}"
+          retic_valves: "{{ states.valve | selectattr('entity_id', 'match', 'valve\\.retic_') | rejectattr('entity_id', 'eq', zone) | list }}"
+          others: "{{ retic_valves | selectattr('state', 'in', ['open', 'opening']) | map(attribute='entity_id') | list }}"
+          # A zone in an unknown state might still be open, so don't start another.
+          unknown_others: "{{ retic_valves | selectattr('state', 'in', ['unknown', 'unavailable']) | map(attribute='entity_id') | list }}"
+      - condition: template
+        value_template: >
+          {{ is_state('input_boolean.retic_enabled', 'on')
+             and zone is string and zone is match('valve\.retic_[a-z0-9_]+$')
+             and states(zone) not in ['unknown', 'unavailable']
+             and unknown_others | length == 0 }}
+      - if:
+          - condition: template
+            value_template: "{{ others | length > 0 }}"
+        then:
+          - action: script.retic_close_all
+          # Never water two zones at once.
+          - condition: template
+            value_template: "{{ expand(others) | selectattr('state', 'ne', 'closed') | list | length == 0 }}"
+      - action: valve.open_valve
+        target:
+          entity_id: "{{ zone }}"
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.retic_run_ends
+        data:
+          timestamp: "{{ now().timestamp() + run_minutes * 60 }}"
+      - delay:
+          minutes: "{{ run_minutes }}"
+      - action: valve.close_valve
+        target:
+          entity_id: "{{ zone }}"
+
+  retic_run_schedule:
+    alias: Retic run schedule
+    description: Runs each zone in the schedule in turn.
+    icon: mdi:sprinkler-variant
+    mode: single
+    sequence:
+      - repeat:
+          for_each: "{{ state_attr('sensor.retic_next_run', 'zones') or [] }}"
+          sequence:
+            - if:
+                - condition: state
+                  entity_id: input_boolean.retic_enabled
+                  state: "off"
+              then:
+                - stop: The retic was switched off
+            - action: script.retic_run_zone
+              data:
+                zone: "{{ repeat.item.entity }}"
+                minutes: "{{ repeat.item.minutes }}"
+
+  retic_close_all:
+    alias: Retic close all
+    description: >-
+      Closes every open retic zone, retrying until they all report closed. Gives
+      up after about 30 seconds if the controller can't be reached.
+    icon: mdi:water-off
+    mode: single
+    sequence:
+      - repeat:
+          sequence:
+            - variables:
+                open: "{{ states.valve | selectattr('entity_id', 'match', 'valve\\.retic_') | rejectattr('state', 'eq', 'closed') | map(attribute='entity_id') | list }}"
+            - if:
+                - condition: template
+                  value_template: "{{ open | length > 0 }}"
+              then:
+                - action: valve.close_valve
+                  # An unreachable zone errors, which mustn't stop the retries.
+                  continue_on_error: true
+                  target:
+                    entity_id: "{{ open }}"
+                - delay:
+                    seconds: 5
+          # Unknown isn't closed, so keep going until every zone says closed.
+          until:
+            - condition: template
+              value_template: >
+                {{ repeat.index >= 6 or states.valve | selectattr('entity_id', 'match', 'valve\.retic_')
+                   | rejectattr('state', 'eq', 'closed') | list | length == 0 }}
+
+automation:
+  - id: retic_scheduled_watering
+    alias: Retic scheduled watering
+    description: Waters on schedule unless the retic is off or the grass is likely wet.
+    mode: single
+    triggers:
+      - trigger: time
+        at: sensor.retic_next_run
+    actions:
+      - variables:
+          when: "{{ now().strftime('%a %-d %b, %-I:%M %p') }}"
+          past: "{{ states('sensor.retic_rain_last_24h') | float(none) }}"
+          ahead: "{{ states('sensor.retic_rain_next_12h') | float(none) }}"
+          past_limit: "{{ state_attr('sensor.retic_next_run', 'skip_past_mm') | float(3) }}"
+          ahead_limit: "{{ state_attr('sensor.retic_next_run', 'skip_forecast_mm') | float(5) }}"
+          reason: >
+            {% if is_state('input_boolean.retic_enabled', 'off') %}the retic is switched off
+            {% elif states.valve | selectattr('entity_id', 'match', 'valve\.retic_') | selectattr('state', 'in', ['unknown', 'unavailable']) | list %}Home Assistant can't read every zone
+            {% elif is_state('binary_sensor.retic_rain_sensor', 'on') %}the rain sensor is wet
+            {% elif past is not none and past >= past_limit %}{{ past }} mm of rain in the last 24 hours
+            {% elif ahead is not none and ahead >= ahead_limit %}{{ ahead }} mm of rain forecast in the next 12 hours
+            {% endif %}
+      - if:
+          - condition: template
+            value_template: "{{ reason | trim != '' }}"
+        then:
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.retic_last_result
+            data:
+              value: "Skipped {{ when }}: {{ reason | trim }}"
+          - stop: Skipped
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.retic_last_result
+        data:
+          value: "Watering since {{ when }}"
+      - action: script.retic_run_schedule
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.retic_last_result
+        data:
+          value: >-
+            {{ ('Watered ' if is_state('input_boolean.retic_enabled', 'on') else 'Stopped early ') ~ when }}
+
+  # The WX8 ignores a close that arrives within a second or two of a zone
+  # opening, then reports it open again, so both of these keep closing until
+  # every zone reports closed.
+  - id: retic_switched_off
+    alias: Retic switched off
+    description: Stops everything when the master switch goes off.
+    mode: restart
+    triggers:
+      - trigger: state
+        entity_id: input_boolean.retic_enabled
+        to: "off"
+    actions:
+      - action: script.turn_off
+        target:
+          entity_id:
+            - script.retic_run_schedule
+            - script.retic_run_zone
+      - action: script.retic_close_all
+
+  - id: retic_switched_on
+    alias: Retic switched on
+    description: Cancels any switch-off cleanup so it can't close a run started straight after.
+    mode: queued
+    triggers:
+      - trigger: state
+        entity_id: input_boolean.retic_enabled
+        to: "on"
+    actions:
+      - action: script.turn_off
+        target:
+          entity_id: script.retic_close_all
+
+  - id: retic_keep_closed_while_off
+    alias: Retic keep closed while off
+    description: Closes any zone opened on the controller or in Smart Life while the retic is switched off.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id:
+          - valve.retic_back_grass_right
+          - valve.retic_back_grass_left
+          - valve.retic_back_flower_beds
+          - valve.retic_front_garden_beds
+          - valve.retic_front_grass
+          - valve.retic_zone_6
+          - valve.retic_zone_7
+          - valve.retic_zone_8
+        to:
+          - open
+          - opening
+        for:
+          seconds: 3
+    conditions:
+      - condition: state
+        entity_id: input_boolean.retic_enabled
+        state: "off"
+    actions:
+      - action: script.retic_close_all

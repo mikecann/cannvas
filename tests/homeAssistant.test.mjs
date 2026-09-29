@@ -4,6 +4,7 @@ import {
   controlAction,
   isGlanceSensor,
   isOn,
+  isReticEntity,
   isRoutine,
   isUnavailable,
   matchesFilter,
@@ -67,4 +68,12 @@ test("only shows useful sensors that are reporting", () => {
   assert.equal(isGlanceSensor(entity("sensor.temp", "unavailable", { device_class: "temperature" })), false);
   assert.equal(isGlanceSensor(entity("sensor.uptime", "12")), false);
   assert.equal(isGlanceSensor(entity("lock.front", "locked")), true);
+});
+
+test("recognises retic entities so Home controls can leave them out", () => {
+  assert.equal(isReticEntity({ entityId: "valve.retic_front_grass" }), true);
+  assert.equal(isReticEntity({ entityId: "script.retic_run_zone" }), true);
+  assert.equal(isReticEntity({ entityId: "switch.retic_program_a" }), true);
+  assert.equal(isReticEntity({ entityId: "light.kitchen" }), false);
+  assert.equal(isReticEntity({ entityId: "sensor.garage_retic" }), false);
 });
