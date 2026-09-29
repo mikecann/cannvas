@@ -17,7 +17,10 @@ export function SammyCamApp() {
     // so Caddy's 502 while the app restarts also counts as offline.
     let active = true;
     const probe = new Image();
+    let settled = false;
     const finish = (next: State) => {
+      if (settled) return;
+      settled = true;
       window.clearTimeout(timeout);
       if (active) setState(next);
     };
