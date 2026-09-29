@@ -523,6 +523,89 @@ def sun_status(config: dict[str, str]) -> dict[str, Any]:
     }
 
 
+# Retic is the Holman WX8 irrigation controller, which Home Assistant reaches
+# locally through tuya-local. Timed runs go through the retic_run_zone script so
+# the timer lives in Home Assistant, not in this page. The WX8 also closes a
+# zone by itself after its 15 minute manual run time, in case both stop.
+RETIC_ZONES = (
+    (1, "valve.retic_back_grass_right", "Back grass right"),
+    (2, "valve.retic_back_grass_left", "Back grass left"),
+    (3, "valve.retic_back_flower_beds", "Back flower beds"),
+    (4, "valve.retic_front_garden_beds", "Front garden beds"),
+    (5, "valve.retic_front_grass", "Front grass"),
+)
+RETIC_ZONE_IDS = {entity for _, entity, _ in RETIC_ZONES}
+RETIC_RUN_MINUTES = (5, 10, 15)
+RETIC_SCRIPT = "script.retic_run_zone"
+RETIC_RUN_ENDS = "input_datetime.retic_run_ends"
+RETIC_SENSORS = {
+    "rain": "binary_sensor.retic_rain_sensor",
+    "batteryLow": "binary_sensor.retic_battery_voltage",
+    "batteryVolts": "sensor.retic_battery_voltage",
+    "mainsProblem": "binary_sensor.retic_power_supply",
+    "dial": "sensor.retic_dial_position",
+    "remaining": "sensor.retic_time_remaining",
+}
+
+
+def is_retic_entity(entity_id: str) -> bool:
+    """Retic entities are only controlled through the checked /api/retic routes."""
+    return entity_id.partition(".")[2].startswith("retic_")
+
+
+def known_state(state: dict[str, Any]) -> str | None:
+    value = state.get("state")
+    return None if value in {None, "unknown", "unavailable"} else str(value)
+
+
+def on_off(state: dict[str, Any]) -> bool | None:
+    value = known_state(state)
+    return None if value is None else value == "on"
+
+
+def retic_status(config: dict[str, str]) -> dict[str, Any]:
+    by_id = {
+        entity.get("entity_id"): entity
+        for entity in home_assistant_request(config, "/api/states", timeout=SOLAR_STATES_TIMEOUT) or []
+        if isinstance(entity, dict)
+    }
+    sensors = {key: by_id.get(entity) or {} for key, entity in RETIC_SENSORS.items()}
+    zones = []
+    for zone_number, entity_id, name in RETIC_ZONES:
+        state = known_state(by_id.get(entity_id) or {})
+        zones.append({"zone": zone_number, "entityId": entity_id, "name": name, "state": state, "open": state in {"open", "opening"}})
+
+    # Only report a timed run while the script is actually running it. A zone
+    # opened on the controller or in Smart Life runs on the WX8's own timer.
+    run = None
+    open_zones = [zone["entityId"] for zone in zones if zone["open"]]
+    ends = (by_id.get(RETIC_RUN_ENDS) or {}).get("attributes") or {}
+    ends_at = number(ends.get("timestamp")) if isinstance(ends, dict) else None
+    if known_state(by_id.get(RETIC_SCRIPT) or {}) == "on" and len(open_zones) == 1 and ends_at is not None:
+        run = {"entityId": open_zones[0], "endsAt": datetime.fromtimestamp(ends_at, timezone.utc).isoformat()}
+
+    return {
+        "configured": True,
+        "available": any(zone["state"] is not None for zone in zones),
+        "zones": zones,
+        "run": run,
+        "runMinutes": list(RETIC_RUN_MINUTES),
+        "controllerMinutesLeft": number(known_state(sensors["remaining"])) if open_zones else None,
+        "dial": known_state(sensors["dial"]),
+        "rainDetected": on_off(sensors["rain"]),
+        "batteryLow": on_off(sensors["batteryLow"]),
+        "batteryVolts": number(known_state(sensors["batteryVolts"])),
+        "mainsProblem": on_off(sensors["mainsProblem"]),
+    }
+
+
+def retic_zone(body: dict[str, Any]) -> str:
+    entity_id = body.get("entityId")
+    if not isinstance(entity_id, str) or entity_id not in RETIC_ZONE_IDS:
+        raise ValueError("That retic zone is not allowed")
+    return entity_id
+
+
 VIDEO_RETRY_SECONDS = 60
 _VIDEO_LOCK = Lock()
 _HEARTBEAT_LOCK = Lock()
@@ -740,6 +823,53 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         except Exception as error:  # The response deliberately avoids leaking network or token details.
             self.home_assistant_error(error)
 
+    def get_retic(self, query: str) -> None:
+        config = load_config()
+        if not config:
+            self.send_json(200, {"configured": False})
+            return
+        try:
+            self.send_json(200, retic_status(config))
+        except Exception as error:  # The response deliberately avoids leaking network or token details.
+            self.home_assistant_error(error)
+
+    def post_retic_run(self) -> None:
+        config = load_config()
+        if not config:
+            self.send_json(409, {"error": "Home Assistant is not connected"})
+            return
+        try:
+            body = self.read_json()
+            entity_id = retic_zone(body)
+            minutes = body.get("minutes")
+            if type(minutes) is not int or minutes not in RETIC_RUN_MINUTES:
+                raise ValueError("Choose 5, 10 or 15 minutes")
+            home_assistant_request(config, "/api/services/script/turn_on", {
+                "entity_id": RETIC_SCRIPT,
+                "variables": {"zone": entity_id, "minutes": minutes},
+            })
+            self.send_json(202, {"ok": True})
+        except ValueError as error:
+            self.send_json(400, {"error": str(error)})
+        except Exception as error:
+            self.home_assistant_error(error)
+
+    def post_retic_stop(self) -> None:
+        config = load_config()
+        if not config:
+            self.send_json(409, {"error": "Home Assistant is not connected"})
+            return
+        try:
+            entity_id = retic_zone(self.read_json())
+            # Stop the timer first so it can't reopen or later close a new run.
+            home_assistant_request(config, "/api/services/script/turn_off", {"entity_id": RETIC_SCRIPT})
+            home_assistant_request(config, "/api/services/valve/close_valve", {"entity_id": entity_id})
+            self.send_json(200, {"ok": True})
+        except ValueError as error:
+            self.send_json(400, {"error": str(error)})
+        except Exception as error:
+            self.home_assistant_error(error)
+
     def get_sun(self, query: str) -> None:
         config = load_config()
         if not config:
@@ -838,7 +968,12 @@ class CannvasHandler(SimpleHTTPRequestHandler):
             entity_id = str(body.get("entityId", ""))
             action = str(body.get("action", ""))
             domain = entity_id.partition(".")[0]
-            if not ENTITY_ID.fullmatch(entity_id) or action not in ALLOWED_ACTIONS or domain not in ALLOWED_ACTIONS[action]:
+            if (
+                not ENTITY_ID.fullmatch(entity_id)
+                or action not in ALLOWED_ACTIONS
+                or domain not in ALLOWED_ACTIONS[action]
+                or is_retic_entity(entity_id)
+            ):
                 raise ValueError("That Home Assistant action is not allowed")
             result = home_assistant_request(config, f"/api/services/{domain}/{action}", {"entity_id": entity_id})
             self.send_json(200, {"ok": True, "states": [public_entity(entity) for entity in result or []]})
@@ -854,6 +989,7 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         "/api/inventory": get_inventory,
         "/api/unifi/status": get_unifi_status,
         "/api/solar": get_solar,
+        "/api/retic": get_retic,
         "/api/sun": get_sun,
         "/api/home-assistant/status": get_home_assistant_status,
         "/api/heartbeat": heartbeat,
@@ -863,6 +999,8 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         "/api/system/poweroff": post_poweroff,
         "/api/home-assistant/config": post_home_assistant_config,
         "/api/home-assistant/action": post_home_assistant_action,
+        "/api/retic/run": post_retic_run,
+        "/api/retic/stop": post_retic_stop,
         "/api/heartbeat": post_heartbeat,
     }
 

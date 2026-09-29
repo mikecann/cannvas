@@ -40,6 +40,7 @@ class FakeUpstream(BaseHTTPRequestHandler):
     """Plays Home Assistant or Bruce. Records every request it sees."""
 
     requests: list[tuple[str, str | None]] = []
+    posts: list[tuple[str, object]] = []
     redirect_to = ""
 
     def do_GET(self) -> None:
@@ -54,6 +55,19 @@ class FakeUpstream(BaseHTTPRequestHandler):
                 {"entity_id": "sensor.energy_production_tomorrow", "state": "8856", "attributes": {"unit_of_measurement": "Wh"}},
                 {"entity_id": "sensor.power_highest_peak_time_today", "state": "2026-09-25T04:00:00+00:00"},
                 {"entity_id": "light.kitchen", "state": "on"},
+                {"entity_id": "valve.retic_back_grass_right", "state": "closed"},
+                {"entity_id": "valve.retic_back_grass_left", "state": "closed"},
+                {"entity_id": "valve.retic_back_flower_beds", "state": "unavailable"},
+                {"entity_id": "valve.retic_front_garden_beds", "state": "closed"},
+                {"entity_id": "valve.retic_front_grass", "state": "open"},
+                {"entity_id": "script.retic_run_zone", "state": "on"},
+                {"entity_id": "input_datetime.retic_run_ends", "state": "2026-09-29 15:30:00", "attributes": {"timestamp": 1790667000.0}},
+                {"entity_id": "binary_sensor.retic_rain_sensor", "state": "off"},
+                {"entity_id": "binary_sensor.retic_battery_voltage", "state": "off"},
+                {"entity_id": "sensor.retic_battery_voltage", "state": "8.6"},
+                {"entity_id": "binary_sensor.retic_power_supply", "state": "off"},
+                {"entity_id": "sensor.retic_dial_position", "state": "Run"},
+                {"entity_id": "sensor.retic_time_remaining", "state": "14"},
             ]).encode()
             self.reply(200, body, "application/json")
         elif self.path == "/api/states/sun.sun":
@@ -82,6 +96,11 @@ class FakeUpstream(BaseHTTPRequestHandler):
             self.end_headers()
         else:
             self.reply(200, b"video-bytes", "video/mp4")
+
+    def do_POST(self) -> None:
+        length = int(self.headers.get("Content-Length", "0"))
+        FakeUpstream.posts.append((self.path, json.loads(self.rfile.read(length) or b"null")))
+        self.reply(200, b"[]", "application/json")
 
     def reply(self, status: int, body: bytes, content_type: str) -> None:
         self.send_response(status)
@@ -122,6 +141,7 @@ class CannvasServerTest(unittest.TestCase):
 
     def setUp(self) -> None:
         FakeUpstream.requests = []
+        FakeUpstream.posts = []
         self.module._VIDEO_DOWN_UNTIL = 0.0
         self.module.VIDEO_URL = self.upstream_url
         config = self.temp / "home-assistant.json"
@@ -296,6 +316,90 @@ class CannvasServerTest(unittest.TestCase):
         response, body = self.request("GET", "/api/sun")
         self.assertEqual(response.status, 502)
         self.assertEqual(json.loads(body), {"error": "Home Assistant is unavailable"})
+
+    def connect_home_assistant(self) -> None:
+        (self.temp / "home-assistant.json").write_text(json.dumps({"url": self.upstream_url, "token": "t" * 40}))
+
+    def post_json(self, path: str, value: object):
+        return self.request("POST", path, json.dumps(value).encode(), {"Content-Type": "application/json"})
+
+    def test_retic_without_home_assistant(self) -> None:
+        response, body = self.request("GET", "/api/retic")
+        self.assertEqual(response.status, 200)
+        self.assertEqual(json.loads(body), {"configured": False})
+        response, _ = self.post_json("/api/retic/run", {"entityId": "valve.retic_front_grass", "minutes": 5})
+        self.assertEqual(response.status, 409)
+
+    def test_retic_reports_zones_run_and_sensors(self) -> None:
+        self.connect_home_assistant()
+        response, body = self.request("GET", "/api/retic")
+        self.assertEqual(response.status, 200)
+        value = json.loads(body)
+        self.assertEqual([zone["zone"] for zone in value["zones"]], [1, 2, 3, 4, 5])
+        self.assertEqual(value["zones"][4], {"zone": 5, "entityId": "valve.retic_front_grass", "name": "Front grass", "state": "open", "open": True})
+        # An unavailable valve is unknown, not closed.
+        self.assertEqual(value["zones"][2]["state"], None)
+        self.assertFalse(value["zones"][2]["open"])
+        self.assertEqual(value["run"], {"entityId": "valve.retic_front_grass", "endsAt": "2026-09-29T07:30:00+00:00"})
+        self.assertEqual(value["runMinutes"], [5, 10, 15])
+        self.assertEqual(value["controllerMinutesLeft"], 14)
+        self.assertEqual(value["dial"], "Run")
+        self.assertIs(value["rainDetected"], False)
+        self.assertIs(value["batteryLow"], False)
+        self.assertEqual(value["batteryVolts"], 8.6)
+        self.assertTrue(value["available"])
+        self.assertEqual([path for path, _ in FakeUpstream.requests], ["/api/states"])
+
+    def test_retic_run_starts_the_script(self) -> None:
+        self.connect_home_assistant()
+        response, _ = self.post_json("/api/retic/run", {"entityId": "valve.retic_back_grass_left", "minutes": 10})
+        self.assertEqual(response.status, 202)
+        self.assertEqual(FakeUpstream.posts, [(
+            "/api/services/script/turn_on",
+            {"entity_id": "script.retic_run_zone", "variables": {"zone": "valve.retic_back_grass_left", "minutes": 10}},
+        )])
+
+    def test_retic_run_rejects_other_entities_and_durations(self) -> None:
+        self.connect_home_assistant()
+        for body in (
+            {"entityId": "valve.main_water", "minutes": 5},
+            {"entityId": "valve.retic_zone_6", "minutes": 5},
+            {"entityId": "light.kitchen", "minutes": 5},
+            {"entityId": ["valve.retic_front_grass"], "minutes": 5},
+            {"entityId": "valve.retic_front_grass", "minutes": 7},
+            {"entityId": "valve.retic_front_grass", "minutes": 600},
+            {"entityId": "valve.retic_front_grass", "minutes": "5"},
+            {"entityId": "valve.retic_front_grass", "minutes": 5.0},
+            {"entityId": "valve.retic_front_grass", "minutes": True},
+            {"entityId": "valve.retic_front_grass"},
+        ):
+            response, _ = self.post_json("/api/retic/run", body)
+            self.assertEqual(response.status, 400, body)
+        self.assertEqual(FakeUpstream.posts, [])
+
+    def test_retic_stop_cancels_the_timer_then_closes(self) -> None:
+        self.connect_home_assistant()
+        response, _ = self.post_json("/api/retic/stop", {"entityId": "valve.retic_front_grass"})
+        self.assertEqual(response.status, 200)
+        self.assertEqual(FakeUpstream.posts, [
+            ("/api/services/script/turn_off", {"entity_id": "script.retic_run_zone"}),
+            ("/api/services/valve/close_valve", {"entity_id": "valve.retic_front_grass"}),
+        ])
+        response, _ = self.post_json("/api/retic/stop", {"entityId": "valve.somewhere_else"})
+        self.assertEqual(response.status, 400)
+        self.assertEqual(len(FakeUpstream.posts), 2)
+
+    def test_generic_actions_cannot_reach_retic(self) -> None:
+        self.connect_home_assistant()
+        for entity_id in ("script.retic_run_zone", "switch.retic_program_a"):
+            response, _ = self.post_json("/api/home-assistant/action", {"entityId": entity_id, "action": "turn_on"})
+            self.assertEqual(response.status, 400, entity_id)
+        # Valves were never in the generic allowlist.
+        response, _ = self.post_json("/api/home-assistant/action", {"entityId": "valve.retic_front_grass", "action": "turn_on"})
+        self.assertEqual(response.status, 400)
+        self.assertEqual(FakeUpstream.posts, [])
+        response, _ = self.post_json("/api/home-assistant/action", {"entityId": "light.kitchen", "action": "turn_on"})
+        self.assertEqual(response.status, 200)
 
     def test_home_assistant_redirects_are_not_followed(self) -> None:
         FakeUpstream.redirect_to = f"{self.upstream_url}/stolen"

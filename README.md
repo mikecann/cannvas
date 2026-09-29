@@ -200,6 +200,31 @@ On the Raspberry Pi, `deploy/cannvas-server` stores that connection in
 The browser talks to this small local server and never receives the Home
 Assistant token.
 
+### Retic
+
+The Retic app (under **More**) runs the Holman WX8 irrigation controller. Home
+Assistant reaches the WX8 on the local network through the
+[tuya-local](https://github.com/make-all/tuya-local) integration, using the
+controller's local key from its Smart Life account.
+
+Cannvas expects the five zone valves to be named `valve.retic_back_grass_right`,
+`valve.retic_back_grass_left`, `valve.retic_back_flower_beds`,
+`valve.retic_front_garden_beds` and `valve.retic_front_grass`, in zone order.
+The list is in `RETIC_ZONES` in `deploy/cannvas-server`.
+
+A timed run calls the `script.retic_run_zone` script in
+[`deploy/home-assistant/retic-run-zone.yaml`](deploy/home-assistant/retic-run-zone.yaml).
+It closes any other open zone, opens the chosen one, and closes it after 5, 10
+or 15 minutes. It records the end time in the `input_datetime.retic_run_ends`
+helper for the countdown. The timer is in Home Assistant, so turning the
+screen off doesn't leave a zone running. If Home Assistant stops mid-run, the
+WX8 closes the zone by itself once its own manual run time is up. That time is
+set to 15 minutes for every zone in Smart Life.
+
+The server only accepts those five zones and those three durations, through
+`/api/retic/run` and `/api/retic/stop`. The generic Home controls action
+refuses anything named `retic_`, and Home controls doesn't list those entities.
+
 ## Running it as a wall display
 
 The files in [`deploy/`](deploy/) cover the Raspberry Pi kiosk used by the real

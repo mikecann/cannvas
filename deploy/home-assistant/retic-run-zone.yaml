@@ -1,0 +1,57 @@
+# Home Assistant script behind the Cannvas Retic app. It lives in HA's
+# scripts.yaml. It also needs an input_datetime helper named
+# input_datetime.retic_run_ends (date and time), which Cannvas reads for the
+# countdown.
+retic_run_zone:
+  alias: Retic run zone
+  description: Runs one retic zone for a set number of minutes, closing any other
+    open zone first. Cannvas calls this. The WX8 closes a zone by itself after 15
+    minutes if Home Assistant stops mid-run.
+  icon: mdi:sprinkler-variant
+  mode: restart
+  fields:
+    zone:
+      name: Zone
+      required: true
+      selector:
+        entity:
+          domain: valve
+          integration: tuya_local
+    minutes:
+      name: Minutes
+      required: true
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 15
+          unit_of_measurement: min
+  sequence:
+  - variables:
+      run_minutes: '{{ [[minutes | int(0), 1] | max, 15] | min }}'
+      others: '{{ states.valve | selectattr(''entity_id'', ''match'', ''valve\.retic_'')
+        | rejectattr(''entity_id'', ''eq'', zone) | selectattr(''state'', ''in'',
+        [''open'', ''opening'']) | map(attribute=''entity_id'') | list }}'
+  - condition: template
+    value_template: '{{ zone is string and zone is match(''valve\.retic_[a-z0-9_]+$'')
+      and states(zone) not in [''unknown'', ''unavailable''] }}'
+  - if:
+    - condition: template
+      value_template: '{{ others | length > 0 }}'
+    then:
+    - action: valve.close_valve
+      target:
+        entity_id: '{{ others }}'
+  - action: input_datetime.set_datetime
+    target:
+      entity_id: input_datetime.retic_run_ends
+    data:
+      timestamp: '{{ now().timestamp() + run_minutes * 60 }}'
+  - action: valve.open_valve
+    target:
+      entity_id: '{{ zone }}'
+  - delay:
+      minutes: '{{ run_minutes }}'
+  - action: valve.close_valve
+    target:
+      entity_id: '{{ zone }}'
