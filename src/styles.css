@@ -859,7 +859,7 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .retic-alert { padding: 18px 22px; border: 1px solid #f1cf8a; border-radius: 20px; background: #fff4dc; color: #7a4f00; font-weight: 700; line-height: 1.4; }
 .retic-alert.error { border-color: #f3b5a8; background: #ffe9e4; color: #9c3522; }
 .retic-zones { display: flex; flex-direction: column; gap: 16px; }
-.retic-zone { min-height: 204px; padding: 26px 28px; display: flex; align-items: center; gap: 22px; border: 1px solid #e2dbd0; border-radius: 28px; background: var(--paper); box-shadow: 0 8px 22px rgba(64,53,38,.06); transition: background .3s, border-color .3s; }
+.retic-zone { min-height: 180px; padding: 22px 28px; display: flex; align-items: center; gap: 22px; border: 1px solid #e2dbd0; border-radius: 28px; background: var(--paper); box-shadow: 0 8px 22px rgba(64,53,38,.06); transition: background .3s, border-color .3s; }
 .retic-zone.open { border-color: #9fd0ee; background: linear-gradient(120deg, #e6f4fc, #f3fbff 60%); box-shadow: 0 14px 34px rgba(47,143,207,.18); }
 .retic-zone.unavailable { opacity: .6; }
 .retic-zone-number { width: 84px; height: 84px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; color: var(--ink); background: #ece5d8; font: 700 2rem "Fraunces", serif; }
@@ -871,7 +871,7 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .retic-zone.open .retic-zone-text p { color: #1f6fa6; }
 .retic-zone-text p svg { width: 22px; height: 22px; }
 .retic-zone-actions { display: flex; gap: 12px; flex: 0 0 auto; }
-.retic-run, .retic-stop { min-height: 132px; border: 0; border-radius: 22px; cursor: pointer; transition: transform .1s, opacity .2s; }
+.retic-run, .retic-stop { min-height: 120px; border: 0; border-radius: 22px; cursor: pointer; transition: transform .1s, opacity .2s; }
 .retic-run { width: 124px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #1f6fa6; background: #e3f1fa; }
 .retic-run strong { font: 700 2.6rem/1 "Fraunces", serif; }
 .retic-run small { font-size: .85rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
@@ -891,3 +891,29 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .retic-tile.warn { border-color: #f1cf8a; background: #fff8e8; }
 .retic-tile.warn .retic-tile-icon { color: #b86f00; background: #ffecc2; }
 @media (prefers-reduced-motion: reduce) { .retic-zone.open .retic-zone-number { animation: none; } }
+.retic-master { padding: 22px 26px; display: flex; align-items: center; gap: 20px; border-radius: 28px; color: white; background: #1f6fa6; box-shadow: var(--shadow); transition: background .3s; }
+.retic-master.off { background: #6b6760; }
+.retic-master-icon { width: 64px; height: 64px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 20px; background: rgba(255,255,255,.18); }
+.retic-master-icon svg { width: 32px; height: 32px; }
+.retic-master > div { min-width: 0; flex: 1 1 auto; }
+.retic-master h2 { margin: 0 0 4px; font: 700 2rem/1.1 "Fraunces", serif; }
+.retic-master p { margin: 0; color: rgba(255,255,255,.85); font-size: 1.05rem; font-weight: 700; line-height: 1.35; }
+.retic-toggle { width: 150px; height: 84px; flex: 0 0 auto; padding: 8px; border: 0; border-radius: 42px; background: rgba(0,0,0,.25); cursor: pointer; transition: background .2s; }
+.retic-toggle span { display: block; width: 68px; height: 68px; border-radius: 50%; background: white; box-shadow: 0 4px 12px rgba(0,0,0,.25); transition: transform .2s; }
+.retic-toggle[aria-checked="true"] { background: #7cc6f2; }
+.retic-toggle[aria-checked="true"] span { transform: translateX(66px); }
+.retic-toggle:disabled { opacity: .5; cursor: default; }
+.retic-schedule { padding: 22px 24px; display: flex; flex-direction: column; gap: 16px; border: 1px solid #e2dbd0; border-radius: 28px; background: var(--paper); box-shadow: 0 8px 22px rgba(64,53,38,.06); }
+.retic-schedule header { display: flex; align-items: center; gap: 14px; }
+.retic-schedule header span:not(.retic-tile-icon), .retic-schedule-next span { color: var(--muted); font-size: .72rem; font-weight: 900; letter-spacing: .09em; text-transform: uppercase; }
+.retic-schedule h2 { margin: 2px 0 0; font: 700 1.9rem/1.1 "Fraunces", serif; }
+.retic-schedule-next { display: flex; align-items: stretch; gap: 16px; }
+.retic-schedule-next > div:first-child { flex: 1 1 auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 4px; border-radius: 20px; background: #eef7f3; }
+.retic-schedule-next strong { font: 700 1.7rem/1.1 "Fraunces", serif; }
+.retic-schedule-next small { color: var(--green); font-size: .95rem; font-weight: 800; }
+.retic-schedule-next small.skip { color: #1f6fa6; }
+.retic-rain { display: flex; gap: 12px; }
+.retic-rain > div { width: 170px; padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; border-radius: 20px; background: #e3f1fa; }
+.retic-rain strong { color: #1f6fa6; }
+.retic-schedule p { margin: 0; color: var(--muted); font-size: .95rem; font-weight: 700; line-height: 1.5; }
+.retic-schedule p strong { color: var(--ink); }

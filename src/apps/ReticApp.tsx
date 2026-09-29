@@ -1,17 +1,22 @@
-import { BatteryMedium, BatteryWarning, CircleHelp, CloudRain, Droplets, Gauge, LoaderCircle, Square, Sun } from "lucide-react";
+import { BatteryMedium, BatteryWarning, CalendarClock, CircleHelp, CloudRain, Droplets, Gauge, LoaderCircle, Power, Square, Sun } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { errorText, readJsonResponse } from "../lib/http";
 import {
   batteryLabel,
   dialBlocksWatering,
+  formatMm,
   minutesLeftLabel,
+  nextRunLabel,
   type ReticStatus,
   type ReticZone,
+  scheduleLabel,
+  skipReason,
   zoneMinutesLeft,
 } from "../lib/retic";
 import { useRetic } from "../lib/useRetic";
 
 type Pending = { entityId: string; kind: "start" | "stop" };
+const MASTER = "master";
 
 // Home Assistant opens or closes the valve a second or two after the request.
 const REFRESH_AFTER_MS = [1500, 4000];
@@ -34,6 +39,10 @@ export function ReticApp() {
   const retic = state.kind === "ready" ? state.retic : null;
   useEffect(() => {
     if (!pending || !retic) return;
+    if (pending.entityId === MASTER) {
+      if (retic.enabled === (pending.kind === "start")) setPending(null);
+      return;
+    }
     const zone = retic.zones?.find(({ entityId }) => entityId === pending.entityId);
     if (zone && zone.open === (pending.kind === "start")) setPending(null);
   }, [pending, retic]);
@@ -55,9 +64,11 @@ export function ReticApp() {
       timers.current.push(window.setTimeout(() => {
         if (pendingRef.current !== next) return;
         setPending(null);
-        setError(next.kind === "start"
-          ? "The zone didn't turn on. Check the controller and try again."
-          : "The zone didn't turn off. Try Stop again, or press STOP on the controller.");
+        setError(next.entityId === MASTER
+          ? "Home Assistant didn't change the retic switch. Try again."
+          : next.kind === "start"
+            ? "The zone didn't turn on. Check the controller and try again."
+            : "The zone didn't turn off. Try Stop again, or press STOP on the controller.");
       }, PENDING_LIMIT_MS));
     } catch (requestError) {
       // A timed-out request throws a DOMException whose message means nothing to people.
@@ -68,6 +79,7 @@ export function ReticApp() {
 
   const run = (zone: ReticZone, minutes: number) => send("/api/retic/run", { entityId: zone.entityId, minutes }, { entityId: zone.entityId, kind: "start" });
   const stop = (zone: ReticZone) => send("/api/retic/stop", { entityId: zone.entityId }, { entityId: zone.entityId, kind: "stop" });
+  const setEnabled = (enabled: boolean) => send("/api/retic/enabled", { enabled }, { entityId: MASTER, kind: enabled ? "start" : "stop" });
 
   return (
     <section className="retic-app">
@@ -84,6 +96,11 @@ export function ReticApp() {
       {retic && !retic.configured && <div className="retic-message">Connect Home Assistant in Home controls to use the retic.</div>}
       {retic?.configured && (
         <>
+          <MasterSwitch
+            enabled={retic.enabled ?? null}
+            pending={pending?.entityId === MASTER}
+            onChange={(enabled) => void setEnabled(enabled)}
+          />
           {error && <div className="retic-alert error" role="alert">{error}</div>}
           {!retic.available && (
             <div className="retic-alert">Home Assistant can't reach the controller right now. Check that it's plugged in and on Wi-Fi.</div>
@@ -99,14 +116,15 @@ export function ReticApp() {
                 retic={retic}
                 pending={pending?.entityId === zone.entityId ? pending.kind : null}
                 busy={pending != null}
-                // The script refuses to run while any zone's state is unknown,
-                // because that zone might still be open.
-                blocked={(retic.zones ?? []).some(({ state }) => state == null)}
+                // The script refuses to run while the retic is off or any
+                // zone's state is unknown, because that zone might be open.
+                blocked={retic.enabled !== true || (retic.zones ?? []).some(({ state }) => state == null)}
                 onRun={(minutes) => void run(zone, minutes)}
                 onStop={() => void stop(zone)}
               />
             ))}
           </div>
+          <ScheduleCard retic={retic} />
           <ControllerTiles retic={retic} />
         </>
       )}
@@ -125,6 +143,74 @@ function ReticStatusPill({ retic }: { retic: ReticStatus }) {
         {!retic.available ? "Controller not responding" : watering ? minutesLeftLabel(minutes) : "No zones watering"}
       </span>
     </div>
+  );
+}
+
+function MasterSwitch({ enabled, pending, onChange }: { enabled: boolean | null; pending: boolean; onChange: (enabled: boolean) => void }) {
+  const on = enabled === true;
+  return (
+    <div className={`retic-master${on ? " on" : " off"}`}>
+      <span className="retic-master-icon" aria-hidden="true"><Power /></span>
+      <div>
+        <h2>{enabled == null ? "Retic switch unknown" : on ? "Retic is on" : "Retic is off"}</h2>
+        <p>
+          {enabled == null
+            ? "Home Assistant can't read the master switch."
+            : on
+              ? "Zones can run, and the smart schedule waters on its days."
+              : "Nothing will water, not even the schedule. Any zone that opens is closed."}
+        </p>
+      </div>
+      <button
+        className="retic-toggle"
+        role="switch"
+        aria-checked={on}
+        aria-label="Retic master switch"
+        disabled={pending || enabled == null}
+        onClick={() => onChange(!on)}
+      >
+        <span />
+      </button>
+    </div>
+  );
+}
+
+function ScheduleCard({ retic }: { retic: ReticStatus }) {
+  const schedule = retic.schedule;
+  if (!schedule || (!schedule.nextRun && schedule.days.length === 0)) return null;
+  const skip = skipReason(retic);
+  const next = retic.enabled === false
+    ? "Paused while the retic is off"
+    : schedule.running ? "Watering on schedule now" : nextRunLabel(schedule.nextRun);
+  const outlook = retic.enabled === false || schedule.running || !schedule.nextRun
+    ? null
+    : skip ? `Would skip if it ran now: ${skip}` : "Will water unless it rains first";
+  return (
+    <article className="retic-schedule">
+      <header>
+        <span className="retic-tile-icon" aria-hidden="true"><CalendarClock /></span>
+        <div>
+          <span>Smart schedule</span>
+          <h2>{scheduleLabel(schedule.days, schedule.start)}</h2>
+        </div>
+      </header>
+      <div className="retic-schedule-next">
+        <div>
+          <span>Next</span>
+          <strong>{next}</strong>
+          {outlook && <small className={skip ? "skip" : undefined}>{outlook}</small>}
+        </div>
+        <div className="retic-rain">
+          <div><span>Rain, 24 h</span><strong>{formatMm(schedule.rainLast24h)}</strong></div>
+          <div><span>Forecast, 12 h</span><strong>{formatMm(schedule.rainNext12h)}</strong></div>
+        </div>
+      </div>
+      <p>
+        Skips when {schedule.skipPastMm ?? 3} mm or more fell in the last 24 hours, {schedule.skipForecastMm ?? 5} mm or more is
+        forecast, or the rain sensor is wet.
+        {schedule.lastResult && <><br /><strong>Last time:</strong> {schedule.lastResult}</>}
+      </p>
+    </article>
   );
 }
 

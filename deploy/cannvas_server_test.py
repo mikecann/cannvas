@@ -36,6 +36,41 @@ def start(server: ThreadingHTTPServer) -> ThreadingHTTPServer:
     return server
 
 
+def fake_states() -> list[dict]:
+    states = [
+        {"entity_id": "sensor.solis_load_power", "state": "2.5", "last_updated": "2026-09-25T01:00:00+00:00"},
+        {"entity_id": "sensor.solis_grid_power", "state": "1.0", "last_updated": "2026-09-25T01:00:00+00:00"},
+        {"entity_id": "sensor.solis_inverter_status", "state": "Normal", "last_updated": "2026-09-25T01:00:00+00:00"},
+        {"entity_id": "sensor.power_production_now", "state": "3450", "attributes": {"unit_of_measurement": "W"}, "last_updated": "2026-09-25T02:00:00+00:00"},
+        {"entity_id": "sensor.energy_production_today", "state": "15.889", "attributes": {"unit_of_measurement": "kWh"}},
+        {"entity_id": "sensor.energy_production_tomorrow", "state": "8856", "attributes": {"unit_of_measurement": "Wh"}},
+        {"entity_id": "sensor.power_highest_peak_time_today", "state": "2026-09-25T04:00:00+00:00"},
+        {"entity_id": "light.kitchen", "state": "on"},
+        {"entity_id": "valve.retic_back_grass_right", "state": "closed"},
+        {"entity_id": "valve.retic_back_grass_left", "state": "closed"},
+        {"entity_id": "valve.retic_back_flower_beds", "state": "unavailable"},
+        {"entity_id": "valve.retic_front_garden_beds", "state": "closed"},
+        {"entity_id": "valve.retic_front_grass", "state": "open"},
+        {"entity_id": "script.retic_run_zone", "state": "on"},
+        {"entity_id": "input_datetime.retic_run_ends", "state": "2026-09-29 15:30:00", "attributes": {"timestamp": 1790667000.0}},
+        {"entity_id": "binary_sensor.retic_rain_sensor", "state": "off"},
+        {"entity_id": "binary_sensor.retic_battery_voltage", "state": "off"},
+        {"entity_id": "sensor.retic_battery_voltage", "state": "8.6"},
+        {"entity_id": "binary_sensor.retic_power_supply", "state": "off"},
+        {"entity_id": "sensor.retic_dial_position", "state": "Run"},
+        {"entity_id": "sensor.retic_time_remaining", "state": "14"},
+    {"entity_id": "input_boolean.retic_enabled", "state": "on"},
+    {"entity_id": "script.retic_run_schedule", "state": "off"},
+    {"entity_id": "input_text.retic_last_result", "state": "Skipped Sun 27 Sep, 6:00 AM: 4.1 mm of rain in the last 24 hours"},
+    {"entity_id": "sensor.retic_rain_last_24h", "state": "0.2"},
+    {"entity_id": "sensor.retic_rain_next_12h", "state": "1.5"},
+    {"entity_id": "sensor.retic_next_run", "state": "2026-09-29T22:00:00+00:00", "attributes": {
+        "days": [3, 7], "start": "06:00", "skip_past_mm": 3, "skip_forecast_mm": 5, "zones": [],
+    }},
+    ]
+    return [FakeUpstream.state_overrides.get(str(state["entity_id"]), state) for state in states]
+
+
 class FakeUpstream(BaseHTTPRequestHandler):
     """Plays Home Assistant or Bruce. Records every request it sees."""
 
@@ -48,31 +83,7 @@ class FakeUpstream(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         FakeUpstream.requests.append((self.path, self.headers.get("Authorization")))
         if self.path == "/api/states":
-            states = [
-                {"entity_id": "sensor.solis_load_power", "state": "2.5", "last_updated": "2026-09-25T01:00:00+00:00"},
-                {"entity_id": "sensor.solis_grid_power", "state": "1.0", "last_updated": "2026-09-25T01:00:00+00:00"},
-                {"entity_id": "sensor.solis_inverter_status", "state": "Normal", "last_updated": "2026-09-25T01:00:00+00:00"},
-                {"entity_id": "sensor.power_production_now", "state": "3450", "attributes": {"unit_of_measurement": "W"}, "last_updated": "2026-09-25T02:00:00+00:00"},
-                {"entity_id": "sensor.energy_production_today", "state": "15.889", "attributes": {"unit_of_measurement": "kWh"}},
-                {"entity_id": "sensor.energy_production_tomorrow", "state": "8856", "attributes": {"unit_of_measurement": "Wh"}},
-                {"entity_id": "sensor.power_highest_peak_time_today", "state": "2026-09-25T04:00:00+00:00"},
-                {"entity_id": "light.kitchen", "state": "on"},
-                {"entity_id": "valve.retic_back_grass_right", "state": "closed"},
-                {"entity_id": "valve.retic_back_grass_left", "state": "closed"},
-                {"entity_id": "valve.retic_back_flower_beds", "state": "unavailable"},
-                {"entity_id": "valve.retic_front_garden_beds", "state": "closed"},
-                {"entity_id": "valve.retic_front_grass", "state": "open"},
-                {"entity_id": "script.retic_run_zone", "state": "on"},
-                {"entity_id": "input_datetime.retic_run_ends", "state": "2026-09-29 15:30:00", "attributes": {"timestamp": 1790667000.0}},
-                {"entity_id": "binary_sensor.retic_rain_sensor", "state": "off"},
-                {"entity_id": "binary_sensor.retic_battery_voltage", "state": "off"},
-                {"entity_id": "sensor.retic_battery_voltage", "state": "8.6"},
-                {"entity_id": "binary_sensor.retic_power_supply", "state": "off"},
-                {"entity_id": "sensor.retic_dial_position", "state": "Run"},
-                {"entity_id": "sensor.retic_time_remaining", "state": "14"},
-            ]
-            states = [FakeUpstream.state_overrides.get(state["entity_id"], state) for state in states]
-            body = json.dumps(states).encode()
+            body = json.dumps(fake_states()).encode()
             self.reply(200, body, "application/json")
         elif self.path == "/api/states/sun.sun":
             body = json.dumps({
@@ -86,6 +97,13 @@ class FakeUpstream(BaseHTTPRequestHandler):
                 },
             }).encode()
             self.reply(200, body, "application/json")
+        elif self.path.startswith("/api/states/"):
+            entity_id = self.path.removeprefix("/api/states/")
+            state = next((state for state in fake_states() if state["entity_id"] == entity_id), None)
+            if state is None:
+                self.reply(404, b"{}", "application/json")
+            else:
+                self.reply(200, json.dumps(state).encode(), "application/json")
         elif self.path.startswith("/api/history/"):
             self.reply(200, b"[]", "application/json")
         elif self.path == "/redirect":
@@ -413,10 +431,64 @@ class CannvasServerTest(unittest.TestCase):
         self.connect_home_assistant()
         response, _ = self.post_json("/api/retic/run", {"entityId": "valve.retic_back_grass_left", "minutes": 10})
         self.assertEqual(response.status, 202)
-        self.assertEqual(FakeUpstream.posts, [(
-            "/api/services/script/turn_on",
-            {"entity_id": "script.retic_run_zone", "variables": {"zone": "valve.retic_back_grass_left", "minutes": 10}},
-        )])
+        self.assertEqual(FakeUpstream.posts, [
+            # A run by hand replaces any scheduled watering.
+            ("/api/services/script/turn_off", {"entity_id": "script.retic_run_schedule"}),
+            ("/api/services/script/turn_on", {"entity_id": "script.retic_run_zone", "variables": {"zone": "valve.retic_back_grass_left", "minutes": 10}}),
+        ])
+
+    def test_retic_run_is_refused_while_switched_off(self) -> None:
+        self.connect_home_assistant()
+        self.override_states({"entity_id": "input_boolean.retic_enabled", "state": "off"})
+        response, body = self.post_json("/api/retic/run", {"entityId": "valve.retic_front_grass", "minutes": 5})
+        self.assertEqual(response.status, 409)
+        self.assertEqual(json.loads(body), {"error": "The retic is switched off"})
+        self.override_states({"entity_id": "input_boolean.retic_enabled", "state": "unavailable"})
+        response, _ = self.post_json("/api/retic/run", {"entityId": "valve.retic_front_grass", "minutes": 5})
+        self.assertEqual(response.status, 409)
+        self.assertEqual(FakeUpstream.posts, [])
+
+    def test_retic_master_switch(self) -> None:
+        self.connect_home_assistant()
+        response, _ = self.post_json("/api/retic/enabled", {"enabled": False})
+        self.assertEqual(response.status, 200)
+        response, _ = self.post_json("/api/retic/enabled", {"enabled": True})
+        self.assertEqual(response.status, 200)
+        self.assertEqual(FakeUpstream.posts, [
+            ("/api/services/input_boolean/turn_off", {"entity_id": "input_boolean.retic_enabled"}),
+            ("/api/services/input_boolean/turn_on", {"entity_id": "input_boolean.retic_enabled"}),
+        ])
+        for body in ({"enabled": "false"}, {"enabled": 0}, {"enabled": None}, {}):
+            response, _ = self.post_json("/api/retic/enabled", body)
+            self.assertEqual(response.status, 400, body)
+        self.assertEqual(len(FakeUpstream.posts), 2)
+
+    def test_retic_reports_the_schedule(self) -> None:
+        self.connect_home_assistant()
+        value = self.retic()
+        self.assertIs(value["enabled"], True)
+        self.assertEqual(value["schedule"], {
+            "nextRun": "2026-09-29T22:00:00+00:00",
+            "days": [3, 7],
+            "start": "06:00",
+            "skipPastMm": 3,
+            "skipForecastMm": 5,
+            "running": False,
+            "lastResult": "Skipped Sun 27 Sep, 6:00 AM: 4.1 mm of rain in the last 24 hours",
+            "rainLast24h": 0.2,
+            "rainNext12h": 1.5,
+        })
+
+    def test_retic_schedule_without_the_package(self) -> None:
+        self.connect_home_assistant()
+        self.override_states(
+            {"entity_id": "sensor.retic_next_run", "state": "unknown"},
+            {"entity_id": "input_boolean.retic_enabled", "state": "unavailable"},
+        )
+        value = self.retic()
+        self.assertIsNone(value["enabled"])
+        self.assertIsNone(value["schedule"]["nextRun"])
+        self.assertEqual(value["schedule"]["days"], [])
 
     def test_retic_run_rejects_other_entities_and_durations(self) -> None:
         self.connect_home_assistant()
@@ -441,7 +513,7 @@ class CannvasServerTest(unittest.TestCase):
         response, _ = self.post_json("/api/retic/stop", {"entityId": "valve.retic_front_grass"})
         self.assertEqual(response.status, 200)
         self.assertEqual(FakeUpstream.posts, [
-            ("/api/services/script/turn_off", {"entity_id": "script.retic_run_zone"}),
+            ("/api/services/script/turn_off", {"entity_id": ["script.retic_run_schedule", "script.retic_run_zone"]}),
             ("/api/services/valve/close_valve", {"entity_id": "valve.retic_front_grass"}),
         ])
         response, _ = self.post_json("/api/retic/stop", {"entityId": "valve.somewhere_else"})
@@ -450,7 +522,7 @@ class CannvasServerTest(unittest.TestCase):
 
     def test_generic_actions_cannot_reach_retic(self) -> None:
         self.connect_home_assistant()
-        for entity_id in ("script.retic_run_zone", "switch.retic_program_a"):
+        for entity_id in ("script.retic_run_zone", "switch.retic_program_a", "input_boolean.retic_enabled"):
             response, _ = self.post_json("/api/home-assistant/action", {"entityId": entity_id, "action": "turn_on"})
             self.assertEqual(response.status, 400, entity_id)
         # Valves were never in the generic allowlist.

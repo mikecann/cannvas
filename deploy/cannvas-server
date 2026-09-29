@@ -537,7 +537,13 @@ RETIC_ZONES = (
 RETIC_ZONE_IDS = {entity for _, entity, _ in RETIC_ZONES}
 RETIC_RUN_MINUTES = (5, 10, 15)
 RETIC_SCRIPT = "script.retic_run_zone"
+RETIC_SCHEDULE_SCRIPT = "script.retic_run_schedule"
 RETIC_RUN_ENDS = "input_datetime.retic_run_ends"
+# The master switch. The Home Assistant package closes every zone when it's off.
+RETIC_ENABLED = "input_boolean.retic_enabled"
+# The schedule and its rain limits live on this sensor's attributes.
+RETIC_NEXT_RUN = "sensor.retic_next_run"
+RETIC_LAST_RESULT = "input_text.retic_last_result"
 RETIC_SENSORS = {
     "rain": "binary_sensor.retic_rain_sensor",
     "batteryLow": "binary_sensor.retic_battery_voltage",
@@ -545,6 +551,8 @@ RETIC_SENSORS = {
     "mainsProblem": "binary_sensor.retic_power_supply",
     "dial": "sensor.retic_dial_position",
     "remaining": "sensor.retic_time_remaining",
+    "rainLast24h": "sensor.retic_rain_last_24h",
+    "rainNext12h": "sensor.retic_rain_next_12h",
 }
 
 
@@ -584,8 +592,12 @@ def retic_status(config: dict[str, str]) -> dict[str, Any]:
     if known_state(by_id.get(RETIC_SCRIPT) or {}) == "on" and len(open_zones) == 1 and ends_at is not None:
         run = {"entityId": open_zones[0], "endsAt": datetime.fromtimestamp(ends_at, timezone.utc).isoformat()}
 
+    next_run = by_id.get(RETIC_NEXT_RUN) or {}
+    schedule_attributes = next_run.get("attributes") if isinstance(next_run.get("attributes"), dict) else {}
+    days = schedule_attributes.get("days")
     return {
         "configured": True,
+        "enabled": on_off(by_id.get(RETIC_ENABLED) or {}),
         "available": any(zone["state"] is not None for zone in zones),
         "zones": zones,
         "run": run,
@@ -596,6 +608,17 @@ def retic_status(config: dict[str, str]) -> dict[str, Any]:
         "batteryLow": on_off(sensors["batteryLow"]),
         "batteryVolts": number(known_state(sensors["batteryVolts"])),
         "mainsProblem": on_off(sensors["mainsProblem"]),
+        "schedule": {
+            "nextRun": known_state(next_run),
+            "days": [day for day in days if type(day) is int] if isinstance(days, list) else [],
+            "start": schedule_attributes.get("start") if isinstance(schedule_attributes.get("start"), str) else None,
+            "skipPastMm": number(schedule_attributes.get("skip_past_mm")),
+            "skipForecastMm": number(schedule_attributes.get("skip_forecast_mm")),
+            "running": known_state(by_id.get(RETIC_SCHEDULE_SCRIPT) or {}) == "on",
+            "lastResult": known_state(by_id.get(RETIC_LAST_RESULT) or {}),
+            "rainLast24h": number(known_state(sensors["rainLast24h"])),
+            "rainNext12h": number(known_state(sensors["rainNext12h"])),
+        },
     }
 
 
@@ -844,6 +867,12 @@ class CannvasHandler(SimpleHTTPRequestHandler):
             minutes = body.get("minutes")
             if type(minutes) is not int or minutes not in RETIC_RUN_MINUTES:
                 raise ValueError("Choose 5, 10 or 15 minutes")
+            enabled = home_assistant_request(config, f"/api/states/{RETIC_ENABLED}", timeout=SOLAR_STATES_TIMEOUT)
+            if not isinstance(enabled, dict) or enabled.get("state") != "on":
+                self.send_json(409, {"error": "The retic is switched off"})
+                return
+            # A run by hand replaces any scheduled watering in progress.
+            home_assistant_request(config, "/api/services/script/turn_off", {"entity_id": RETIC_SCHEDULE_SCRIPT})
             home_assistant_request(config, "/api/services/script/turn_on", {
                 "entity_id": RETIC_SCRIPT,
                 "variables": {"zone": entity_id, "minutes": minutes},
@@ -862,9 +891,26 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         try:
             entity_id = retic_zone(self.read_json())
             # Stop the timer first so it can't reopen or later close a new run.
-            home_assistant_request(config, "/api/services/script/turn_off", {"entity_id": RETIC_SCRIPT})
+            home_assistant_request(config, "/api/services/script/turn_off", {"entity_id": [RETIC_SCHEDULE_SCRIPT, RETIC_SCRIPT]})
             home_assistant_request(config, "/api/services/valve/close_valve", {"entity_id": entity_id})
             self.send_json(200, {"ok": True})
+        except ValueError as error:
+            self.send_json(400, {"error": str(error)})
+        except Exception as error:
+            self.home_assistant_error(error)
+
+    def post_retic_enabled(self) -> None:
+        config = load_config()
+        if not config:
+            self.send_json(409, {"error": "Home Assistant is not connected"})
+            return
+        try:
+            enabled = self.read_json().get("enabled")
+            if type(enabled) is not bool:
+                raise ValueError("Expected enabled to be true or false")
+            action = "turn_on" if enabled else "turn_off"
+            home_assistant_request(config, f"/api/services/input_boolean/{action}", {"entity_id": RETIC_ENABLED})
+            self.send_json(200, {"ok": True, "enabled": enabled})
         except ValueError as error:
             self.send_json(400, {"error": str(error)})
         except Exception as error:
@@ -1001,6 +1047,7 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         "/api/home-assistant/action": post_home_assistant_action,
         "/api/retic/run": post_retic_run,
         "/api/retic/stop": post_retic_stop,
+        "/api/retic/enabled": post_retic_enabled,
         "/api/heartbeat": post_heartbeat,
     }
 
