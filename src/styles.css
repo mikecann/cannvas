@@ -884,7 +884,7 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .retic-tile-icon { width: 48px; height: 48px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 15px; color: var(--green); background: #e1f2ec; }
 .retic-tile-icon svg { width: 26px; height: 26px; }
 .retic-tile > div { display: flex; flex-direction: column; min-width: 0; }
-.retic-tile span { color: var(--muted); font-size: .72rem; font-weight: 900; letter-spacing: .09em; text-transform: uppercase; }
+.retic-tile > div span { color: var(--muted); font-size: .72rem; font-weight: 900; letter-spacing: .09em; text-transform: uppercase; }
 .retic-tile strong { margin: 6px 0 4px; font: 700 1.7rem/1.05 "Fraunces", serif; letter-spacing: -.02em; }
 .retic-tile small { color: var(--muted); font-size: .8rem; font-weight: 700; }
 .retic-tile.wet .retic-tile-icon { color: #1f6fa6; background: #e3f1fa; }

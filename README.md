@@ -218,8 +218,9 @@ It closes any other open zone, opens the chosen one, and closes it after 5, 10
 or 15 minutes. It records the end time in the `input_datetime.retic_run_ends`
 helper for the countdown. The timer is in Home Assistant, so turning the
 screen off doesn't leave a zone running. If Home Assistant stops mid-run, the
-WX8 closes the zone by itself once its own manual run time is up. That time is
-set to 15 minutes for every zone in Smart Life.
+WX8 closes the zone by itself once its own manual run time is up. In Smart
+Life that is 16 minutes for zones 1 to 4 and 15 for Front grass, so keep it at
+or above the longest Cannvas run.
 
 The server only accepts those five zones and those three durations, through
 `/api/retic/run` and `/api/retic/stop`. The generic Home controls action

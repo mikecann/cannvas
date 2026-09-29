@@ -526,7 +526,7 @@ def sun_status(config: dict[str, str]) -> dict[str, Any]:
 # Retic is the Holman WX8 irrigation controller, which Home Assistant reaches
 # locally through tuya-local. Timed runs go through the retic_run_zone script so
 # the timer lives in Home Assistant, not in this page. The WX8 also closes a
-# zone by itself after its 15 minute manual run time, in case both stop.
+# zone by itself after its 15-16 minute manual run time, in case both stop.
 RETIC_ZONES = (
     (1, "valve.retic_back_grass_right", "Back grass right"),
     (2, "valve.retic_back_grass_left", "Back grass left"),

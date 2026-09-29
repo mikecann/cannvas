@@ -5,8 +5,8 @@
 retic_run_zone:
   alias: Retic run zone
   description: Runs one retic zone for a set number of minutes, closing any other
-    open zone first. Cannvas calls this. The WX8 closes a zone by itself after 15
-    minutes if Home Assistant stops mid-run.
+    open zone first. Cannvas calls this. If Home Assistant stops mid-run, the WX8
+    closes the zone by itself after its own 15-16 minute manual run time.
   icon: mdi:sprinkler-variant
   mode: restart
   fields:
@@ -32,9 +32,13 @@ retic_run_zone:
       others: '{{ states.valve | selectattr(''entity_id'', ''match'', ''valve\.retic_'')
         | rejectattr(''entity_id'', ''eq'', zone) | selectattr(''state'', ''in'',
         [''open'', ''opening'']) | map(attribute=''entity_id'') | list }}'
+      unknown_others: '{{ states.valve | selectattr(''entity_id'', ''match'', ''valve\.retic_'')
+        | rejectattr(''entity_id'', ''eq'', zone) | selectattr(''state'', ''in'',
+        [''unknown'', ''unavailable'']) | map(attribute=''entity_id'') | list }}'
   - condition: template
     value_template: '{{ zone is string and zone is match(''valve\.retic_[a-z0-9_]+$'')
-      and states(zone) not in [''unknown'', ''unavailable''] }}'
+      and states(zone) not in [''unknown'', ''unavailable''] and unknown_others |
+      length == 0 }}'
   - if:
     - condition: template
       value_template: '{{ others | length > 0 }}'
@@ -42,14 +46,14 @@ retic_run_zone:
     - action: valve.close_valve
       target:
         entity_id: '{{ others }}'
+  - action: valve.open_valve
+    target:
+      entity_id: '{{ zone }}'
   - action: input_datetime.set_datetime
     target:
       entity_id: input_datetime.retic_run_ends
     data:
       timestamp: '{{ now().timestamp() + run_minutes * 60 }}'
-  - action: valve.open_valve
-    target:
-      entity_id: '{{ zone }}'
   - delay:
       minutes: '{{ run_minutes }}'
   - action: valve.close_valve

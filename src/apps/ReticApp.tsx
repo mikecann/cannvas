@@ -1,4 +1,4 @@
-import { BatteryMedium, BatteryWarning, CloudRain, Droplets, Gauge, LoaderCircle, Square, Sun } from "lucide-react";
+import { BatteryMedium, BatteryWarning, CircleHelp, CloudRain, Droplets, Gauge, LoaderCircle, Square, Sun } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { errorText, readJsonResponse } from "../lib/http";
 import {
@@ -22,6 +22,11 @@ export function ReticApp() {
   const [pending, setPending] = useState<Pending | null>(null);
   const [error, setError] = useState<string | null>(null);
   const timers = useRef<number[]>([]);
+  const pendingRef = useRef<Pending | null>(null);
+
+  useEffect(() => {
+    pendingRef.current = pending;
+  });
 
   useEffect(() => () => timers.current.forEach((timer) => window.clearTimeout(timer)), []);
 
@@ -37,12 +42,26 @@ export function ReticApp() {
     setError(null);
     setPending(next);
     try {
-      const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const response = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(PENDING_LIMIT_MS),
+      });
       await readJsonResponse(response, "The retic controller did not respond");
       timers.current.push(...REFRESH_AFTER_MS.map((delay) => window.setTimeout(() => void refresh(), delay)));
-      timers.current.push(window.setTimeout(() => setPending((current) => (current === next ? null : current)), PENDING_LIMIT_MS));
+      // Home Assistant accepts the request before the valve moves, so only
+      // the valve's state shows whether it worked.
+      timers.current.push(window.setTimeout(() => {
+        if (pendingRef.current !== next) return;
+        setPending(null);
+        setError(next.kind === "start"
+          ? "The zone didn't turn on. Check the controller and try again."
+          : "The zone didn't turn off. Try Stop again, or press STOP on the controller.");
+      }, PENDING_LIMIT_MS));
     } catch (requestError) {
-      setError(errorText(requestError, "The retic controller did not respond"));
+      // A timed-out request throws a DOMException whose message means nothing to people.
+      setError(requestError instanceof DOMException ? "The retic controller did not respond" : errorText(requestError, "The retic controller did not respond"));
       setPending(null);
     }
   }
@@ -80,6 +99,9 @@ export function ReticApp() {
                 retic={retic}
                 pending={pending?.entityId === zone.entityId ? pending.kind : null}
                 busy={pending != null}
+                // The script refuses to run while any zone's state is unknown,
+                // because that zone might still be open.
+                blocked={(retic.zones ?? []).some(({ state }) => state == null)}
                 onRun={(minutes) => void run(zone, minutes)}
                 onStop={() => void stop(zone)}
               />
@@ -106,11 +128,12 @@ function ReticStatusPill({ retic }: { retic: ReticStatus }) {
   );
 }
 
-function ZoneCard({ zone, retic, pending, busy, onRun, onStop }: {
+function ZoneCard({ zone, retic, pending, busy, blocked, onRun, onStop }: {
   zone: ReticZone;
   retic: ReticStatus;
   pending: "start" | "stop" | null;
   busy: boolean;
+  blocked: boolean;
   onRun: (minutes: number) => void;
   onStop: () => void;
 }) {
@@ -138,7 +161,7 @@ function ZoneCard({ zone, retic, pending, busy, onRun, onStop }: {
           </button>
         ) : (
           (retic.runMinutes ?? []).map((value) => (
-            <button key={value} className="retic-run" onClick={() => onRun(value)} disabled={busy || unavailable} aria-label={`Water ${zone.name} for ${value} minutes`}>
+            <button key={value} className="retic-run" onClick={() => onRun(value)} disabled={busy || blocked} aria-label={`Water ${zone.name} for ${value} minutes`}>
               <strong>{value}</strong>
               <small>min</small>
             </button>
@@ -154,10 +177,10 @@ function ControllerTiles({ retic }: { retic: ReticStatus }) {
   return (
     <div className="retic-tiles">
       <Tile
-        icon={rain ? <CloudRain /> : <Sun />}
+        icon={rain ? <CloudRain /> : rain == null ? <CircleHelp /> : <Sun />}
         label="Rain sensor"
         value={rain == null ? "Unknown" : rain ? "Wet" : "Dry"}
-        note={rain ? "Rain detected" : "No rain detected"}
+        note={rain == null ? "Can't read the sensor" : rain ? "Rain detected" : "No rain detected"}
         tone={rain ? "wet" : undefined}
       />
       <Tile

@@ -41,12 +41,14 @@ class FakeUpstream(BaseHTTPRequestHandler):
 
     requests: list[tuple[str, str | None]] = []
     posts: list[tuple[str, object]] = []
+    # Replace entries in the /api/states snapshot, keyed by entity id.
+    state_overrides: dict[str, dict[str, object]] = {}
     redirect_to = ""
 
     def do_GET(self) -> None:
         FakeUpstream.requests.append((self.path, self.headers.get("Authorization")))
         if self.path == "/api/states":
-            body = json.dumps([
+            states = [
                 {"entity_id": "sensor.solis_load_power", "state": "2.5", "last_updated": "2026-09-25T01:00:00+00:00"},
                 {"entity_id": "sensor.solis_grid_power", "state": "1.0", "last_updated": "2026-09-25T01:00:00+00:00"},
                 {"entity_id": "sensor.solis_inverter_status", "state": "Normal", "last_updated": "2026-09-25T01:00:00+00:00"},
@@ -68,7 +70,9 @@ class FakeUpstream(BaseHTTPRequestHandler):
                 {"entity_id": "binary_sensor.retic_power_supply", "state": "off"},
                 {"entity_id": "sensor.retic_dial_position", "state": "Run"},
                 {"entity_id": "sensor.retic_time_remaining", "state": "14"},
-            ]).encode()
+            ]
+            states = [FakeUpstream.state_overrides.get(state["entity_id"], state) for state in states]
+            body = json.dumps(states).encode()
             self.reply(200, body, "application/json")
         elif self.path == "/api/states/sun.sun":
             body = json.dumps({
@@ -142,6 +146,7 @@ class CannvasServerTest(unittest.TestCase):
     def setUp(self) -> None:
         FakeUpstream.requests = []
         FakeUpstream.posts = []
+        FakeUpstream.state_overrides = {}
         self.module._VIDEO_DOWN_UNTIL = 0.0
         self.module.VIDEO_URL = self.upstream_url
         config = self.temp / "home-assistant.json"
@@ -349,6 +354,60 @@ class CannvasServerTest(unittest.TestCase):
         self.assertEqual(value["batteryVolts"], 8.6)
         self.assertTrue(value["available"])
         self.assertEqual([path for path, _ in FakeUpstream.requests], ["/api/states"])
+
+    def override_states(self, *states: dict[str, object]) -> None:
+        FakeUpstream.state_overrides = {str(state["entity_id"]): state for state in states}
+
+    def retic(self) -> dict:
+        response, body = self.request("GET", "/api/retic")
+        self.assertEqual(response.status, 200)
+        return json.loads(body)
+
+    def test_retic_has_no_countdown_when_the_script_is_not_timing(self) -> None:
+        self.connect_home_assistant()
+        # Opened on the controller or in Smart Life: the WX8's own timer applies.
+        self.override_states({"entity_id": "script.retic_run_zone", "state": "off"})
+        value = self.retic()
+        self.assertIsNone(value["run"])
+        self.assertEqual(value["controllerMinutesLeft"], 14)
+
+    def test_retic_has_no_countdown_without_exactly_one_open_zone(self) -> None:
+        self.connect_home_assistant()
+        self.override_states({"entity_id": "valve.retic_back_grass_left", "state": "open"})
+        self.assertIsNone(self.retic()["run"])
+        self.override_states({"entity_id": "valve.retic_front_grass", "state": "closed"})
+        value = self.retic()
+        self.assertIsNone(value["run"])
+        self.assertIsNone(value["controllerMinutesLeft"])
+
+    def test_retic_has_no_countdown_without_an_end_time(self) -> None:
+        self.connect_home_assistant()
+        self.override_states({"entity_id": "input_datetime.retic_run_ends", "state": "unknown", "attributes": {}})
+        self.assertIsNone(self.retic()["run"])
+
+    def test_retic_reports_an_unreachable_controller_as_unknown(self) -> None:
+        self.connect_home_assistant()
+        self.override_states(
+            *({"entity_id": entity, "state": "unavailable"} for _, entity, _ in self.module.RETIC_ZONES),
+            *({"entity_id": entity, "state": "unavailable"} for entity in self.module.RETIC_SENSORS.values()),
+        )
+        value = self.retic()
+        self.assertFalse(value["available"])
+        self.assertIsNone(value["run"])
+        for key in ("dial", "rainDetected", "batteryLow", "batteryVolts", "mainsProblem", "controllerMinutesLeft"):
+            self.assertIsNone(value[key], key)
+
+    def test_retic_reports_rain_and_a_low_battery(self) -> None:
+        self.connect_home_assistant()
+        self.override_states(
+            {"entity_id": "binary_sensor.retic_rain_sensor", "state": "on"},
+            {"entity_id": "binary_sensor.retic_battery_voltage", "state": "on"},
+            {"entity_id": "binary_sensor.retic_power_supply", "state": "on"},
+        )
+        value = self.retic()
+        self.assertIs(value["rainDetected"], True)
+        self.assertIs(value["batteryLow"], True)
+        self.assertIs(value["mainsProblem"], True)
 
     def test_retic_run_starts_the_script(self) -> None:
         self.connect_home_assistant()
