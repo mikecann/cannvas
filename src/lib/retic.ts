@@ -110,10 +110,14 @@ export function formatMm(value: number | null | undefined): string {
 export function skipReason(status: Pick<ReticStatus, "enabled" | "rainDetected" | "schedule">): string | null {
   const schedule = status.schedule;
   if (status.enabled === false) return "the retic is switched off";
+  if (status.enabled !== true) return "the retic switch can't be read";
   if (status.rainDetected) return "the rain sensor is wet";
   if (!schedule) return null;
-  const { rainLast24h, rainNext12h, skipPastMm, skipForecastMm } = schedule;
-  if (rainLast24h != null && skipPastMm != null && rainLast24h >= skipPastMm) return `${formatMm(rainLast24h)} of rain in the last 24 hours`;
-  if (rainNext12h != null && skipForecastMm != null && rainNext12h >= skipForecastMm) return `${formatMm(rainNext12h)} of rain forecast in the next 12 hours`;
+  const { rainLast24h, rainNext12h } = schedule;
+  // The same defaults Home Assistant uses when a limit is missing.
+  const pastLimit = schedule.skipPastMm ?? 3;
+  const forecastLimit = schedule.skipForecastMm ?? 5;
+  if (rainLast24h != null && rainLast24h >= pastLimit) return `${formatMm(rainLast24h)} of rain in the last 24 hours`;
+  if (rainNext12h != null && rainNext12h >= forecastLimit) return `${formatMm(rainNext12h)} of rain forecast in the next 12 hours`;
   return null;
 }

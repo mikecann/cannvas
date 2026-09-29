@@ -890,7 +890,10 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .retic-tile.wet .retic-tile-icon { color: #1f6fa6; background: #e3f1fa; }
 .retic-tile.warn { border-color: #f1cf8a; background: #fff8e8; }
 .retic-tile.warn .retic-tile-icon { color: #b86f00; background: #ffecc2; }
-@media (prefers-reduced-motion: reduce) { .retic-zone.open .retic-zone-number { animation: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .retic-zone.open .retic-zone-number { animation: none; }
+  .retic-zone, .retic-master, .retic-toggle, .retic-toggle span { transition: none; }
+}
 .retic-master { padding: 22px 26px; display: flex; align-items: center; gap: 20px; border-radius: 28px; color: white; background: #1f6fa6; box-shadow: var(--shadow); transition: background .3s; }
 .retic-master.off { background: #6b6760; }
 .retic-master-icon { width: 64px; height: 64px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 20px; background: rgba(255,255,255,.18); }

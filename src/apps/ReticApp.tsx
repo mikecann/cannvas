@@ -185,10 +185,11 @@ function ScheduleCard({ retic }: { retic: ReticStatus }) {
   const schedule = retic.schedule;
   if (!schedule || (!schedule.nextRun && schedule.days.length === 0)) return null;
   const skip = skipReason(retic);
-  const next = retic.enabled === false
-    ? "Paused while the retic is off"
+  // Home Assistant only waters on schedule while the switch reads on.
+  const next = retic.enabled !== true
+    ? retic.enabled === false ? "Paused while the retic is off" : "Paused, the retic switch can't be read"
     : schedule.running ? "Watering on schedule now" : nextRunLabel(schedule.nextRun);
-  const outlook = retic.enabled === false || schedule.running || !schedule.nextRun
+  const outlook = retic.enabled !== true || schedule.running || !schedule.nextRun
     ? null
     : skip ? `Would skip if it ran now: ${skip}` : "Will water unless it rains first";
   return (

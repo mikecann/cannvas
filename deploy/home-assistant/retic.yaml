@@ -93,7 +93,9 @@ template:
           {% set ns = namespace(next=none) %}
           {% for day in range(0, 120) %}
             {% set at = today_at(start) + timedelta(days=day) %}
-            {% if ns.next is none and at > now() and at.isoweekday() in days and at.month not in off_months %}
+            {# Keep today's run for a few minutes past its start, so the sensor
+               doesn't move on before the automation's time trigger fires. #}
+            {% if ns.next is none and at + timedelta(minutes=5) > now() and at.isoweekday() in days and at.month not in off_months %}
               {% set ns.next = at %}
             {% endif %}
           {% endfor %}
@@ -148,9 +150,10 @@ script:
           - condition: template
             value_template: "{{ others | length > 0 }}"
         then:
-          - action: valve.close_valve
-            target:
-              entity_id: "{{ others }}"
+          - action: script.retic_close_all
+          # Never water two zones at once.
+          - condition: template
+            value_template: "{{ expand(others) | selectattr('state', 'ne', 'closed') | list | length == 0 }}"
       - action: valve.open_valve
         target:
           entity_id: "{{ zone }}"
@@ -187,28 +190,33 @@ script:
 
   retic_close_all:
     alias: Retic close all
-    description: Closes every open retic zone, retrying until they all report closed.
+    description: >-
+      Closes every open retic zone, retrying until they all report closed. Gives
+      up after about 30 seconds if the controller can't be reached.
     icon: mdi:water-off
     mode: single
     sequence:
       - repeat:
           sequence:
             - variables:
-                open: "{{ states.valve | selectattr('entity_id', 'match', 'valve\\.retic_') | selectattr('state', 'in', ['open', 'opening']) | map(attribute='entity_id') | list }}"
+                open: "{{ states.valve | selectattr('entity_id', 'match', 'valve\\.retic_') | rejectattr('state', 'eq', 'closed') | map(attribute='entity_id') | list }}"
             - if:
                 - condition: template
                   value_template: "{{ open | length > 0 }}"
               then:
                 - action: valve.close_valve
+                  # An unreachable zone errors, which mustn't stop the retries.
+                  continue_on_error: true
                   target:
                     entity_id: "{{ open }}"
                 - delay:
                     seconds: 5
+          # Unknown isn't closed, so keep going until every zone says closed.
           until:
             - condition: template
               value_template: >
                 {{ repeat.index >= 6 or states.valve | selectattr('entity_id', 'match', 'valve\.retic_')
-                   | selectattr('state', 'in', ['open', 'opening']) | list | length == 0 }}
+                   | rejectattr('state', 'eq', 'closed') | list | length == 0 }}
 
 automation:
   - id: retic_scheduled_watering
@@ -227,6 +235,7 @@ automation:
           ahead_limit: "{{ state_attr('sensor.retic_next_run', 'skip_forecast_mm') | float(5) }}"
           reason: >
             {% if is_state('input_boolean.retic_enabled', 'off') %}the retic is switched off
+            {% elif states.valve | selectattr('entity_id', 'match', 'valve\.retic_') | selectattr('state', 'in', ['unknown', 'unavailable']) | list %}Home Assistant can't read every zone
             {% elif is_state('binary_sensor.retic_rain_sensor', 'on') %}the rain sensor is wet
             {% elif past is not none and past >= past_limit %}{{ past }} mm of rain in the last 24 hours
             {% elif ahead is not none and ahead >= ahead_limit %}{{ ahead }} mm of rain forecast in the next 12 hours
@@ -272,6 +281,19 @@ automation:
             - script.retic_run_schedule
             - script.retic_run_zone
       - action: script.retic_close_all
+
+  - id: retic_switched_on
+    alias: Retic switched on
+    description: Cancels any switch-off cleanup so it can't close a run started straight after.
+    mode: queued
+    triggers:
+      - trigger: state
+        entity_id: input_boolean.retic_enabled
+        to: "on"
+    actions:
+      - action: script.turn_off
+        target:
+          entity_id: script.retic_close_all
 
   - id: retic_keep_closed_while_off
     alias: Retic keep closed while off

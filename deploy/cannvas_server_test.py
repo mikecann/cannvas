@@ -479,6 +479,11 @@ class CannvasServerTest(unittest.TestCase):
             "rainNext12h": 1.5,
         })
 
+    def test_retic_reports_a_scheduled_run_in_progress(self) -> None:
+        self.connect_home_assistant()
+        self.override_states({"entity_id": "script.retic_run_schedule", "state": "on"})
+        self.assertIs(self.retic()["schedule"]["running"], True)
+
     def test_retic_schedule_without_the_package(self) -> None:
         self.connect_home_assistant()
         self.override_states(

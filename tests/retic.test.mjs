@@ -67,6 +67,10 @@ test("predicts a skip the same way Home Assistant decides it", () => {
   assert.equal(skipReason({ enabled: true, rainDetected: true, schedule }), "the rain sensor is wet");
   assert.equal(skipReason({ enabled: true, rainDetected: false, schedule: { ...schedule, rainLast24h: 3 } }), "3.0 mm of rain in the last 24 hours");
   assert.equal(skipReason({ enabled: true, rainDetected: false, schedule: { ...schedule, rainNext12h: 7.25 } }), "7.3 mm of rain forecast in the next 12 hours");
+  assert.equal(skipReason({ enabled: null, rainDetected: false, schedule }), "the retic switch can't be read");
+  // Missing limits fall back to Home Assistant's 3 mm and 5 mm.
+  assert.equal(skipReason({ enabled: true, rainDetected: false, schedule: { ...schedule, skipPastMm: null, rainLast24h: 3.5 } }), "3.5 mm of rain in the last 24 hours");
+  assert.equal(skipReason({ enabled: true, rainDetected: false, schedule: { ...schedule, skipForecastMm: null, rainNext12h: 5 } }), "5.0 mm of rain forecast in the next 12 hours");
   // Missing weather means it waters, like Home Assistant.
   assert.equal(skipReason({ enabled: true, rainDetected: null, schedule: { ...schedule, rainLast24h: null, rainNext12h: null } }), null);
 });
