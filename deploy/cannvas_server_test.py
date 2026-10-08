@@ -324,6 +324,18 @@ class CannvasServerTest(unittest.TestCase):
         self.request("GET", "/videos/clip.mp4")
         self.assertEqual(FakeUpstream.requests, [("/clip.mp4", None)])
 
+    def test_video_proxy_trims_token_and_ignores_unusable_ones(self) -> None:
+        (self.temp / "media.json").write_text(json.dumps({"token": " " + "m" * 40 + "\n"}))
+        self.request("GET", "/videos/clip.mp4")
+        for token in ("m" * 20 + " " + "m" * 20, "m" * 20 + "\n" + "m" * 20):
+            (self.temp / "media.json").write_text(json.dumps({"token": token}))
+            response, _ = self.request("GET", "/videos/clip.mp4")
+            self.assertEqual(response.status, 200)
+        self.assertEqual(
+            FakeUpstream.requests,
+            [("/clip.mp4", "Bearer " + "m" * 40), ("/clip.mp4", None), ("/clip.mp4", None)],
+        )
+
     def test_video_redirects_are_not_followed(self) -> None:
         # The proxy carries Bruce's token, so it must never follow Bruce elsewhere.
         (self.temp / "media.json").write_text(json.dumps({"token": "m" * 40}))

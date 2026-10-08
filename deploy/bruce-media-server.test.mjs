@@ -116,6 +116,7 @@ test("will not start without a long enough token", async (context) => {
   const { temporary, cache, source } = await emptyLibrary(context);
   assert.throws(() => createMediaServer({ root: cache, sourceRoot: source, token: "" }), /token/);
   assert.throws(() => createMediaServer({ root: cache, sourceRoot: source, token: "short" }), /token/);
+  assert.throws(() => createMediaServer({ root: cache, sourceRoot: source, token: `${token} ${token}` }), /token/);
 
   const tokenFile = join(temporary, "token");
   await writeFile(tokenFile, `${token}\n`);

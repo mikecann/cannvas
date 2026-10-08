@@ -123,8 +123,9 @@ export function createMediaServer({
   token = loadToken(),
   allowedHosts = defaultAllowedHosts,
 } = {}) {
-  if (typeof token !== "string" || token.length < minimumTokenLength) {
-    throw new Error(`a token of at least ${minimumTokenLength} characters is required; set CANNVAS_MEDIA_TOKEN_FILE`);
+  // A bearer token with spaces in it could never match, so it counts as missing.
+  if (typeof token !== "string" || token.length < minimumTokenLength || /\s/.test(token)) {
+    throw new Error(`a token of at least ${minimumTokenLength} characters with no spaces is required; set CANNVAS_MEDIA_TOKEN_FILE`);
   }
   const resolvedRoot = resolve(root);
   const resolvedSourceRoot = resolve(sourceRoot);

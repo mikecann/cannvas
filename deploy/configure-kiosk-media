@@ -24,15 +24,23 @@ media_token=$(openssl rand -hex 32)
 jq -nc --arg token "$media_token" '{token:$token}' \
   | "$tailscale_bin" ssh "pi@$pi_host" \
       'sudo install -o pi -g pi -m 0600 /dev/stdin /var/lib/cannvas/media.json'
-printf '%s\n' "$media_token" \
+# A leftover token.new from a failed run may have looser permissions, so it is
+# removed before umask 077 creates a fresh one.
+if ! printf '%s\n' "$media_token" \
   | ssh "$bruce_host" '
       set -eu
       dir="$HOME/Library/Application Support/cannvas-media"
       mkdir -p "$dir"
+      rm -f "$dir/token.new"
       (umask 077 && cat > "$dir/token.new")
       mv "$dir/token.new" "$dir/token"
       launchctl kickstart -k "gui/$(id -u)/com.mikerosoft.cannvas-media"
-    '
+    '; then
+  echo "Couldn't update $bruce_host. The Pi already has the new token, so the" >&2
+  echo "kiosk can't play videos until Bruce has it too. Check SSH to $bruce_host" >&2
+  echo "and run this script again." >&2
+  exit 1
+fi
 unset media_token
 
 echo "Bruce ($bruce_host) and the Pi ($pi_host) now share a new media token."
