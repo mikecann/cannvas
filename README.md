@@ -245,6 +245,57 @@ Open [http://localhost:4173](http://localhost:4173), then
 `curl -X POST localhost:8124/mock/ding` rings the doorbell. See the top of the
 script for changing any state, a camera with no picture, and room cleans.
 
+### Retic
+
+The Retic app (under **More**) runs the Holman WX8 irrigation controller. Home
+Assistant reaches the WX8 on the local network through the
+[tuya-local](https://github.com/make-all/tuya-local) integration, using the
+controller's local key from its Smart Life account.
+
+Cannvas expects the five zone valves to be named `valve.retic_back_grass_right`,
+`valve.retic_back_grass_left`, `valve.retic_back_flower_beds`,
+`valve.retic_front_garden_beds` and `valve.retic_front_grass`, in zone order.
+The list is in `RETIC_ZONES` in `deploy/cannvas-server`.
+
+Everything else lives in the Home Assistant package
+[`deploy/home-assistant/retic.yaml`](deploy/home-assistant/retic.yaml). Copy
+it to `/config/packages/` and load packages from `configuration.yaml`. Add the
+watering days to Home Assistant's `secrets.yaml` first, as ISO weekdays
+(`retic_watering_days: [2, 5]` is Tuesday and Friday). Without that secret
+Home Assistant won't load its configuration.
+
+- **Master switch.** `input_boolean.retic_enabled` is the big switch at the top
+  of the app. Turning it off stops any run and closes every zone. While it's off,
+  runs are refused, the schedule skips, and any zone opened on the controller or
+  in Smart Life is closed again after a few seconds.
+- **Timed runs.** `script.retic_run_zone` closes any other open zone, opens the
+  chosen one, and closes it after 5, 10 or 15 minutes. It records the end time
+  in `input_datetime.retic_run_ends` for the countdown. The timer is in Home
+  Assistant, so turning the screen off doesn't leave a zone running. If Home
+  Assistant stops mid-run, the WX8 closes the zone by itself once its own manual
+  run time is up. In Smart Life that is 16 minutes for zones 1 to 4 and 15 for
+  Front grass, so keep it at or above the longest Cannvas run.
+- **Smart schedule.** `sensor.retic_next_run` holds the schedule: 6am on the
+  watering days from September to May, plus each zone's minutes and the rain
+  limits. At run time, the `Retic scheduled watering` automation skips if the
+  rain sensor is wet, 3 mm or more fell in the last 24 hours, or 5 mm or more
+  is forecast for the next 12. It writes what happened to
+  `input_text.retic_last_result`.
+- **Rain.** Two REST sensors read Open-Meteo, which needs no key and returns
+  yesterday's modelled rain along with the forecast. They use the location of
+  Home Assistant's home zone, rounded to two decimal places, so the package
+  holds no coordinates.
+
+The WX8 ignores a close that arrives within a second or two of a zone opening,
+then reports the zone open again. `script.retic_close_all` retries until every
+zone reports closed.
+
+The server only accepts those five zones and those three durations, through
+`/api/retic/run` and `/api/retic/stop`, and refuses runs while the retic is
+switched off. `/api/retic/enabled` only changes the master switch. The
+generic Home controls action refuses anything named `retic_`, and Home controls
+doesn't list those entities. Voice commands can't switch them either.
+
 ### Chef (feature requests and cloud builds)
 
 More > **Suggest a feature** opens [Chef](https://github.com/convex/chef-cloud)'s
@@ -560,7 +611,9 @@ gets just the score. Leave it unset the rest of the time.
 Voice can switch every Home Assistant light. Other switches need a spoken name
 in `/var/lib/cannvas/voice.json`, for example
 `{"devices": {"switch.athom_outside_lights_smart_plug_v2": "Outside Lights"}}`.
-The plug that powers the TV and the Pi can never be a voice device.
+The plug that powers the TV and the Pi can never be a voice device, and
+neither can anything named `retic_`, so the garden only waters from the
+Retic app.
 
 The page follows along through `/api/voice/events`, which `cannvas-server`
 relays from the voice service's loopback port, so the browser still only

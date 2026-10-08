@@ -115,6 +115,12 @@ UTTERANCE_MAX = 8.0
 # power to Cannvas mid-sentence, so it can never be a voice device.
 BLOCKED_ENTITIES = {"switch.athom_smart_mirror_plug_smart_plug_v2"}
 
+
+def is_retic_entity(entity_id: str) -> bool:
+    """The garden watering only runs from the Retic app, through cannvas-server's checked routes."""
+    return entity_id.partition(".")[2].startswith("retic_")
+
+
 # Spoken app names and the kiosk's app ids.
 APPS = {
     "home": "display",
@@ -218,13 +224,13 @@ def load_extra_devices() -> dict[str, str]:
 
 
 def voice_devices(states: list[dict[str, Any]], extras: dict[str, str]) -> list[Device]:
-    """Every light, plus the switches named in voice.json. Never the Pi's own plug."""
+    """Every light, plus the switches named in voice.json. Never the Pi's own plug or the retic."""
     devices: list[Device] = []
     seen: set[str] = set()
     for state in states:
         entity_id = str(state.get("entity_id", ""))
         attributes = state.get("attributes") if isinstance(state.get("attributes"), dict) else {}
-        if entity_id in BLOCKED_ENTITIES or entity_id in seen:
+        if entity_id in BLOCKED_ENTITIES or is_retic_entity(entity_id) or entity_id in seen:
             continue
         if entity_id in extras:
             name = extras[entity_id]

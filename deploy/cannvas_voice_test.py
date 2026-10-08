@@ -40,6 +40,8 @@ STATES = [
     {"entity_id": "switch.athom_outside_lights_smart_plug_v2", "state": "off", "attributes": {"friendly_name": "Xmas Lights Plug - Main"}},
     {"entity_id": "switch.athom_smart_mirror_plug_smart_plug_v2", "state": "on", "attributes": {"friendly_name": "Smart Mirror Plug"}},
     {"entity_id": "valve.retic_front_grass", "state": "closed", "attributes": {"friendly_name": "Front grass"}},
+    {"entity_id": "input_boolean.retic_enabled", "state": "on", "attributes": {"friendly_name": "Retic enabled"}},
+    {"entity_id": "switch.retic_program_a", "state": "off", "attributes": {"friendly_name": "Retic program A"}},
 ]
 
 
@@ -211,6 +213,14 @@ class DeviceTest(unittest.TestCase):
         devices = voice.voice_devices(STATES, {"valve.retic_front_grass": "front grass"})
         self.assertNotIn("valve.retic_front_grass", [device.entity_id for device in devices])
 
+    def test_never_the_retic(self) -> None:
+        # Watering and its master switch only go through the Retic app, even
+        # if voice.json names them or one turns up as a light.
+        states = [*STATES, {"entity_id": "light.retic_status", "state": "off", "attributes": {"friendly_name": "Retic Status"}}]
+        extras = {"input_boolean.retic_enabled": "Retic", "switch.retic_program_a": "Sprinklers", "valve.retic_front_grass": "Front grass"}
+        devices = voice.voice_devices(states, extras)
+        self.assertEqual([device.name for device in devices], ["TV Lamp", "TV Lamp Top", "TV Lamp Bottom"])
+
     def test_resolves_names_shortcuts_and_all_lights(self) -> None:
         devices = voice.voice_devices(STATES, {})
         resolve = lambda *targets: [device.name for device in voice.resolve_targets(list(targets), devices)]
@@ -318,6 +328,20 @@ class AgentTest(unittest.TestCase):
         outcome = self.ask(tool_call("control_devices", {"targets": ["Kitchen"], "action": "on"}))
         self.assertEqual(FakeHomeAssistant.calls, [])
         self.assertEqual(outcome.reply, "Sorry, I don't know which light you mean.")
+
+    def test_cannot_switch_the_retic(self) -> None:
+        extras = {"input_boolean.retic_enabled": "Retic", "switch.retic_program_a": "Sprinklers"}
+        with patch.object(voice, "load_extra_devices", return_value=extras):
+            self.agent.refresh_devices(force=True)
+        outcome = self.ask(tool_call("control_devices", {"targets": ["Retic", "Sprinklers"], "action": "off"}), "turn the retic off")
+        self.assertEqual(FakeHomeAssistant.calls, [])
+        self.assertEqual(outcome.reply, "Sorry, I don't know which light you mean.")
+        # The model is never offered them either.
+        request = FakeModel.requests[-1]
+        targets = request["tools"][0]["function"]["parameters"]["properties"]["targets"]["items"]["enum"]
+        for name in ("Retic", "Sprinklers"):
+            self.assertNotIn(name, targets)
+            self.assertNotIn(name, request["messages"][0]["content"])
 
     def test_opens_an_app(self) -> None:
         outcome = self.ask(tool_call("open_app", {"app": "calendar"}), "what's on this week")
