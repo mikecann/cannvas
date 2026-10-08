@@ -25,6 +25,7 @@ def load_server(temp: Path):
     os.environ["CANNVAS_HOME_ASSISTANT_CONFIG"] = str(temp / "home-assistant.json")
     os.environ["CANNVAS_UNIFI_CONFIG"] = str(temp / "unifi.json")
     os.environ["CANNVAS_INVENTORY_CONFIG"] = str(temp / "inventory.json")
+    os.environ["CANNVAS_MEDIA_CONFIG"] = str(temp / "media.json")
     loader = SourceFileLoader("cannvas_server", str(HERE / "cannvas-server"))
     module = module_from_spec(spec_from_loader("cannvas_server", loader))
     loader.exec_module(module)
@@ -124,9 +125,10 @@ class CannvasServerTest(unittest.TestCase):
         FakeUpstream.requests = []
         self.module._VIDEO_DOWN_UNTIL = 0.0
         self.module.VIDEO_URL = self.upstream_url
-        config = self.temp / "home-assistant.json"
-        if config.exists():
-            config.unlink()
+        for name in ("home-assistant.json", "media.json"):
+            config = self.temp / name
+            if config.exists():
+                config.unlink()
 
     def request(self, method: str, path: str, body: bytes | None = None, headers: dict[str, str] | None = None):
         connection = HTTPConnection("127.0.0.1", self.port, timeout=10)
@@ -309,6 +311,27 @@ class CannvasServerTest(unittest.TestCase):
         response, body = self.request("GET", "/videos/clip.mp4")
         self.assertEqual(response.status, 200)
         self.assertEqual(body, b"video-bytes")
+        self.assertEqual(FakeUpstream.requests, [("/clip.mp4", None)])
+
+    def test_video_proxy_sends_bruce_token(self) -> None:
+        (self.temp / "media.json").write_text(json.dumps({"token": "m" * 40}))
+        response, _ = self.request("GET", "/videos/clip.mp4")
+        self.assertEqual(response.status, 200)
+        self.assertEqual(FakeUpstream.requests, [("/clip.mp4", "Bearer " + "m" * 40)])
+
+    def test_video_proxy_ignores_short_token(self) -> None:
+        (self.temp / "media.json").write_text(json.dumps({"token": "short"}))
+        self.request("GET", "/videos/clip.mp4")
+        self.assertEqual(FakeUpstream.requests, [("/clip.mp4", None)])
+
+    def test_video_redirects_are_not_followed(self) -> None:
+        # The proxy carries Bruce's token, so it must never follow Bruce elsewhere.
+        (self.temp / "media.json").write_text(json.dumps({"token": "m" * 40}))
+        FakeUpstream.redirect_to = f"{self.upstream_url}/stolen"
+        response, _ = self.request("GET", "/videos/redirect")
+        self.assertEqual(response.status, 302)
+        self.assertIsNone(response.getheader("Location"))
+        self.assertNotIn("/stolen", [path for path, _ in FakeUpstream.requests])
 
     def test_video_416_keeps_content_range(self) -> None:
         response, _ = self.request("GET", "/videos/range.mp4", headers={"Range": "bytes=5000-"})

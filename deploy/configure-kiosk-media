@@ -1,0 +1,38 @@
+#!/bin/sh
+set -eu
+
+# Shares a fresh token between Bruce's media server and the Pi's /videos proxy.
+bruce_host=${1:-bruce@bruce.local}
+pi_host=${2:-cannvas}
+tailscale_bin=${TAILSCALE_BIN:-/Applications/Tailscale.app/Contents/MacOS/Tailscale}
+
+for command in openssl jq ssh; do
+  if ! command -v "$command" >/dev/null 2>&1; then
+    echo "$command is required." >&2
+    exit 1
+  fi
+done
+
+if [ ! -x "$tailscale_bin" ]; then
+  echo "Tailscale was not found at $tailscale_bin." >&2
+  exit 1
+fi
+
+# The token exists only in this process and the two mode-0600 files. The Pi
+# gets it first: Bruce's current server ignores a token it doesn't expect.
+media_token=$(openssl rand -hex 32)
+jq -nc --arg token "$media_token" '{token:$token}' \
+  | "$tailscale_bin" ssh "pi@$pi_host" \
+      'sudo install -o pi -g pi -m 0600 /dev/stdin /var/lib/cannvas/media.json'
+printf '%s\n' "$media_token" \
+  | ssh "$bruce_host" '
+      set -eu
+      dir="$HOME/Library/Application Support/cannvas-media"
+      mkdir -p "$dir"
+      (umask 077 && cat > "$dir/token.new")
+      mv "$dir/token.new" "$dir/token"
+      launchctl kickstart -k "gui/$(id -u)/com.mikerosoft.cannvas-media"
+    '
+unset media_token
+
+echo "Bruce ($bruce_host) and the Pi ($pi_host) now share a new media token."

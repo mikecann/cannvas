@@ -9,6 +9,13 @@
     <string>/Users/bruce/.nvm/versions/node/v24.14.1/bin/node</string>
     <string>/Users/bruce/Library/Application Support/cannvas-media/server.mjs</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- deploy/configure-kiosk-media writes this mode-0600 file. The server won't start without it. -->
+    <key>CANNVAS_MEDIA_TOKEN_FILE</key>
+    <string>/Users/bruce/Library/Application Support/cannvas-media/token</string>
+    <!-- Add CANNVAS_MEDIA_HOST with Bruce's LAN address to listen on that interface only. -->
+  </dict>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
