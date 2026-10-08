@@ -87,6 +87,11 @@ export function isUnavailable(entity: Pick<HomeAssistantEntity, "state">) {
   return state === "unavailable" || state === "unknown";
 }
 
+/** The retic controller has its own app, and the server refuses generic actions on it. */
+export function isReticEntity(entity: Pick<HomeAssistantEntity, "entityId">) {
+  return entity.entityId.slice(entity.entityId.indexOf(".") + 1).startsWith("retic_");
+}
+
 /** Scenes and scripts run once. They have no on or off state. */
 export function isRoutine(entity: Pick<HomeAssistantEntity, "domain">) {
   return entity.domain === "scene" || entity.domain === "script";
