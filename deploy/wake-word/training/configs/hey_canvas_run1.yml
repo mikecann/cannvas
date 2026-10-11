@@ -1,0 +1,105 @@
+## openWakeWord train.py config for "hey canvas" (run 1).
+## Based on openWakeWord examples/custom_model.yml (main @ 368c037); comments note changes.
+model_name: "hey_canvas"
+target_phrase:
+  - "hey canvas"
+
+# Near misses. make_texts.py repeats these to ~20% of the adversarial clips
+# (train.py would synthesise each one about once in 50k).
+custom_negative_phrases:
+  - "hey cameras"
+  - "hey camera"
+  - "hey can you"
+  - "hey can I"
+  - "hey can we"
+  - "hey can"
+  - "hey Kansas"
+  - "Kansas"
+  - "hey Kansas City"
+  - "hey Alexa"
+  - "Alexa"
+  - "hey Jarvis"
+  - "hey Siri"
+  - "hey Google"
+  - "okay Google"
+  - "hey Mycroft"
+  - "the canvas"
+  - "a canvas"
+  - "canvas bag"
+  - "the canvas bag"
+  - "a canvas tote"
+  - "canvas shoes"
+  - "oil on canvas"
+  - "painting on canvas"
+  - "canvassing"
+  - "campus"
+  - "hey campus"
+  - "hey Cass"
+  - "hey Cassie"
+  - "hey Gavin"
+  - "hey Kevin"
+  - "hey Calvin"
+  - "hey Cameron"
+  - "hey Camden"
+  - "hey Cam"
+  - "hey Kenny"
+  - "hey Ken"
+  - "hey candice"
+  - "hey candy"
+  - "hey Vanessa"
+  - "hey cannabis"
+  - "hey Canada"
+  - "hey cancel"
+  - "hey caravan"
+  - "hey canteen"
+  - "hey cabbage"
+  - "heavens"
+  - "heavens above"
+  - "for heaven's sake"
+  - "Ken has"
+  - "can of"
+  - "can of beans"
+  - "can I have"
+  - "hey canvassers"
+  - "hey there"
+  - "hey guys"
+  - "hey man"
+  - "hey everyone"
+
+n_samples: 50000        # positive and adversarial-negative training clips each (default 10000)
+n_samples_val: 2000
+tts_batch_size: 64      # used by gen_clips.py on MPS (train.py --generate_clips not used)
+augmentation_batch_size: 16
+
+piper_sample_generator_path: "$W/src/piper-sample-generator"
+output_dir: "$W/runs/run1"
+
+rir_paths:
+  - "$W/data/mit_rirs"
+background_paths:
+  - "$W/data/audioset_16k"
+  - "$W/data/fma_16k"
+background_paths_duplication_rate:
+  - 1
+  - 1
+
+false_positive_validation_data_path: "$W/data/features/validation_set_features.npy"
+augmentation_rounds: 1
+
+feature_data_files:
+  "ACAV100M_sample": "$W/data/features/openwakeword_features_ACAV100M_2000_hrs_16bit.npy"
+
+batch_n_per_class:
+  "ACAV100M_sample": 1024
+  "adversarial_negative": 50
+  "positive": 50
+
+model_type: "dnn"
+layer_size: 32
+
+steps: 50000
+# False-positive penalty schedule: negative-class loss weight ramps linearly from 1 to
+# max_negative_weight over each training sequence, and auto_train doubles it for
+# sequences 2 and 3 if validation FP/hour is still above the target.
+max_negative_weight: 1500
+target_false_positives_per_hour: 0.2

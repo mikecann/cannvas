@@ -26,6 +26,8 @@ it or adapt it for your own home.
   Google Calendar feed.
 - **Home controls:** see and control useful Home Assistant devices, check UniFi
   network activity, and show family locations when those are available.
+- **Voice commands:** say the wake word, then ask it to switch the lights, open
+  a screen, or answer a quick question. Speech never leaves the Pi.
 - **Pet care:** keep track of Sammy's regular tablets and when each one was last
   given.
 - **Household inventory:** photograph an item on your phone, record where it is,
@@ -346,6 +348,53 @@ sunset, reaches about 45% brightness at 21:00 and stays there until sunrise.
 Any touch brings full brightness back for three minutes. Sunrise and sunset
 come from Home Assistant's `sun.sun` through `/api/sun`, with a local
 calculation for Busselton when Home Assistant can't be reached.
+
+### Voice commands
+
+A USB microphone on the Pi lets the family talk to Cannvas: "Hey Canvas,
+lights off", "Hey Canvas, open the calendar", or just a question. Everything
+runs on the Pi, with nothing sent to the cloud:
+
+1. `cannvas-voice` listens for "Hey Canvas" with
+   [openWakeWord](https://github.com/dscripka/openWakeWord) and plays a chime.
+   The model was trained for this project (see `deploy/wake-word/`).
+2. It records until you stop talking (Silero VAD), then turns that into text
+   with [Moonshine](https://github.com/moonshine-ai/moonshine) through
+   [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx). That takes about 0.2
+   seconds on the Pi, where Whisper takes 1.5 to 3.
+3. Everyday commands ("lights off", "turn on the TV lamp", "set the top lamp
+   to 30 percent", "open the calendar") are matched straight away. Anything
+   else goes to Qwen3 1.7B in `llama-server` (`cannvas-llm.service`), which
+   either picks a tool or answers in a sentence. That takes 3 to 6 seconds on
+   the Pi.
+4. [Piper](https://github.com/OHF-Voice/piper1-gpl) speaks the reply through
+   the TV, and the screen shows what it heard and what it said.
+
+Audio stays in memory from the wake word until the command is transcribed.
+Voice can switch every Home Assistant light. Other switches need a spoken name
+in `/var/lib/cannvas/voice.json`, for example
+`{"devices": {"switch.athom_outside_lights_smart_plug_v2": "Outside Lights"}}`.
+The plug that powers the TV and the Pi can never be a voice device.
+
+The page follows along through `/api/voice/events`, which `cannvas-server`
+relays from the voice service's loopback port, so the browser still only
+talks to its own server. After a reply, the mic button on the card listens
+again without the wake word.
+
+Set it up once with:
+
+```sh
+deploy/install-voice
+```
+
+It builds `llama-server` from a pinned llama.cpp release, installs the
+Python packages from `deploy/voice-requirements.txt` and the models into
+`/opt/cannvas-voice`, and enables both services. It also installs the kiosk's
+audio setup, which stops the TV's HDMI sink from going to sleep between
+sounds. Waking it again let the TV drop the first quarter of a second, which
+clipped the chime and the start of each reply. `deploy/deploy.sh` ships
+`cannvas-voice` with each release and restarts it. Follow it with
+`journalctl --user -u cannvas-voice -f` on the Pi.
 
 ### Kiosk watchdog
 

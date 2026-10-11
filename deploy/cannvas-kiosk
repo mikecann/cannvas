@@ -59,7 +59,7 @@ while [ "$audio_attempt" -le 20 ]; do
     format=s16le \
     rate=48000 \
     channels=2 \
-    sink_properties=api.alsa.card=0 \
+    "sink_properties=api.alsa.card=0 session.suspend-timeout-seconds=0" \
     >/tmp/cannvas-audio-setup.log 2>&1 || true
 
   # Select immediately in case the sink only became loadable on this final

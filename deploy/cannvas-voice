@@ -1,0 +1,798 @@
+#!/usr/bin/env python3
+"""Listen for the wake word and carry out spoken commands.
+
+Everything runs on the Pi. openWakeWord listens for the wake word, Moonshine
+(through sherpa-onnx) turns the command into text, everyday commands are
+matched straight away and anything else goes to a small language model in
+llama-server (cannvas-llm.service), and Piper speaks the reply through the TV.
+Audio only lives in memory, from the wake word until the command has been
+transcribed, and nothing is sent off the Pi except the Home Assistant calls the
+command asks for.
+
+It runs as a user service beside the kiosk because it needs the desktop's
+PipeWire session for the USB microphone and the TV's speakers. The kiosk page
+follows along through /events (server-sent events) on a loopback port, which
+cannvas-server proxies as /api/voice/events.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
+import os
+from pathlib import Path
+import queue
+import re
+import shlex
+import subprocess
+import sys
+import threading
+import time
+from typing import Any, Callable
+from urllib.error import HTTPError, URLError
+from urllib.request import HTTPRedirectHandler, Request, build_opener
+from zoneinfo import ZoneInfo
+
+HOME = Path(os.environ.get("CANNVAS_VOICE_HOME", "/opt/cannvas-voice"))
+CONFIG_PATH = Path(os.environ.get("CANNVAS_HOME_ASSISTANT_CONFIG", "/var/lib/cannvas/home-assistant.json"))
+# Optional extra devices by spoken name, e.g. {"devices": {"switch.outside": "outside lights"}}.
+VOICE_CONFIG_PATH = Path(os.environ.get("CANNVAS_VOICE_CONFIG", "/var/lib/cannvas/voice.json"))
+LLM_URL = os.environ.get("CANNVAS_LLM_URL", "http://127.0.0.1:8091").rstrip("/")
+# A path to an openWakeWord model, or the name of one of its stock models.
+WAKE_WORD = os.environ.get("CANNVAS_WAKE_WORD", str(HOME / "models/hey_canvas.onnx"))
+WAKE_THRESHOLD = float(os.environ.get("CANNVAS_WAKE_THRESHOLD", "0.5"))
+# Moonshine reads a two-second command in about 0.2 s on the Pi, where Whisper
+# takes 1.5 to 3 s because it always works on a 30 second window.
+SPEECH_MODEL = Path(os.environ.get("CANNVAS_SPEECH_MODEL", str(HOME / "models/moonshine-base-en")))
+PIPER_VOICE = os.environ.get("CANNVAS_PIPER_VOICE", str(HOME / "models/en_GB-alba-medium.onnx"))
+# Extra pw-record arguments, such as "--target <node>" to choose a microphone.
+MIC_ARGS = shlex.split(os.environ.get("CANNVAS_MIC_ARGS", ""))
+# The USB microphone is quiet even at full gain, so boost it before listening.
+MIC_GAIN = float(os.environ.get("CANNVAS_MIC_GAIN", "4"))
+LISTEN_HOST = "127.0.0.1"
+LISTEN_PORT = int(os.environ.get("CANNVAS_VOICE_PORT", "4175"))
+ZONE = ZoneInfo("Australia/Perth")
+
+SAMPLE_RATE = 16_000
+FRAME = 1280  # 80 ms, the frame size openWakeWord expects
+SPEECH_START = 0.5
+SPEECH_END = 0.3
+END_SILENCE = 0.8
+NO_SPEECH_TIMEOUT = 5.0
+MAX_COMMAND = 10.0
+CONVERSATION_SECONDS = 120
+HISTORY_TURNS = 3
+
+# This plug feeds the TV and the Pi. Switching it off by voice would cut the
+# power to Cannvas mid-sentence, so it can never be a voice device.
+BLOCKED_ENTITIES = {"switch.athom_smart_mirror_plug_smart_plug_v2"}
+
+# Spoken app names and the kiosk's app ids.
+APPS = {
+    "home": "display",
+    "whiteboard": "whiteboard",
+    "chores": "chores",
+    "to-dos": "todos",
+    "calendar": "calendar",
+    "weather": "weather",
+    "home controls": "home-automation",
+    "solar": "solar",
+    "sammy's tablets": "sammy-tablets",
+    "sammy cam": "sammy-cam",
+    "inventory": "inventory",
+}
+APP_NAMES = {
+    "display": "the home screen",
+    "todos": "the to-do lists",
+    "chores": "Joshua's chores",
+    "home-automation": "home controls",
+    "sammy-tablets": "Sammy's tablets",
+    "sammy-cam": "Sammy Cam",
+}
+
+# Speech recognition sometimes "hears" these in near silence.
+PHANTOM_PHRASES = {"", "you", "thank you", "thanks for watching", "bye"}
+
+
+class RejectRedirects(HTTPRedirectHandler):
+    # Never forward the Home Assistant token to another host.
+    def redirect_request(self, *args: Any) -> None:
+        return None
+
+
+_OPENER = build_opener(RejectRedirects())
+
+
+def log(message: str) -> None:
+    print(f"cannvas voice: {message}", flush=True)
+
+
+# Home Assistant -------------------------------------------------------------
+
+
+def load_home_assistant() -> dict[str, str] | None:
+    try:
+        value = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(value, dict):
+        return None
+    url = str(value.get("url", "")).rstrip("/")
+    token = str(value.get("token", ""))
+    return {"url": url, "token": token} if url and token else None
+
+
+def home_assistant(config: dict[str, str], path: str, payload: dict[str, Any] | None = None) -> Any:
+    request = Request(
+        f"{config['url']}{path}",
+        data=json.dumps(payload).encode("utf-8") if payload is not None else None,
+        headers={"Authorization": f"Bearer {config['token']}", "Content-Type": "application/json"},
+        method="POST" if payload is not None else "GET",
+    )
+    with _OPENER.open(request, timeout=8) as response:
+        return json.loads(response.read() or b"null")
+
+
+# Devices --------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Device:
+    entity_id: str
+    name: str
+
+    @property
+    def domain(self) -> str:
+        return self.entity_id.partition(".")[0]
+
+
+ALL_LIGHTS = "all lights"
+
+
+def load_extra_devices() -> dict[str, str]:
+    try:
+        value = json.loads(VOICE_CONFIG_PATH.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+    devices = value.get("devices") if isinstance(value, dict) else None
+    if not isinstance(devices, dict):
+        return {}
+    return {str(entity): str(name) for entity, name in devices.items() if isinstance(name, str) and name.strip()}
+
+
+def voice_devices(states: list[dict[str, Any]], extras: dict[str, str]) -> list[Device]:
+    """Every light, plus the switches named in voice.json. Never the Pi's own plug."""
+    devices: list[Device] = []
+    seen: set[str] = set()
+    for state in states:
+        entity_id = str(state.get("entity_id", ""))
+        attributes = state.get("attributes") if isinstance(state.get("attributes"), dict) else {}
+        if entity_id in BLOCKED_ENTITIES or entity_id in seen:
+            continue
+        if entity_id in extras:
+            name = extras[entity_id]
+        elif entity_id.startswith("light."):
+            name = str(attributes.get("friendly_name") or entity_id.partition(".")[2].replace("_", " ").title())
+        else:
+            continue
+        if entity_id.partition(".")[0] not in {"light", "switch", "fan", "input_boolean"}:
+            continue
+        seen.add(entity_id)
+        devices.append(Device(entity_id, name.strip()))
+    return devices
+
+
+def resolve_targets(targets: list[str], devices: list[Device]) -> list[Device]:
+    by_name = {device.name.lower(): device for device in devices}
+    chosen: list[Device] = []
+    for target in targets:
+        key = str(target).strip().lower()
+        if key in {ALL_LIGHTS, "all", "lights", "the lights"}:
+            matches = [device for device in devices if device.domain == "light"]
+        elif key in by_name:
+            matches = [by_name[key]]
+        else:
+            # Small models sometimes shorten a name ("top lamp"). Accept a
+            # target whose words all appear in exactly one device name.
+            words = set(re.findall(r"[a-z0-9]+", key)) - {"the", "lamp", "light", "lights"}
+            matches = [device for device in devices if words and words <= set(re.findall(r"[a-z0-9]+", device.name.lower()))]
+            if len(matches) != 1:
+                matches = []
+        for device in matches:
+            if device not in chosen:
+                chosen.append(device)
+    return chosen
+
+
+# Everyday commands ----------------------------------------------------------
+
+# The model takes several seconds to write a tool call on the Pi, so the
+# commands people say most are matched here and answered straight away.
+# Anything this doesn't recognise goes to the model.
+
+FILLER = re.compile(r"^(?:hey |ok |okay )?(?:canvas |cannvas )?(?:can you |could you |would you |please )*|(?: for me)?(?: please)?$")
+NUMBERS = {"ten": 10, "twenty": 20, "twenty five": 25, "thirty": 30, "forty": 40, "fifty": 50, "half": 50,
+           "sixty": 60, "seventy": 70, "seventy five": 75, "eighty": 80, "ninety": 90, "a hundred": 100, "one hundred": 100, "full": 100}
+APP_ALIASES = {
+    **{name: name for name in APPS},
+    "home screen": "home", "todos": "to-dos", "to dos": "to-dos", "to do": "to-dos", "to do list": "to-dos",
+    "to do lists": "to-dos", "todo list": "to-dos", "todo lists": "to-dos", "chore": "chores", "joshua's chores": "chores",
+    "lights": "home controls", "home control": "home controls", "solar panels": "solar", "sammy": "sammy's tablets",
+    "sammy's camera": "sammy cam", "dog cam": "sammy cam",
+}
+
+
+def tool_message(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    return {"content": "", "tool_calls": [{"type": "function", "function": {"name": name, "arguments": json.dumps(arguments)}}]}
+
+
+def quick_command(heard: str, devices: list[Device]) -> dict[str, Any] | None:
+    """A tool call for an everyday command, or None to ask the model."""
+    text = re.sub(r"[^a-z0-9%' ]", " ", heard.lower().replace("-", " "))
+    text = FILLER.sub("", " ".join(text.split())).strip()
+    if match := re.fullmatch(r"(?:set|dim|turn|put) (?:the )?(.+?) (?:to|at) (\d{1,3}|[a-z ]+?)(?: ?%| percent)?(?: brightness)?", text):
+        target, amount = match.groups()
+        brightness = int(amount) if amount.isdigit() else NUMBERS.get(amount)
+        if brightness and 0 < brightness <= 100 and resolve_targets([target], devices):
+            names = [device.name for device in resolve_targets([target], devices)]
+            return tool_message("control_devices", {"targets": names, "action": "on", "brightness_pct": brightness})
+        return None
+    match = (re.fullmatch(r"(?:turn|switch|put) (on|off) (?:the |all )?(.+)", text)
+             or re.fullmatch(r"(?:turn|switch|put) (?:the |all )?(.+?) (on|off)", text)
+             or re.fullmatch(r"(?:the |all )?(.+?) (on|off)", text))
+    if match:
+        first, second = match.groups()
+        action, target = (first, second) if first in {"on", "off"} else (second, first)
+        targets = resolve_targets([part for part in re.split(r" and (?:the )?", target)], devices)
+        if targets:
+            return tool_message("control_devices", {"targets": [device.name for device in targets], "action": action})
+        return None
+    if text in {"go home", "go back home", "home"}:
+        return tool_message("open_app", {"app": "home"})
+    if match := re.fullmatch(r"(?:open(?:ed)?(?: up)?|show me|show|go to|take me to|bring up) (?:the |my )?(.+?)(?: app| screen| page)?", text):
+        if app := APP_ALIASES.get(match.group(1)):
+            return tool_message("open_app", {"app": app})
+    return None
+
+
+# The agent ------------------------------------------------------------------
+
+
+def system_prompt(devices: list[Device]) -> str:
+    names = ", ".join(device.name for device in devices) or "none"
+    apps = ", ".join(APPS)
+    return (
+        "You are Cannvas, the Cann family's wall display in Busselton, Western Australia. "
+        "You hear one spoken request at a time, transcribed by speech recognition, so expect small mistakes. "
+        "Use a tool whenever the request is about the devices or the screen, and never say you did something without calling its tool. "
+        "Otherwise answer in one short, friendly sentence that sounds natural spoken aloud: no lists, no markdown, no emoji. "
+        f"Devices you can switch: {names}. 'Lights' on their own means all lights. "
+        f"Screens you can open: {apps}. "
+        "If you are not sure what they meant, ask a short question."
+    )
+
+
+def tools(devices: list[Device]) -> list[dict[str, Any]]:
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "control_devices",
+                "description": "Turn lights or switches on or off, or set a light's brightness.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "targets": {
+                            "type": "array",
+                            "items": {"type": "string", "enum": [ALL_LIGHTS, *[device.name for device in devices]]},
+                            "description": "Which devices.",
+                        },
+                        "action": {"type": "string", "enum": ["on", "off"]},
+                        "brightness_pct": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Only when they ask for a brightness."},
+                    },
+                    "required": ["targets", "action"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "open_app",
+                "description": "Show one of Cannvas's screens.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"app": {"type": "string", "enum": list(APPS)}},
+                    "required": ["app"],
+                },
+            },
+        },
+    ]
+
+
+def spoken_context(now: datetime) -> str:
+    return f"(It is {now.strftime('%A %-d %B, %-I:%M %p').replace('AM', 'am').replace('PM', 'pm')}.)"
+
+
+def clean_reply(text: str) -> str:
+    """One or two plain sentences, safe to speak."""
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.S)
+    text = re.sub(r"[*_#`>\[\]]", "", text)
+    text = re.sub(r"[\U0001F000-\U0001FFFF☀-➿]", "", text)
+    text = " ".join(text.split())
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    return " ".join(sentences[:2]).strip()
+
+
+def list_names(names: list[str]) -> str:
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+@dataclass
+class Outcome:
+    reply: str
+    commands: list[dict[str, Any]] = field(default_factory=list)
+
+
+class Agent:
+    def __init__(self, llm_url: str = LLM_URL, ha_loader: Callable[[], dict[str, str] | None] = load_home_assistant) -> None:
+        self.llm_url = llm_url
+        self.ha_loader = ha_loader
+        self.devices: list[Device] = []
+        self.devices_at = 0.0
+        self.history: list[dict[str, Any]] = []
+        self.history_at = 0.0
+
+    def refresh_devices(self, force: bool = False) -> None:
+        if not force and time.monotonic() - self.devices_at < 300:
+            return
+        config = self.ha_loader()
+        if not config:
+            return
+        try:
+            self.devices = voice_devices(home_assistant(config, "/api/states") or [], load_extra_devices())
+            self.devices_at = time.monotonic()
+        except (HTTPError, URLError, TimeoutError, ValueError) as error:
+            log(f"could not load devices: {error}")
+
+    def chat(self, messages: list[dict[str, Any]], max_tokens: int = 160) -> dict[str, Any]:
+        # The system prompt and tools must stay byte-for-byte the same between
+        # requests. llama-server then reuses them from its cache instead of
+        # spending about 25 seconds reading them again on the Pi.
+        body = {
+            "messages": messages,
+            "tools": tools(self.devices),
+            "temperature": 0.2,
+            "max_tokens": max_tokens,
+            "cache_prompt": True,
+            # Qwen3-style models think out loud unless told not to.
+            "chat_template_kwargs": {"enable_thinking": False},
+        }
+        request = Request(
+            f"{self.llm_url}/v1/chat/completions",
+            data=json.dumps(body).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with _OPENER.open(request, timeout=45) as response:
+            return json.loads(response.read())["choices"][0]["message"]
+
+    def warm(self) -> None:
+        """Get the system prompt and tools into the model's cache before anyone asks anything."""
+        for _ in range(60):
+            try:
+                self.chat([{"role": "system", "content": system_prompt(self.devices)}, {"role": "user", "content": "Hello."}], max_tokens=1)
+                log("language model is ready")
+                return
+            except (HTTPError, URLError, TimeoutError, KeyError, ValueError, OSError):
+                time.sleep(5)  # llama-server is still loading the model.
+        log("language model did not answer the warm-up")
+
+    def handle(self, heard: str, now: datetime | None = None) -> Outcome:
+        self.refresh_devices()
+        if time.monotonic() - self.history_at > CONVERSATION_SECONDS:
+            self.history = []
+        now = now or datetime.now(ZONE)
+        user = {"role": "user", "content": f"{spoken_context(now)} {heard}"}
+        message = quick_command(heard, self.devices)
+        if message is None:
+            try:
+                message = self.chat([{"role": "system", "content": system_prompt(self.devices)}, *self.history, user])
+            except (HTTPError, URLError, TimeoutError, KeyError, ValueError) as error:
+                log(f"language model failed: {error}")
+                return Outcome("Sorry, my brain isn't answering right now.")
+        outcome = self.act(message)
+        self.history = [*self.history, user, {"role": "assistant", "content": outcome.reply}][-HISTORY_TURNS * 2:]
+        self.history_at = time.monotonic()
+        return outcome
+
+    def act(self, message: dict[str, Any]) -> Outcome:
+        calls = message.get("tool_calls") or []
+        if not calls:
+            return Outcome(clean_reply(str(message.get("content") or "")) or "Sorry, I didn't catch that.")
+        replies: list[str] = []
+        commands: list[dict[str, Any]] = []
+        for call in calls:
+            function = call.get("function") or {}
+            try:
+                arguments = json.loads(function.get("arguments") or "{}")
+            except json.JSONDecodeError:
+                arguments = {}
+            if not isinstance(arguments, dict):
+                arguments = {}
+            name = function.get("name")
+            if name == "control_devices":
+                replies.append(self.control(arguments))
+            elif name == "open_app":
+                app = APPS.get(str(arguments.get("app", "")).lower())
+                if app:
+                    commands.append({"name": "open_app", "app": app})
+                    replies.append(f"Here's {APP_NAMES.get(app, 'the ' + app)}.")
+                else:
+                    replies.append("I don't have that screen.")
+        return Outcome(" ".join(replies) or "Sorry, I didn't catch that.", commands)
+
+    def control(self, arguments: dict[str, Any]) -> str:
+        targets = arguments.get("targets")
+        targets = [targets] if isinstance(targets, str) else targets if isinstance(targets, list) else []
+        action = arguments.get("action")
+        if action not in {"on", "off"}:
+            return "Sorry, should that be on or off?"
+        devices = resolve_targets(targets, self.devices)
+        if not devices:
+            return "Sorry, I don't know which light you mean."
+        config = self.ha_loader()
+        if not config:
+            return "Home Assistant isn't connected yet."
+        # Small models sometimes send the number as a string.
+        brightness = arguments.get("brightness_pct")
+        try:
+            brightness = max(1, min(100, round(float(brightness)))) if brightness is not None and action == "on" else None
+        except (TypeError, ValueError):
+            brightness = None
+        done: list[str] = []
+        failed: list[str] = []
+        for device in devices:
+            payload: dict[str, Any] = {"entity_id": device.entity_id}
+            if brightness is not None and device.domain == "light":
+                payload["brightness_pct"] = brightness
+            try:
+                home_assistant(config, f"/api/services/{device.domain}/turn_{action}", payload)
+                done.append(device.name)
+            except (HTTPError, URLError, TimeoutError, ValueError) as error:
+                log(f"{device.entity_id} turn_{action} failed: {error}")
+                failed.append(device.name)
+        if not done:
+            return "Sorry, I couldn't reach Home Assistant."
+        everything = len(done) > 1 and len(done) == len([d for d in self.devices if d.domain == "light"])
+        what = "the lights" if everything else list_names(done)
+        reply = f"{what[0].upper()}{what[1:]} set to {brightness} percent." if brightness else f"Okay, {what} {'are' if len(done) > 1 else 'is'} {action}."
+        if failed:
+            reply += f" {list_names(failed)} didn't respond."
+        return reply
+
+
+# Events for the kiosk -------------------------------------------------------
+
+
+class Events:
+    """Fans voice activity out to every connected page."""
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.clients: list[queue.Queue[dict[str, Any]]] = []
+        self.state: dict[str, Any] = {"type": "state", "phase": "idle", "heard": "", "reply": ""}
+
+    def subscribe(self) -> queue.Queue[dict[str, Any]]:
+        client: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=100)
+        with self.lock:
+            client.put(dict(self.state))
+            self.clients.append(client)
+        return client
+
+    def unsubscribe(self, client: queue.Queue[dict[str, Any]]) -> None:
+        with self.lock:
+            if client in self.clients:
+                self.clients.remove(client)
+
+    def publish(self, event: dict[str, Any]) -> None:
+        with self.lock:
+            if event.get("type") == "state":
+                self.state = dict(event)
+            for client in self.clients:
+                try:
+                    client.put_nowait(event)
+                except queue.Full:
+                    pass  # A stalled page misses level updates, never the server.
+
+    def phase(self, phase: str, heard: str = "", reply: str = "") -> None:
+        self.publish({"type": "state", "phase": phase, "heard": heard, "reply": reply})
+
+
+# Speech ---------------------------------------------------------------------
+
+
+def chime(np: Any, rising: bool = True) -> bytes:
+    """A short two-note chime as 16 kHz mono PCM."""
+    notes = (880, 1320) if rising else (1320, 880)
+    parts = []
+    for frequency in notes:
+        t = np.arange(int(SAMPLE_RATE * 0.09)) / SAMPLE_RATE
+        envelope = np.minimum(1, np.minimum(t * 200, (t[-1] - t) * 60))
+        parts.append(0.22 * envelope * np.sin(2 * np.pi * frequency * t))
+    return (np.concatenate(parts) * 32767).astype(np.int16).tobytes()
+
+
+def play(pcm: bytes, rate: int) -> subprocess.Popen[bytes]:
+    player = subprocess.Popen(
+        ["pw-play", "--rate", str(rate), "--channels", "1", "--format", "s16", "-"],
+        stdin=subprocess.PIPE,
+    )
+    assert player.stdin
+    player.stdin.write(pcm)
+    player.stdin.close()
+    return player
+
+
+class Voice:
+    """Microphone in, speaker out, and the listening state machine between them."""
+
+    def __init__(self, agent: Agent, events: Events) -> None:
+        import numpy as np
+        from openwakeword.model import Model as WakeModel
+        from openwakeword.vad import VAD
+        from piper import PiperVoice
+        import sherpa_onnx
+
+        self.np = np
+        self.agent = agent
+        self.events = events
+        self.wake = WakeModel(wakeword_models=[WAKE_WORD], inference_framework="onnx")
+        self.vad = VAD()
+        self.speech = sherpa_onnx.OfflineRecognizer.from_moonshine(
+            preprocessor=str(SPEECH_MODEL / "preprocess.onnx"),
+            encoder=str(SPEECH_MODEL / "encode.int8.onnx"),
+            uncached_decoder=str(SPEECH_MODEL / "uncached_decode.int8.onnx"),
+            cached_decoder=str(SPEECH_MODEL / "cached_decode.int8.onnx"),
+            tokens=str(SPEECH_MODEL / "tokens.txt"),
+            num_threads=3,
+        )
+        self.piper = PiperVoice.load(PIPER_VOICE)
+        self.start_chime = chime(np)
+        self.end_chime = chime(np, rising=False)
+        self.lock = threading.Lock()
+        self.listen_requested = threading.Event()
+        self.player: subprocess.Popen[bytes] | None = None
+        self.busy = False
+        self.deaf_until = 0.0
+
+    # Called from the HTTP server.
+    def request_listen(self) -> None:
+        self.listen_requested.set()
+
+    def cancel(self) -> None:
+        with self.lock:
+            if self.player and self.player.poll() is None:
+                self.player.terminate()
+
+    def microphone(self) -> subprocess.Popen[bytes]:
+        return subprocess.Popen(
+            ["pw-record", "--rate", str(SAMPLE_RATE), "--channels", "1", "--format", "s16", "--latency", "40ms", *MIC_ARGS, "-"],
+            stdout=subprocess.PIPE,
+        )
+
+    def run(self) -> None:
+        while True:
+            recorder = self.microphone()
+            try:
+                self.listen(recorder)
+            finally:
+                recorder.terminate()
+            log("microphone stopped; restarting")
+            time.sleep(2)
+
+    def boosted(self, frame: Any) -> Any:
+        np = self.np
+        return np.clip(frame.astype(np.int32) * MIC_GAIN, -32768, 32767).astype(np.int16)
+
+    def listen(self, recorder: subprocess.Popen[bytes]) -> None:
+        np = self.np
+        assert recorder.stdout
+        command: list[Any] | None = None
+        speech: list[int] = []  # Frames the VAD thinks are speech.
+        silence = 0.0
+        started = 0.0
+        last_level = 0.0
+        while True:
+            raw = recorder.stdout.read(FRAME * 2)
+            if len(raw) < FRAME * 2:
+                return
+            frame = self.boosted(np.frombuffer(raw, dtype=np.int16))
+            if self.busy:
+                continue
+            if command is None:
+                score = max(self.wake.predict(frame).values(), default=0)
+                manual = self.listen_requested.is_set()
+                if manual or (score >= WAKE_THRESHOLD and time.monotonic() >= self.deaf_until):
+                    self.listen_requested.clear()
+                    log(f"listening ({'button' if manual else f'wake word {score:.2f}'})")
+                    command, speech, silence, started = [], [], 0.0, time.monotonic()
+                    self.vad.reset_states()
+                    self.events.phase("listening")
+                    play(self.start_chime, SAMPLE_RATE)
+                continue
+            command.append(frame)
+            probability = float(self.vad.predict(frame, frame_size=640))
+            if time.monotonic() - last_level > 0.1:
+                last_level = time.monotonic()
+                rms = float(np.sqrt(np.mean((frame.astype(np.float32) / 32768) ** 2)))
+                self.events.publish({"type": "level", "value": round(min(1.0, rms * 8), 3)})
+            if probability >= SPEECH_START:
+                speech.append(len(command) - 1)
+                silence = 0.0
+            elif probability < SPEECH_END:
+                silence += FRAME / SAMPLE_RATE
+            elapsed = time.monotonic() - started
+            done = (speech and silence >= END_SILENCE) or elapsed >= MAX_COMMAND
+            if not speech and elapsed >= NO_SPEECH_TIMEOUT:
+                log("heard nothing after the wake word")
+                command = None
+                self.events.phase("idle")
+                self.rest()
+            elif done:
+                # Moonshine copes badly with long silences, so keep just the
+                # speech and a quarter of a second either side.
+                audio = np.concatenate(command[max(0, speech[0] - 3):speech[-1] + 4])
+                command = None
+                self.busy = True
+                play(self.end_chime, SAMPLE_RATE)
+                threading.Thread(target=self.respond, args=(audio,), daemon=True).start()
+
+    def rest(self) -> None:
+        # Ignore the wake word briefly so the chime or reply can't retrigger it.
+        self.wake.reset()
+        self.deaf_until = time.monotonic() + 1.0
+
+    def transcribe(self, audio: Any) -> str:
+        np = self.np
+        samples = audio.astype(np.float32) / 32768
+        peak = float(np.max(np.abs(samples))) or 1.0
+        stream = self.speech.create_stream()
+        stream.accept_waveform(SAMPLE_RATE, samples * (0.7 / peak))
+        self.speech.decode_stream(stream)
+        return stream.result.text.strip()
+
+    def speak(self, text: str) -> None:
+        np = self.np
+        chunks = list(self.piper.synthesize(text))
+        if not chunks:
+            return
+        pcm = np.concatenate([chunk.audio_int16_array for chunk in chunks]).tobytes()
+        with self.lock:
+            self.player = play(pcm, chunks[0].sample_rate)
+        self.player.wait()
+
+    def respond(self, audio: Any) -> None:
+        try:
+            started = time.monotonic()
+            self.events.phase("thinking")
+            heard = self.transcribe(audio)
+            transcribed = time.monotonic()
+            if re.sub(r"[^a-z ]", "", heard.lower()).strip() in PHANTOM_PHRASES:
+                log("nothing intelligible")
+                self.events.phase("idle")
+                return
+            self.events.phase("thinking", heard)
+            outcome = self.agent.handle(heard)
+            answered = time.monotonic()
+            for command in outcome.commands:
+                self.events.publish({"type": "command", **command})
+            self.events.phase("speaking", heard, outcome.reply)
+            log(f"heard {heard!r} -> {outcome.reply!r} (speech {transcribed - started:.1f}s, model {answered - transcribed:.1f}s)")
+            self.speak(outcome.reply)
+            self.events.phase("idle", heard, outcome.reply)
+        except Exception as error:  # A bad request must never stop the listener.
+            log(f"request failed: {error!r}")
+            self.events.phase("idle")
+        finally:
+            self.rest()
+            self.busy = False
+
+
+# Loopback server ------------------------------------------------------------
+
+
+class VoiceHandler(BaseHTTPRequestHandler):
+    server_version = "CannvasVoice"
+    sys_version = ""
+    voice: Voice | None = None
+    events: Events
+
+    def allowed(self) -> bool:
+        port = self.server.server_address[1]
+        if (self.headers.get("Host") or "").lower() not in {f"127.0.0.1:{port}", f"localhost:{port}"} or self.headers.get("Origin"):
+            self.send_error(403)
+            return False
+        return True
+
+    def reply(self, status: int, value: Any) -> None:
+        body = json.dumps(value).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self) -> None:
+        if not self.allowed():
+            return
+        if self.path == "/health":
+            self.reply(200, {"ok": True, "ready": self.voice is not None})
+        elif self.path == "/events":
+            self.stream()
+        else:
+            self.reply(404, {"error": "Not found"})
+
+    def do_POST(self) -> None:
+        if not self.allowed():
+            return
+        if self.voice is None:
+            self.reply(503, {"error": "Voice is still starting"})
+        elif self.path == "/listen":
+            self.voice.request_listen()
+            self.reply(202, {"ok": True})
+        elif self.path == "/cancel":
+            self.voice.cancel()
+            self.reply(202, {"ok": True})
+        else:
+            self.reply(404, {"error": "Not found"})
+
+    def stream(self) -> None:
+        client = self.events.subscribe()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        try:
+            self.wfile.write(b"retry: 3000\n\n")
+            while True:
+                try:
+                    event = client.get(timeout=15)
+                    self.wfile.write(f"data: {json.dumps(event)}\n\n".encode("utf-8"))
+                except queue.Empty:
+                    self.wfile.write(b": keepalive\n\n")
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, TimeoutError):
+            pass
+        finally:
+            self.events.unsubscribe(client)
+
+    def log_message(self, format: str, *args: object) -> None:
+        pass
+
+
+class VoiceServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+
+def main() -> None:
+    events = Events()
+    VoiceHandler.events = events
+    server = VoiceServer((LISTEN_HOST, LISTEN_PORT), VoiceHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    agent = Agent()
+    agent.refresh_devices(force=True)
+    log(f"{len(agent.devices)} devices: {', '.join(device.name for device in agent.devices)}")
+    threading.Thread(target=agent.warm, daemon=True).start()
+    voice = Voice(agent, events)
+    VoiceHandler.voice = voice
+    log(f"ready, listening for {Path(WAKE_WORD).stem}")
+    voice.run()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        sys.exit(0)

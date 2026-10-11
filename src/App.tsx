@@ -28,10 +28,12 @@ import { TodosApp } from "./apps/TodosApp";
 import { WhiteboardApp } from "./apps/WhiteboardApp";
 import { AppErrorBoundary } from "./components/AppErrorBoundary";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { VoiceOverlay } from "./components/VoiceOverlay";
 import { useDeviceStatus } from "./data/DataProvider";
 import type { BackupStatus } from "./data/types";
 import { POWER_OFF_RECOVERY_MESSAGE, schedulePowerOffRecovery } from "./lib/actionTiming";
 import { dismissNativeKeyboard, installNativeKeyboard } from "./lib/nativeKeyboard";
+import { SCREEN_WAKE_EVENT } from "./lib/nightDim";
 import { useHeartbeat } from "./lib/useHeartbeat";
 import { useNightDim } from "./lib/useNightDim";
 
@@ -68,6 +70,9 @@ const moreApps = [
   { id: "sammy-cam" as const, label: "Sammy Cam", description: "Live view and last night", icon: Cctv },
   { id: "inventory" as const, label: "Inventory", description: "Find household items", icon: PackageSearch },
 ];
+
+const appIds = new Set<string>([...primaryApps, ...moreApps].map(({ id }) => id));
+const isAppId = (value: string): value is AppId => value === "display" || appIds.has(value);
 
 const DEFAULT_IDLE_TIMEOUT = 5 * 60 * 1000;
 // Touches inside Sammy Cam's page never reach Cannvas, so the usual timeout
@@ -301,6 +306,17 @@ export function App() {
         <p>This safely shuts down the Cannvas computer. You will need to turn its power back on to start it again.</p>
         {powerOffError && <p className="dialog-error">{powerOffError}</p>}
       </ConfirmDialog>
+
+      <VoiceOverlay
+        // Hearing the wake word counts as activity, but stays on the same screen.
+        onWake={() => {
+          window.dispatchEvent(new Event(SCREEN_WAKE_EVENT));
+          resetIdleTimer();
+        }}
+        onOpenApp={(app) => {
+          if (isAppId(app)) openApp(app);
+        }}
+      />
 
       <NightDimOverlay />
     </main>

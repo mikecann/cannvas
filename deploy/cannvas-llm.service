@@ -1,0 +1,45 @@
+[Unit]
+Description=Cannvas local language model for voice commands
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+# models/llm.gguf is a link to the chosen model, so deploy/install-voice can
+# swap models without editing this unit. Thinking is off: a voice command needs
+# a quick answer more than a careful one. Three threads, not four: the kiosk
+# keeps part of a core busy, and a fourth thread halves the speed.
+ExecStart=/opt/cannvas-voice/llama.cpp/build/bin/llama-server \
+  --model /opt/cannvas-voice/models/llm.gguf \
+  --host 127.0.0.1 --port 8091 \
+  --ctx-size 4096 --parallel 1 --threads 3 \
+  --jinja --reasoning off --no-webui
+Restart=on-failure
+RestartSec=5
+# The kiosk comes first, so a long answer never makes the touchscreen lag.
+Nice=5
+
+# llama-server only reads its model and answers on loopback.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+MemoryMax=3G
+
+[Install]
+WantedBy=multi-user.target

@@ -33,7 +33,7 @@ button:focus-visible, input:focus-visible { outline: 4px solid rgba(52, 120, 212
 .spin { animation: cannvas-spin .9s linear infinite; }
 @keyframes cannvas-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
-  .spin, .whiteboard-slide { animation: none; }
+  .spin, .whiteboard-slide, .voice-overlay, .voice-thinking .voice-orb { animation: none; }
   .night-dim, .display-media video, .sammy-cam-frame { transition: none; }
 }
 .eyebrow { margin: 0 0 5px; color: var(--orange); font-size: 0.9rem; font-weight: 800; letter-spacing: 0.13em; text-transform: uppercase; }
@@ -59,6 +59,23 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .backup-error-badge > span:last-child { display: flex; flex-direction: column; line-height: 1.15; }
 .backup-error-badge strong { font-size: .88rem; font-weight: 800; }
 .backup-error-badge small { color: var(--muted); font-size: .72rem; font-weight: 600; }
+
+/* Voice commands. Big enough to read from across the room, above the dock. */
+.voice-overlay { position: fixed; z-index: 130; left: 50%; bottom: 140px; width: min(860px, calc(100vw - 48px)); min-height: 132px; padding: 22px 26px; display: flex; align-items: center; gap: 24px; transform: translateX(-50%); border-radius: 34px; color: white; background: rgba(37,40,44,.96); box-shadow: 0 24px 60px rgba(32,29,25,.34); animation: voice-in .28s cubic-bezier(.2,.9,.3,1.2); }
+.voice-orb { width: 84px; height: 84px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; color: white; background: radial-gradient(circle at 35% 30%, #ff9c85, var(--orange) 55%, #e2553f); box-shadow: 0 0 0 10px rgba(255,118,94,.18); transition: transform .1s linear; }
+.voice-orb svg { width: 38px; height: 38px; }
+.voice-thinking .voice-orb { background: radial-gradient(circle at 35% 30%, #5fd0b2, var(--green) 60%, #0f6c57); box-shadow: 0 0 0 10px rgba(22,139,112,.2); animation: voice-pulse 1.1s ease-in-out infinite; }
+.voice-speaking .voice-orb, .voice-idle .voice-orb { background: radial-gradient(circle at 35% 30%, #5fd0b2, var(--green) 60%, #0f6c57); box-shadow: 0 0 0 10px rgba(22,139,112,.2); }
+.voice-text { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.voice-text small { color: rgba(255,255,255,.62); font-size: .95rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.voice-text strong { font: 700 2rem/1.18 "Fraunces", serif; letter-spacing: -.02em; }
+.voice-text em { color: rgba(255,255,255,.7); font-size: 1.15rem; font-style: normal; font-weight: 600; }
+.voice-text .voice-hint { color: rgba(255,255,255,.88); }
+.voice-again { width: 72px; height: 72px; flex: 0 0 auto; display: grid; place-items: center; border: 2px solid rgba(255,255,255,.28); border-radius: 24px; color: white; background: rgba(255,255,255,.08); cursor: pointer; }
+.voice-again svg { width: 30px; height: 30px; }
+.voice-again:active { transform: scale(.95); }
+@keyframes voice-in { from { opacity: 0; transform: translate(-50%, 24px) scale(.97); } }
+@keyframes voice-pulse { 50% { transform: scale(1.12); } }
 
 /* Evening dimming. Above everything, but touches pass straight through. */
 .night-dim { position: fixed; z-index: 1000; inset: 0; background: #000; pointer-events: none; transition: opacity 1.2s ease; }

@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# Install voice commands on the Pi. Safe to run again: it only rebuilds or
+# downloads what has changed.
+#
+#   deploy/install-voice
+#
+# Everything lives in /opt/cannvas-voice, owned by root:
+#   llama.cpp/   llama-server, built from a pinned release
+#   venv/        Python packages from deploy/voice-requirements.txt
+#   models/      the language model, Moonshine, a Piper voice and the wake word
+# It installs cannvas-llm.service (system) and cannvas-voice.service (pi's user
+# session, beside the kiosk), plus the kiosk's audio setup, which keeps the TV's
+# HDMI sink awake so replies aren't clipped. The cannvas-voice script itself
+# ships with each release through deploy/deploy.sh.
+#
+# Settings (environment variables):
+#   CANNVAS_HOST   ssh host of the Pi (default: cannvas)
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+host=${CANNVAS_HOST:-cannvas}
+
+stage=$(mktemp -d)
+trap 'rm -rf "$stage"' EXIT
+shopt -s nullglob
+cp deploy/voice-requirements.txt deploy/cannvas-llm.service deploy/cannvas-voice.service \
+  deploy/cannvas-kiosk deploy/pipewire-pulse-cannvas-hdmi.conf deploy/wake-word/*.onnx "$stage/"
+
+# Runs on the Pi as root. It goes up as a file rather than on stdin, so apt,
+# pip and git can't swallow the rest of the script.
+cat >"$stage/install.sh" <<'REMOTE'
+set -eu
+src=/tmp/cannvas-voice-install
+root=/opt/cannvas-voice
+models=$root/models
+llama_tag=b11552
+uid=$(id -u pi)
+as_pi() { sudo -u pi XDG_RUNTIME_DIR="/run/user/$uid" "$@"; }
+
+# Download $1 to $2 unless it is already there, and check its SHA-256 ($3).
+fetch() {
+  if [ -f "$2" ] && echo "$3  $2" | sha256sum --check --status; then
+    return 0
+  fi
+  echo "Downloading $(basename "$2")"
+  curl -fsSL --retry 3 -o "$2.part" "$1"
+  echo "$3  $2.part" | sha256sum --check --status || { echo "Checksum mismatch for $2" >&2; rm -f "$2.part"; exit 1; }
+  mv "$2.part" "$2"
+}
+
+mkdir -p "$models"
+
+# llama-server, statically linked so the build folder can be swapped whole.
+if [ "$(cat "$root/llama.cpp/TAG" 2>/dev/null)" != "$llama_tag" ]; then
+  echo "Building llama.cpp $llama_tag (about ten minutes)"
+  apt-get install -y --no-install-recommends cmake build-essential git >/dev/null
+  build=$root/llama.cpp.new
+  rm -rf "$build"
+  git -c advice.detachedHead=false clone --quiet --depth 1 --branch "$llama_tag" https://github.com/ggml-org/llama.cpp "$build"
+  cmake -S "$build" -B "$build/build" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+    -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF >/dev/null
+  cmake --build "$build/build" --target llama-server -j4 >/dev/null
+  echo "$llama_tag" >"$build/TAG"
+  rm -rf "$root/llama.cpp"
+  mv "$build" "$root/llama.cpp"
+fi
+
+# Python packages, rebuilt only when the pinned list changes.
+if ! cmp -s "$src/voice-requirements.txt" "$root/venv/requirements.txt"; then
+  echo "Installing Python packages"
+  rm -rf "$root/venv"
+  python3 -m venv "$root/venv"
+  "$root/venv/bin/pip" install --quiet --upgrade pip
+  "$root/venv/bin/pip" install --quiet -r "$src/voice-requirements.txt"
+  # openWakeWord's shared audio front end and voice activity model.
+  "$root/venv/bin/python" -c 'import openwakeword.utils; openwakeword.utils.download_models(["hey_jarvis"])' >/dev/null 2>&1
+  cp "$src/voice-requirements.txt" "$root/venv/requirements.txt"
+fi
+
+# Qwen3 1.7B. On the Pi it was the only small model to get every test command
+# right, at about 6 seconds a tool call and 3 seconds a short answer.
+fetch https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/d7f544eead698dbd1f15126ef60b45a1e1933222/Qwen3-1.7B-Q4_K_M.gguf \
+  "$models/Qwen3-1.7B-Q4_K_M.gguf" b139949c5bd74937ad8ed8c8cf3d9ffb1e99c866c823204dc42c0d91fa181897
+ln -sfn Qwen3-1.7B-Q4_K_M.gguf "$models/llm.gguf"
+
+fetch https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-base-en-int8.tar.bz2 \
+  "$models/moonshine-base-en.tar.bz2" 21870cecaa2e44e4e2bf63e02d1072bed183ccd10284871353bd9d24dad14e5e
+if [ ! -f "$models/moonshine-base-en/tokens.txt" ] || [ "$models/moonshine-base-en.tar.bz2" -nt "$models/moonshine-base-en/tokens.txt" ]; then
+  rm -rf "$models/moonshine-base-en"
+  mkdir "$models/moonshine-base-en"
+  tar -xjf "$models/moonshine-base-en.tar.bz2" -C "$models/moonshine-base-en" --strip-components=1
+fi
+
+piper=https://huggingface.co/rhasspy/piper-voices/resolve/c10ece1aade47bb51c153c893d14e5bf8e5b7117/en/en_GB/alba/medium
+fetch "$piper/en_GB-alba-medium.onnx" "$models/en_GB-alba-medium.onnx" 401369c4a81d09fdd86c32c5c864440811dbdcc66466cde2d64f7133a66ad03b
+fetch "$piper/en_GB-alba-medium.onnx.json" "$models/en_GB-alba-medium.onnx.json" aa965a2f02ecced632c2694e1fc72bbff6d65f265fab567ca945918c73dd89f4
+
+for wake_word in "$src"/*.onnx; do
+  [ -e "$wake_word" ] && install -m 0644 "$wake_word" "$models/"
+done
+chown -R root:root "$root"
+chmod -R u+rwX,go+rX,go-w "$root"
+
+# Keep the TV's HDMI sink awake. It applies the next time the kiosk starts.
+install -m 0755 "$src/cannvas-kiosk" /usr/local/bin/cannvas-kiosk
+install -o pi -g pi -m 0644 -D "$src/pipewire-pulse-cannvas-hdmi.conf" /home/pi/.config/pipewire/pipewire-pulse.conf.d/50-cannvas-hdmi.conf
+
+install -m 0644 "$src/cannvas-llm.service" /etc/systemd/system/cannvas-llm.service
+systemctl daemon-reload
+systemctl enable --quiet cannvas-llm.service
+systemctl restart cannvas-llm.service
+
+install -o pi -g pi -m 0644 -D "$src/cannvas-voice.service" /home/pi/.config/systemd/user/cannvas-voice.service
+as_pi systemctl --user daemon-reload
+as_pi systemctl --user enable --quiet cannvas-voice.service
+if [ -x /opt/cannvas/current/cannvas-voice ]; then
+  as_pi systemctl --user restart cannvas-voice.service
+  echo "Voice commands are installed and starting. Follow them with: journalctl --user -u cannvas-voice -f"
+else
+  echo "Voice commands are installed. Run deploy/deploy.sh to ship cannvas-voice and start it."
+fi
+rm -rf "$src"
+REMOTE
+
+# No macOS extended attributes or ._ files (see deploy/deploy.sh).
+tar_flags=(--no-xattrs)
+if tar --version 2>/dev/null | grep -q bsdtar; then
+  tar_flags+=(--no-mac-metadata)
+fi
+COPYFILE_DISABLE=1 tar "${tar_flags[@]}" -czf - -C "$stage" . \
+  | ssh "$host" 'rm -rf /tmp/cannvas-voice-install && mkdir /tmp/cannvas-voice-install && tar -xzf - -C /tmp/cannvas-voice-install'
+ssh "$host" 'sudo sh /tmp/cannvas-voice-install/install.sh'
