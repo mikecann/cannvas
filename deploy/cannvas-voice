@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Listen for the wake word and carry out spoken commands.
 
-Everything runs on the Pi. openWakeWord listens for the wake word, Moonshine
-(through sherpa-onnx) turns the command into text, everyday commands are
-matched straight away and anything else goes to a small language model in
-llama-server (cannvas-llm.service), and Piper speaks the reply through the TV.
-Audio only lives in memory, from the wake word until the command has been
-transcribed, and nothing is sent off the Pi except the Home Assistant calls the
-command asks for.
+openWakeWord listens for the wake word, Moonshine (through sherpa-onnx) turns
+the command into text, everyday commands are matched straight away, and Piper
+speaks the reply through the TV, all on the Pi. Anything else goes to GPT-6 Luna
+through OpenRouter, or to a small local model in llama-server
+(cannvas-llm.service) when there's no OpenRouter key or no internet. Audio only
+lives in memory, from the wake word until the command has been transcribed, and
+never leaves the Pi. Only the text of a request the everyday matcher misses does.
 
 It runs as a user service beside the kiosk because it needs the desktop's
 PipeWire session for the USB microphone and the TV's speakers. The kiosk page
@@ -40,6 +40,10 @@ CONFIG_PATH = Path(os.environ.get("CANNVAS_HOME_ASSISTANT_CONFIG", "/var/lib/can
 # Optional extra devices by spoken name, e.g. {"devices": {"switch.outside": "outside lights"}}.
 VOICE_CONFIG_PATH = Path(os.environ.get("CANNVAS_VOICE_CONFIG", "/var/lib/cannvas/voice.json"))
 LLM_URL = os.environ.get("CANNVAS_LLM_URL", "http://127.0.0.1:8091").rstrip("/")
+# {"apiKey": "..."}, written by deploy/configure-openrouter.
+OPENROUTER_CONFIG_PATH = Path(os.environ.get("CANNVAS_OPENROUTER_CONFIG", "/var/lib/cannvas/openrouter.json"))
+OPENROUTER_URL = os.environ.get("CANNVAS_OPENROUTER_URL", "https://openrouter.ai/api").rstrip("/")
+CLOUD_MODEL = os.environ.get("CANNVAS_CLOUD_MODEL", "openai/gpt-6-luna")
 # A path to an openWakeWord model, or the name of one of its stock models.
 WAKE_WORD = os.environ.get("CANNVAS_WAKE_WORD", str(HOME / "models/hey_canvas.onnx"))
 WAKE_THRESHOLD = float(os.environ.get("CANNVAS_WAKE_THRESHOLD", "0.5"))
@@ -122,6 +126,15 @@ def load_home_assistant() -> dict[str, str] | None:
     url = str(value.get("url", "")).rstrip("/")
     token = str(value.get("token", ""))
     return {"url": url, "token": token} if url and token else None
+
+
+def load_openrouter_key() -> str | None:
+    try:
+        value = json.loads(OPENROUTER_CONFIG_PATH.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    key = str(value.get("apiKey", "")).strip() if isinstance(value, dict) else ""
+    return key or None
 
 
 def home_assistant(config: dict[str, str], path: str, payload: dict[str, Any] | None = None) -> Any:
@@ -336,9 +349,17 @@ class Outcome:
 
 
 class Agent:
-    def __init__(self, llm_url: str = LLM_URL, ha_loader: Callable[[], dict[str, str] | None] = load_home_assistant) -> None:
+    def __init__(
+        self,
+        llm_url: str = LLM_URL,
+        ha_loader: Callable[[], dict[str, str] | None] = load_home_assistant,
+        cloud_url: str = OPENROUTER_URL,
+        key_loader: Callable[[], str | None] = load_openrouter_key,
+    ) -> None:
         self.llm_url = llm_url
         self.ha_loader = ha_loader
+        self.cloud_url = cloud_url
+        self.key_loader = key_loader
         self.devices: list[Device] = []
         self.devices_at = 0.0
         self.history: list[dict[str, Any]] = []
@@ -356,11 +377,26 @@ class Agent:
         except (HTTPError, URLError, TimeoutError, ValueError) as error:
             log(f"could not load devices: {error}")
 
-    def chat(self, messages: list[dict[str, Any]], max_tokens: int = 160) -> dict[str, Any]:
+    def chat(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
+        if key := self.key_loader():
+            try:
+                return self.complete(f"{self.cloud_url}/v1/chat/completions", {
+                    "model": CLOUD_MODEL,
+                    "messages": messages,
+                    "tools": tools(self.devices),
+                    "max_tokens": 300,
+                    # A spoken request needs a quick answer more than a careful one.
+                    "reasoning": {"effort": "none"},
+                }, {"Authorization": f"Bearer {key}", "X-Title": "Cannvas"}, timeout=10)
+            except (HTTPError, URLError, TimeoutError, KeyError, IndexError, ValueError, OSError) as error:
+                log(f"OpenRouter failed, so the local model will answer: {error}")
+        return self.local(messages)
+
+    def local(self, messages: list[dict[str, Any]], max_tokens: int = 160) -> dict[str, Any]:
         # The system prompt and tools must stay byte-for-byte the same between
         # requests. llama-server then reuses them from its cache instead of
         # spending about 25 seconds reading them again on the Pi.
-        body = {
+        return self.complete(f"{self.llm_url}/v1/chat/completions", {
             "messages": messages,
             "tools": tools(self.devices),
             "temperature": 0.2,
@@ -368,26 +404,28 @@ class Agent:
             "cache_prompt": True,
             # Qwen3-style models think out loud unless told not to.
             "chat_template_kwargs": {"enable_thinking": False},
-        }
+        }, {}, timeout=45)
+
+    def complete(self, url: str, body: dict[str, Any], headers: dict[str, str], timeout: float) -> dict[str, Any]:
         request = Request(
-            f"{self.llm_url}/v1/chat/completions",
+            url,
             data=json.dumps(body).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", **headers},
             method="POST",
         )
-        with _OPENER.open(request, timeout=45) as response:
+        with _OPENER.open(request, timeout=timeout) as response:
             return json.loads(response.read())["choices"][0]["message"]
 
     def warm(self) -> None:
-        """Get the system prompt and tools into the model's cache before anyone asks anything."""
+        """Get the system prompt and tools into the local model's cache before anyone needs it."""
         for _ in range(60):
             try:
-                self.chat([{"role": "system", "content": system_prompt(self.devices)}, {"role": "user", "content": "Hello."}], max_tokens=1)
-                log("language model is ready")
+                self.local([{"role": "system", "content": system_prompt(self.devices)}, {"role": "user", "content": "Hello."}], max_tokens=1)
+                log("local language model is ready")
                 return
             except (HTTPError, URLError, TimeoutError, KeyError, ValueError, OSError):
                 time.sleep(5)  # llama-server is still loading the model.
-        log("language model did not answer the warm-up")
+        log("local language model did not answer the warm-up")
 
     def handle(self, heard: str, now: datetime | None = None) -> Outcome:
         self.refresh_devices()
@@ -399,7 +437,7 @@ class Agent:
         if message is None:
             try:
                 message = self.chat([{"role": "system", "content": system_prompt(self.devices)}, *self.history, user])
-            except (HTTPError, URLError, TimeoutError, KeyError, ValueError) as error:
+            except (HTTPError, URLError, TimeoutError, KeyError, IndexError, ValueError, OSError) as error:
                 log(f"language model failed: {error}")
                 return Outcome("Sorry, my brain isn't answering right now.")
         outcome = self.act(message)
@@ -786,6 +824,7 @@ def main() -> None:
     agent = Agent()
     agent.refresh_devices(force=True)
     log(f"{len(agent.devices)} devices: {', '.join(device.name for device in agent.devices)}")
+    log(f"questions go to {CLOUD_MODEL} through OpenRouter" if load_openrouter_key() else "no OpenRouter key, so the local model answers questions")
     threading.Thread(target=agent.warm, daemon=True).start()
     voice = Voice(agent, events)
     VoiceHandler.voice = voice

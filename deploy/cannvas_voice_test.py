@@ -68,9 +68,18 @@ class FakeModel(BaseHTTPRequestHandler):
 
     message: dict = {}
     requests: list[dict] = []
+    # (path, Authorization header) for each request.
+    seen: list[tuple[str, str | None]] = []
+    cloud_down = False
 
     def do_POST(self) -> None:
         FakeModel.requests.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+        FakeModel.seen.append((self.path, self.headers.get("Authorization")))
+        if FakeModel.cloud_down and self.path.startswith("/cloud/"):
+            self.send_response(502)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         data = json.dumps({"choices": [{"message": FakeModel.message}]}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -177,8 +186,12 @@ class AgentTest(unittest.TestCase):
         FakeHomeAssistant.calls = []
         FakeHomeAssistant.fail = set()
         FakeModel.requests = []
+        FakeModel.seen = []
+        FakeModel.cloud_down = False
+        self.key = None
         config = {"url": f"http://127.0.0.1:{self.ha.server_address[1]}", "token": "token-for-tests"}
-        self.agent = voice.Agent(f"http://127.0.0.1:{self.model.server_address[1]}", lambda: config)
+        model_url = f"http://127.0.0.1:{self.model.server_address[1]}"
+        self.agent = voice.Agent(model_url, lambda: config, f"{model_url}/cloud", lambda: self.key)
         self.agent.refresh_devices(force=True)
 
     def ask(self, message: dict, heard: str = "make it cosy in here") -> object:
@@ -236,6 +249,25 @@ class AgentTest(unittest.TestCase):
         self.assertIn("TV Lamp Top", request["messages"][0]["content"])
         self.assertEqual([message["role"] for message in request["messages"]], ["system", "user", "assistant", "user"])
         self.assertTrue(request["messages"][-1]["content"].startswith("(It is Sunday 11 October, 9:05 am.)"))
+
+    def test_uses_luna_through_openrouter_when_there_is_a_key(self) -> None:
+        self.key = "sk-or-test"
+        outcome = self.ask({"content": "Paris."}, "what's the capital of France")
+        self.assertEqual(FakeModel.seen, [("/cloud/v1/chat/completions", "Bearer sk-or-test")])
+        request = FakeModel.requests[-1]
+        self.assertEqual(request["model"], "openai/gpt-6-luna")
+        self.assertEqual(request["reasoning"], {"effort": "none"})
+        self.assertNotIn("cache_prompt", request)
+        self.assertEqual(outcome.reply, "Paris.")
+
+    def test_falls_back_to_the_local_model_when_openrouter_fails(self) -> None:
+        self.key = "sk-or-test"
+        FakeModel.cloud_down = True
+        outcome = self.ask({"content": "Paris."}, "what's the capital of France")
+        self.assertEqual([path for path, _ in FakeModel.seen], ["/cloud/v1/chat/completions", "/v1/chat/completions"])
+        # The OpenRouter key is never sent to the local model.
+        self.assertIsNone(FakeModel.seen[-1][1])
+        self.assertEqual(outcome.reply, "Paris.")
 
     def test_model_down(self) -> None:
         self.agent.llm_url = "http://127.0.0.1:9"

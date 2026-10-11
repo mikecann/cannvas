@@ -352,8 +352,9 @@ calculation for Busselton when Home Assistant can't be reached.
 ### Voice commands
 
 A USB microphone on the Pi lets the family talk to Cannvas: "Hey Canvas,
-lights off", "Hey Canvas, open the calendar", or just a question. Everything
-runs on the Pi, with nothing sent to the cloud:
+lights off", "Hey Canvas, open the calendar", or just a question. Listening,
+speech recognition, everyday commands and the spoken replies all run on the
+Pi:
 
 1. `cannvas-voice` listens for "Hey Canvas" with
    [openWakeWord](https://github.com/dscripka/openWakeWord) and plays a chime.
@@ -364,13 +365,17 @@ runs on the Pi, with nothing sent to the cloud:
    seconds on the Pi, where Whisper takes 1.5 to 3.
 3. Everyday commands ("lights off", "turn on the TV lamp", "set the top lamp
    to 30 percent", "open the calendar") are matched straight away. Anything
-   else goes to Qwen3 1.7B in `llama-server` (`cannvas-llm.service`), which
-   either picks a tool or answers in a sentence. That takes 3 to 6 seconds on
-   the Pi.
+   else goes to OpenAI's GPT-6 Luna through [OpenRouter](https://openrouter.ai),
+   which either picks a tool or answers in a sentence. Without a key or
+   without internet, Qwen3 1.7B in `llama-server` (`cannvas-llm.service`)
+   answers instead, in 3 to 10 seconds on the Pi.
 4. [Piper](https://github.com/OHF-Voice/piper1-gpl) speaks the reply through
    the TV, and the screen shows what it heard and what it said.
 
-Audio stays in memory from the wake word until the command is transcribed.
+Audio stays in memory from the wake word until the command is transcribed, and
+never leaves the Pi. Only the text of a request that isn't an everyday command
+goes to OpenRouter.
+
 Voice can switch every Home Assistant light. Other switches need a spoken name
 in `/var/lib/cannvas/voice.json`, for example
 `{"devices": {"switch.athom_outside_lights_smart_plug_v2": "Outside Lights"}}`.
@@ -395,6 +400,15 @@ sounds. Waking it again let the TV drop the first quarter of a second, which
 clipped the chime and the start of each reply. `deploy/deploy.sh` ships
 `cannvas-voice` with each release and restarts it. Follow it with
 `journalctl --user -u cannvas-voice -f` on the Pi.
+
+Give it an [OpenRouter API key](https://openrouter.ai/settings/keys) with:
+
+```sh
+deploy/configure-openrouter
+```
+
+It asks for the key without showing it, checks it with OpenRouter, and stores
+it in `/var/lib/cannvas/openrouter.json` on the Pi, readable only by `pi`.
 
 ### Kiosk watchdog
 
