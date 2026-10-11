@@ -35,9 +35,11 @@ if ! printf 'Authorization: Bearer %s\n' "$key" | curl -fsS -o /dev/null -H @- h
   exit 1
 fi
 
+# Tailscale SSH won't let pi reopen /dev/stdin, so read the stream with cat.
 printf '{"apiKey": "%s"}\n' "$key" | ssh "$host" '
   set -e
-  install -m 0600 /dev/stdin /var/lib/cannvas/openrouter.json.new
+  umask 077
+  cat >/var/lib/cannvas/openrouter.json.new
   mv /var/lib/cannvas/openrouter.json.new /var/lib/cannvas/openrouter.json
   XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user restart cannvas-voice.service
 '

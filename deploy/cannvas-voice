@@ -47,6 +47,8 @@ CLOUD_MODEL = os.environ.get("CANNVAS_CLOUD_MODEL", "openai/gpt-6-luna")
 # A path to an openWakeWord model, or the name of one of its stock models.
 WAKE_WORD = os.environ.get("CANNVAS_WAKE_WORD", str(HOME / "models/hey_canvas.onnx"))
 WAKE_THRESHOLD = float(os.environ.get("CANNVAS_WAKE_THRESHOLD", "0.5"))
+# Scores from here up to the threshold are logged, to tune the wake word with.
+NEAR_MISS = 0.15
 # Moonshine reads a two-second command in about 0.2 s on the Pi, where Whisper
 # takes 1.5 to 3 s because it always works on a 30 second window.
 SPEECH_MODEL = Path(os.environ.get("CANNVAS_SPEECH_MODEL", str(HOME / "models/moonshine-base-en")))
@@ -642,6 +644,7 @@ class Voice:
         silence = 0.0
         started = 0.0
         last_level = 0.0
+        last_near_miss = 0.0
         while True:
             raw = recorder.stdout.read(FRAME * 2)
             if len(raw) < FRAME * 2:
@@ -651,6 +654,9 @@ class Voice:
                 continue
             if command is None:
                 score = max(self.wake.predict(frame).values(), default=0)
+                if NEAR_MISS <= score < WAKE_THRESHOLD and time.monotonic() - last_near_miss > 1.5:
+                    last_near_miss = time.monotonic()
+                    log(f"wake word near miss {score:.2f}")
                 manual = self.listen_requested.is_set()
                 if manual or (score >= WAKE_THRESHOLD and time.monotonic() >= self.deaf_until):
                     self.listen_requested.clear()
