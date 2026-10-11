@@ -641,9 +641,11 @@ class Voice:
                 self.events.phase("idle")
                 self.rest()
             elif done:
-                # Moonshine copes badly with long silences, so keep just the
-                # speech and a quarter of a second either side.
-                audio = np.concatenate(command[max(0, speech[0] - 3):speech[-1] + 4])
+                # Moonshine copes badly with long silences, so drop most of
+                # them. Keep 0.6 s before the first frame the VAD called speech:
+                # the mic's automatic gain is still recovering from the chime
+                # then, so the VAD can miss the first word.
+                audio = np.concatenate(command[max(0, speech[0] - 8):speech[-1] + 4])
                 command = None
                 self.busy = True
                 play(self.end_chime, SAMPLE_RATE)
