@@ -1,34 +1,53 @@
 # "Hey Canvas" wake word
 
 `hey_canvas.onnx` is the openWakeWord model `cannvas-voice` listens with.
-There was no ready-made model for the phrase, so this one was trained for
-Cannvas on synthetic speech: 135,000 "Hey Canvas" clips from 900+ LibriTTS
-and 109 British VCTK voices, with room echo, background noise and music mixed
-in, against 2,000 hours of other audio and about 90,000 clips of near misses ("hey
-Kansas", "the canvas", "hey can you", "hey Cameron" and so on). The training
-recipe, scripts and configs are in [`training/`](training/).
+There was no ready-made model for the phrase, so it was trained for Cannvas in
+two rounds. The recipe, scripts and configs are in [`training/`](training/).
+
+1. **Synthetic speech.** 135,000 "Hey Canvas" clips from 900+ LibriTTS and
+   109 British VCTK voices, with room echo, background noise and music mixed
+   in, against 2,000 hours of other audio and about 90,000 clips of near
+   misses ("hey Kansas", "the canvas", "hey can you", "hey Cameron" and so on).
+   It handled macOS voices well but only woke for about half of Mike's real
+   tries through the Pi's microphone, even close up.
+2. **Fine-tuned on a real voice.** The round 1 model, trained for another
+   10,000 steps with Mike's own close-range tries (0.5 to 1 m) recorded
+   through the Pi's microphone, his own non-wake speech as negatives, and the
+   room's background hum. The recordings stay out of this repository.
 
 It runs with `openwakeword==0.6.0` and fires at the usual 0.5. The model's
-last bias was shifted so 0.5 lands where the false positives are about 0.2 an
-hour.
+last bias was shifted so 0.5 gives no more false wakes on openWakeWord's
+10.7 hour validation set than round 1 had (3 windows, about 0.3 an hour).
 
 ## How well it works
 
-Tested on voices it never trained on (macOS `say`), scored on the Pi:
+Both recordings replayed through the model the way the Pi listens (80 ms
+frames, the service's x4 gain, a second's pause after each wake). Close-range
+tries were scored by models that never trained on them.
 
-| | Fired |
-|---|---|
-| "Hey Canvas", natural voices (Karen, Daniel, Samantha, Moira, Tessa, Rishi, Kathy, Fred) | 42 of 42, lowest score 0.70 |
-| "Hey Canvas", novelty voices (Rocko, Grandma, Albert and others) | 15 of 24 |
-| Near misses ("Hey Kansas", "I bought a canvas bag", "Hey Alexa", "Hey Cameron", ...) | 4 of 87, all "Hey Kansas" |
-| Three minutes of ordinary family sentences | none, peak score below 0.0001 |
-| Background audio (openWakeWord's 10.7 hour validation set) | about 0.2 to 0.3 times an hour |
+| | Round 1 | Round 2 |
+|---|---|---|
+| Mike, 0.5 to 1 m, held out | 2 of 10 | 9 of 10 |
+| Mike, 2 m (never trained on) | about 1 of 2 | 2 of 2 |
+| Mike, 3 to 8 m (never trained on) | about 0.5 of 15 | 14 of 15 |
+| Mike's distance labels and other speech | no wakes | no wakes |
+| macOS `say` "Hey Canvas", natural voices | 57 of 66 | 61 of 66 |
+| macOS `say` through a simulated copy of the Pi's mic | 25 of 66 | 46 of 66 |
+| Near misses ("Hey Kansas", "a canvas bag", "Hey Cameron", ...) | 4 of 87 | 4 of 87, all "Hey Kansas" |
+| 12 hours of LibriSpeech, as recorded / through the simulated mic | 1 / 1 | 0 / 1 |
+
+The real-voice test is small: one speaker, ten close tries, one quiet
+evening. Two things to watch:
+
+- It has only heard Mike. Recordings of the rest of the family would show
+  whether it works as well for them and could go into a third round.
+- With loud TV-like speech or music mixed in, it wakes slightly less often for
+  full-range synthetic voices (21 of 66 at 10 dB, against 28). Through this
+  microphone that test is level, but a better microphone may bring it back.
 
 "Kansas" and "canvas" are one sound apart, and no threshold separates them for
 every voice without losing real wakes. A false wake only plays a chime and
-listens for a few seconds. If it becomes a nuisance, the next step is 20 to 50
-recordings of the family saying "Hey Canvas", either to retrain with or for
-openWakeWord's per-speaker verifier.
+listens for a few seconds.
 
 ## Licence
 

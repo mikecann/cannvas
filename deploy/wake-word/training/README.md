@@ -112,3 +112,34 @@ Training-only variants (`configs/v_*.yml`, `configs/r2_*.yml`, `configs/r3_*.yml
 * **Bias calibration** (`calibrate_onnx.py`) only moves the threshold. Window ranking is unchanged.
 * `torch.load(..., weights_only=False)` loads the pickled piper model (torch >= 2.6 defaults to `True`).
 * `setuptools<81` is pinned because `pronouncing` imports `pkg_resources`.
+
+## Round 2: fine-tuning on a real voice
+
+The round 1 model woke for only about half of Mike's real tries through the Pi's CM108 microphone,
+even at half a metre. Round 2 fine-tunes it on recordings of him in the room (`configs/hey_canvas_finetune.yml`
+has the full recipe in its header). The recordings and their labels (`$W/real/`) are kept out of this
+repository.
+
+* **Recordings:** `session1.wav` and `session2.wav`, 16 kHz mono from the Pi
+  (`pw-record --target <CM108 source> --rate 16000 --channels 1 --format s16`). In session 2 he said a
+  distance ("half a metre", "one metre", ...) and then "Hey Canvas" twice, from 0.5 m to 8 m.
+  `make_utterances.py` and `seg_offsets.py` cut and label them; `$W/real/events.py` holds the labels.
+* **Training data** (`real_aug.py`): 1,500 augmented 2 s windows for each close try (0.5 to 1 m), cut
+  from the continuous recording so the room is always around them, with speed, pitch, EQ, background,
+  mild reverb and the service's x1 to x4 gain. His own non-wake speech becomes negatives (400 windows each),
+  plus 6,000 room-only windows. The 2 m and further tries were too degraded to train on and became test data.
+* **Fine-tune** (`make_run.py`, `train_eval.sh`): `oww_train.py` gained `init_onnx` / `init_bias_shift` /
+  `base_lr` (LOCAL PATCH 9) to start from the shipped model with its calibration removed. 10,000 steps at
+  2e-5, the run 3 synthetic features rebuilt with the round 1 recipe, plus 12 real positives and 16 owner
+  negatives per batch. Fine-tuning won over retraining: every from-scratch variant lost 20 to 35 of the 66
+  macOS `say` clips.
+* **Calibration** (`calib_matched.py`): the smallest threshold with no more hot windows on the validation
+  features than round 1 had at 0.5 (3 in 10.7 h).
+* **Checks** (`evaluate.py`, `replay_sessions.py`, `pi_eval.py`): three folds that each held out different
+  close tries, continuous replay of both sessions Pi-style, the `say` sets as recorded and through a
+  simulated copy of the mic (`make_say_mic.py`), TV-like noise (`make_noisy.py`), and 12 hours of
+  LibriSpeech (`make_fp_streams.py`).
+
+Tried and dropped: simulating the mic on the synthetic clips (cost about 25 `say` clips, no gain on the
+real voice), removing "a canvas" from the near misses, generic speech-through-mic negatives, and stronger
+fine-tunes (higher learning rate or real-data weight), which made it worse in TV-like noise.

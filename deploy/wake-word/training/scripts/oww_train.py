@@ -11,6 +11,12 @@
 #      workers; here every step gets the next batch.)
 #   5. logs validation metrics at each validation step and saves them to train_history.json
 #      (logging only; no change to training).
+#   6. feature_data_files keys starting with "positive" (e.g. positive_real) are labelled 1, so extra
+#      positive sets can be mixed in with their own batch_n_per_class (wakeword2 run).
+#   7. optional config "positive_features_test"/"negative_features_test" paths for the validation set,
+#      and "torch_threads" to cap torch's CPU threads (several trainings run side by side).
+#   8. validation data passed as one pre-built batch rather than a DataLoader over single rows (speed only).
+#   9. optional config "init_onnx" (+ "init_bias_shift") to initialise the DNN from an exported model.
 import torch
 from torch import optim, nn
 import torchinfo
@@ -285,7 +291,7 @@ class Model(nn.Module):
 
         # Sequence 1
         logging.info("#"*50 + "\nStarting training sequence 1...\n" + "#"*50)
-        lr = 0.0001
+        lr = getattr(self, "base_lr", 0.0001)  # LOCAL PATCH 9: config "base_lr" (fine-tuning)
         weights = np.linspace(1, max_negative_weight, int(steps)).tolist()
         val_steps = np.linspace(steps-int(steps*0.25), steps, 20).astype(np.int64)
         self.train_model(
@@ -840,11 +846,22 @@ if __name__ == '__main__':
 
     # Create openwakeword model
     if args.train_model is True:
-        F = openwakeword.utils.AudioFeatures(device='cpu')
-        input_shape = np.load(os.path.join(feature_save_dir, "positive_features_test.npy")).shape[1:]
+        if config.get("torch_threads"):  # LOCAL PATCH 7
+            torch.set_num_threads(int(config["torch_threads"]))
+        input_shape = np.load(config.get("positive_features_test", os.path.join(feature_save_dir, "positive_features_test.npy"))).shape[1:]
 
         oww = Model(n_classes=1, input_shape=input_shape, model_type=config["model_type"],
                     layer_dim=config["layer_size"], seconds_per_example=1280*input_shape[0]/16000)
+        if config.get("base_lr"):
+            oww.base_lr = float(config["base_lr"])
+        if config.get("init_onnx"):  # LOCAL PATCH 9: start from an existing model's weights (fine-tuning)
+            import onnx
+            from onnx import numpy_helper
+            init = {i.name: torch.from_numpy(numpy_helper.to_array(i).copy())
+                    for i in onnx.load(config["init_onnx"]).graph.initializer}
+            init["last_layer.bias"] = init["last_layer.bias"] + float(config.get("init_bias_shift", 0.0))
+            missing = oww.model.load_state_dict(init, strict=True)
+            logging.info(f"initialised from {config['init_onnx']} (bias shift {config.get('init_bias_shift', 0.0)}): {missing}")
 
         # Create data transform function for batch generation to handle differ clip lengths (todo: write tests for this)
         def f(x, n=input_shape[0]):
@@ -860,7 +877,7 @@ if __name__ == '__main__':
         data_transforms = {key: f for key in config["feature_data_files"].keys()}
         label_transforms = {}
         for key in ["positive"] + list(config["feature_data_files"].keys()) + ["adversarial_negative"]:
-            if key == "positive":
+            if key.startswith("positive"):  # LOCAL PATCH 6: extra positive classes (e.g. positive_real)
                 label_transforms[key] = lambda x: [1 for i in x]
             else:
                 label_transforms[key] = lambda x: [0 for i in x]
@@ -898,22 +915,15 @@ if __name__ == '__main__':
         X_val_fp = np.load(config["false_positive_validation_data_path"])
         X_val_fp = np.array([X_val_fp[i:i+input_shape[0]] for i in range(0, X_val_fp.shape[0]-input_shape[0], 1)])  # reshape to match model
         X_val_fp_labels = np.zeros(X_val_fp.shape[0]).astype(np.float32)
-        X_val_fp = torch.utils.data.DataLoader(
-            torch.utils.data.TensorDataset(torch.from_numpy(X_val_fp), torch.from_numpy(X_val_fp_labels)),
-            batch_size=len(X_val_fp_labels)
-        )
+        # LOCAL PATCH 8: one pre-built batch instead of a DataLoader that collates ~480k single rows on
+        # every validation step (same data, same single batch; ~15 s faster per validation step)
+        X_val_fp = [(torch.from_numpy(X_val_fp), torch.from_numpy(X_val_fp_labels))]
 
-        X_val_pos = np.load(os.path.join(feature_save_dir, "positive_features_test.npy"))
-        X_val_neg = np.load(os.path.join(feature_save_dir, "negative_features_test.npy"))
+        X_val_pos = np.load(config.get("positive_features_test", os.path.join(feature_save_dir, "positive_features_test.npy")))  # LOCAL PATCH 7
+        X_val_neg = np.load(config.get("negative_features_test", os.path.join(feature_save_dir, "negative_features_test.npy")))
         labels = np.hstack((np.ones(X_val_pos.shape[0]), np.zeros(X_val_neg.shape[0]))).astype(np.float32)
 
-        X_val = torch.utils.data.DataLoader(
-            torch.utils.data.TensorDataset(
-                torch.from_numpy(np.vstack((X_val_pos, X_val_neg))),
-                torch.from_numpy(labels)
-                ),
-            batch_size=len(labels)
-        )
+        X_val = [(torch.from_numpy(np.vstack((X_val_pos, X_val_neg))), torch.from_numpy(labels))]  # LOCAL PATCH 8
 
         # Run auto training
         best_model = oww.auto_train(
