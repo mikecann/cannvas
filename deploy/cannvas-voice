@@ -66,8 +66,10 @@ ZONE = ZoneInfo("Australia/Perth")
 
 SAMPLE_RATE = 16_000
 FRAME = 1280  # 80 ms, the frame size openWakeWord expects
-SPEECH_START = 0.5
-SPEECH_END = 0.3
+# Silero VAD scores. A quiet room never goes above about 0.03, but speech from
+# across the room through this mic rarely reaches 0.5, so start low.
+SPEECH_START = 0.2
+SPEECH_END = 0.1
 END_SILENCE = 0.8
 NO_SPEECH_TIMEOUT = 5.0
 MAX_COMMAND = 10.0
@@ -244,7 +246,7 @@ def resolve_targets(targets: list[str], devices: list[Device]) -> list[Device]:
 # commands people say most are matched here and answered straight away.
 # Anything this doesn't recognise goes to the model.
 
-FILLER = re.compile(r"^(?:hey |ok |okay )?(?:canvas |cannvas )?(?:can you |could you |would you |please )*|(?: for me)?(?: please)?$")
+FILLER = re.compile(r"^(?:(?:hey|ok|okay|or|and|um|uh|so|oh) )*(?:canvas |cannvas )?(?:can you |could you |would you |please )*|(?: for me)?(?: please)?$")
 NUMBERS = {"ten": 10, "twenty": 20, "twenty five": 25, "thirty": 30, "forty": 40, "fifty": 50, "half": 50,
            "sixty": 60, "seventy": 70, "seventy five": 75, "eighty": 80, "ninety": 90, "a hundred": 100, "one hundred": 100, "full": 100}
 APP_ALIASES = {

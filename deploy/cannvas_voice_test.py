@@ -148,6 +148,9 @@ class QuickCommandTest(unittest.TestCase):
         self.assertEqual(self.quick("Lights on."), ("control_devices", {"targets": all_lights, "action": "on"}))
         self.assertEqual(self.quick("Hey Canvas, turn the lights off please"), ("control_devices", {"targets": all_lights, "action": "off"}))
         self.assertEqual(self.quick("Turn off the TV lamp."), ("control_devices", {"targets": ["TV Lamp"], "action": "off"}))
+        # People start with "or", "um" and so on, and speech recognition keeps them.
+        self.assertEqual(self.quick("Or turn the lights off."), ("control_devices", {"targets": ["TV Lamp", "TV Lamp Top", "TV Lamp Bottom"], "action": "off"}))
+        self.assertEqual(self.quick("Um, so lights on"), ("control_devices", {"targets": ["TV Lamp", "TV Lamp Top", "TV Lamp Bottom"], "action": "on"}))
         self.assertEqual(self.quick("switch on the outside lights"), ("control_devices", {"targets": ["Outside Lights"], "action": "on"}))
         self.assertEqual(self.quick("Could you turn the top lamp and the bottom lamp on?"),
                          ("control_devices", {"targets": ["TV Lamp Top", "TV Lamp Bottom"], "action": "on"}))
