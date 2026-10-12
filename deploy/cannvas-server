@@ -732,22 +732,54 @@ class CannvasHandler(SimpleHTTPRequestHandler):
             except (TimeoutError, OSError):
                 self.close_connection = True  # The voice service stopped.
 
+    def relay_voice(self, path: str, body: dict[str, Any] | None = None) -> None:
+        """Send a request to cannvas-voice and pass its JSON answer back."""
+        request = Request(
+            f"{VOICE_URL}{path}",
+            data=json.dumps(body).encode("utf-8") if body is not None else None,
+            headers={"Content-Type": "application/json"},
+            method="GET" if body is None else "POST",
+        )
+        try:
+            with _VOICE_OPENER.open(request, timeout=10) as response:
+                self.send_json(response.status, json.loads(response.read() or b"null"))
+        except HTTPError as error:
+            # The voice service answered, so pass on why it said no.
+            try:
+                answer = json.loads(error.read() or b"null")
+            except ValueError:
+                answer = {"error": "Voice commands refused that"}
+            error.close()
+            self.send_json(error.code, answer)
+        except (URLError, TimeoutError, OSError, ValueError):
+            self.send_json(503, {"error": "Voice commands are unavailable"})
+
     def post_voice(self, path: str) -> None:
         try:
-            self.read_json()
-            with _VOICE_OPENER.open(Request(f"{VOICE_URL}{path}", data=b"{}", method="POST"), timeout=5):
-                pass
-            self.send_json(202, {"ok": True})
+            body = self.read_json()
         except ValueError as error:
             self.send_json(400, {"error": str(error)})
-        except (HTTPError, URLError, TimeoutError, OSError):
-            self.send_json(503, {"error": "Voice commands are unavailable"})
+            return
+        self.relay_voice(path, body)
 
     def post_voice_listen(self) -> None:
         self.post_voice("/listen")
 
     def post_voice_cancel(self) -> None:
         self.post_voice("/cancel")
+
+    # Wake word training records the family saying "Hey Canvas" around the room.
+    def get_voice_training(self, query: str) -> None:
+        self.relay_voice("/training")
+
+    def post_voice_training_start(self) -> None:
+        self.post_voice("/training/start")
+
+    def post_voice_training_stop(self) -> None:
+        self.post_voice("/training/stop")
+
+    def post_voice_training_delete(self) -> None:
+        self.post_voice("/training/delete")
 
     # Routes -----------------------------------------------------------------
 
@@ -905,6 +937,7 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         "/api/sun": get_sun,
         "/api/home-assistant/status": get_home_assistant_status,
         "/api/voice/events": get_voice_events,
+        "/api/voice/training": get_voice_training,
         "/api/heartbeat": heartbeat,
         "/api/health": health,
     }
@@ -914,6 +947,9 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         "/api/home-assistant/action": post_home_assistant_action,
         "/api/voice/listen": post_voice_listen,
         "/api/voice/cancel": post_voice_cancel,
+        "/api/voice/training/start": post_voice_training_start,
+        "/api/voice/training/stop": post_voice_training_stop,
+        "/api/voice/training/delete": post_voice_training_delete,
         "/api/heartbeat": post_heartbeat,
     }
 

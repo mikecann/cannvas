@@ -17,6 +17,7 @@ cannvas-server proxies as /api/voice/events.
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -25,12 +26,14 @@ import os
 from pathlib import Path
 import queue
 import re
+import secrets
 import shlex
 import subprocess
 import sys
 import threading
 import time
 from typing import Any, Callable
+import wave
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from zoneinfo import ZoneInfo
@@ -70,6 +73,20 @@ NO_SPEECH_TIMEOUT = 5.0
 MAX_COMMAND = 10.0
 CONVERSATION_SECONDS = 120
 HISTORY_TURNS = 3
+
+# Wake word training (Admin > Wake word training) records people saying the
+# wake word around the room, scores each try and acts on none of them.
+SAMPLES_DIR = Path(os.environ.get("CANNVAS_VOICE_SAMPLES", "/var/lib/cannvas/voice-samples"))
+# Recording stops on its own, so the room is never recorded by accident.
+TRAINING_SECONDS = 20 * 60
+TRAINING_CHOICES = {
+    "speaker": {"mike", "kelsie", "josh", "guest"},
+    "spot": {"close", "near", "middle", "far"},
+    "saying": {"wake", "other"},
+}
+SAMPLE_ID = re.compile(r"^\d{8}-\d{6}-[a-z]+-[0-9a-f]{4}$")
+UTTERANCE_END_SILENCE = 0.7
+UTTERANCE_MAX = 8.0
 
 # This plug feeds the TV and the Pi. Switching it off by voice would cut the
 # power to Cannvas mid-sentence, so it can never be a voice device.
@@ -513,6 +530,91 @@ class Agent:
         return reply
 
 
+# Wake word training ---------------------------------------------------------
+
+
+def training_choice(value: dict[str, Any]) -> dict[str, str]:
+    """Who is speaking, where, and whether they will say the wake word. Raises ValueError."""
+    choice = {key: str(value.get(key, "")) for key in TRAINING_CHOICES}
+    for key, allowed in TRAINING_CHOICES.items():
+        if choice[key] not in allowed:
+            raise ValueError(f"Choose a {key}")
+    return choice
+
+
+class Utterances:
+    """Splits the microphone into utterances while recording training samples.
+
+    Frames are opaque here. Each finished utterance comes back with a little
+    audio from before it started and the best wake word score heard during it.
+    """
+
+    def __init__(self) -> None:
+        # The frame where speech starts and 0.56 s before it.
+        self.before: deque[Any] = deque(maxlen=8)
+        self.frames: list[Any] | None = None
+        self.silence = 0.0
+        self.best = 0.0
+
+    def feed(self, frame: Any, score: float, speech: float) -> tuple[list[Any], float] | None:
+        if self.frames is None:
+            self.before.append(frame)
+            if speech >= SPEECH_START:
+                self.frames, self.silence, self.best = list(self.before), 0.0, score
+            return None
+        self.frames.append(frame)
+        self.best = max(self.best, score)
+        if speech >= SPEECH_START:
+            self.silence = 0.0
+        elif speech < SPEECH_END:
+            self.silence += FRAME / SAMPLE_RATE
+        if self.silence < UTTERANCE_END_SILENCE and len(self.frames) * FRAME / SAMPLE_RATE < UTTERANCE_MAX:
+            return None
+        finished = (self.frames, self.best)
+        self.frames = None
+        self.before.clear()
+        return finished
+
+
+class SampleStore:
+    """Training samples on the Pi: a 16 kHz WAV and a JSON description each."""
+
+    def __init__(self, root: Path = SAMPLES_DIR) -> None:
+        self.root = root
+
+    def save(self, pcm: bytes, info: dict[str, Any]) -> dict[str, Any]:
+        self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        sample_id = f"{datetime.now(ZONE):%Y%m%d-%H%M%S}-{info['speaker']}-{secrets.token_hex(2)}"
+        with wave.open(str(self.root / f"{sample_id}.wav"), "wb") as audio:
+            audio.setnchannels(1)
+            audio.setsampwidth(2)
+            audio.setframerate(SAMPLE_RATE)
+            audio.writeframes(pcm)
+        sample = {"id": sample_id, **info}
+        (self.root / f"{sample_id}.json").write_text(json.dumps(sample), encoding="utf-8")
+        return sample
+
+    def list(self) -> list[dict[str, Any]]:
+        samples = []
+        for path in sorted(self.root.glob("*.json"), reverse=True):
+            try:
+                samples.append(json.loads(path.read_text(encoding="utf-8")))
+            except (json.JSONDecodeError, OSError):
+                continue
+        return samples
+
+    def delete(self, sample_id: str) -> bool:
+        if not SAMPLE_ID.fullmatch(sample_id):
+            return False
+        found = False
+        for suffix in (".wav", ".json"):
+            path = self.root / f"{sample_id}{suffix}"
+            if path.exists():
+                path.unlink()
+                found = True
+        return found
+
+
 # Events for the kiosk -------------------------------------------------------
 
 
@@ -522,12 +624,17 @@ class Events:
     def __init__(self) -> None:
         self.lock = threading.Lock()
         self.clients: list[queue.Queue[dict[str, Any]]] = []
-        self.state: dict[str, Any] = {"type": "state", "phase": "idle", "heard": "", "reply": ""}
+        # The latest of each of these is replayed to a page when it connects.
+        self.latest: dict[str, dict[str, Any]] = {
+            "state": {"type": "state", "phase": "idle", "heard": "", "reply": ""},
+            "training": {"type": "training", "active": False},
+        }
 
     def subscribe(self) -> queue.Queue[dict[str, Any]]:
         client: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=100)
         with self.lock:
-            client.put(dict(self.state))
+            for event in self.latest.values():
+                client.put(dict(event))
             self.clients.append(client)
         return client
 
@@ -538,8 +645,8 @@ class Events:
 
     def publish(self, event: dict[str, Any]) -> None:
         with self.lock:
-            if event.get("type") == "state":
-                self.state = dict(event)
+            if event.get("type") in self.latest:
+                self.latest[event["type"]] = dict(event)
             for client in self.clients:
                 try:
                     client.put_nowait(event)
@@ -578,7 +685,7 @@ def play(pcm: bytes, rate: int) -> subprocess.Popen[bytes]:
 class Voice:
     """Microphone in, speaker out, and the listening state machine between them."""
 
-    def __init__(self, agent: Agent, events: Events) -> None:
+    def __init__(self, agent: Agent, events: Events, samples: SampleStore) -> None:
         import numpy as np
         from openwakeword.model import Model as WakeModel
         from openwakeword.vad import VAD
@@ -588,6 +695,7 @@ class Voice:
         self.np = np
         self.agent = agent
         self.events = events
+        self.samples = samples
         self.wake = WakeModel(wakeword_models=[WAKE_WORD], inference_framework="onnx")
         self.vad = VAD()
         self.speech = sherpa_onnx.OfflineRecognizer.from_moonshine(
@@ -606,6 +714,11 @@ class Voice:
         self.player: subprocess.Popen[bytes] | None = None
         self.busy = False
         self.deaf_until = 0.0
+        # Who is recording wake word samples, or None when voice works normally.
+        self.training: dict[str, Any] | None = None
+        self.utterances = Utterances()
+        # Set when recording stops. The listening thread then starts afresh.
+        self.resume_listening = False
 
     # Called from the HTTP server.
     def request_listen(self) -> None:
@@ -615,6 +728,25 @@ class Voice:
         with self.lock:
             if self.player and self.player.poll() is None:
                 self.player.terminate()
+
+    def start_training(self, choice: dict[str, str]) -> None:
+        with self.lock:
+            ends_at = time.time() + TRAINING_SECONDS
+            # A new recording starts clean in the listening thread, so nothing
+            # heard before can count towards a sample.
+            fresh = self.training is None or self.training.get("fresh", False)
+            self.training = {**choice, "until": time.monotonic() + TRAINING_SECONDS, "fresh": fresh}
+        self.events.publish({"type": "training", "active": True, **choice, "endsAt": round(ends_at * 1000)})
+        log(f"recording wake word samples: {choice}")
+
+    def stop_training(self) -> None:
+        with self.lock:
+            if self.training is None:
+                return
+            self.training = None
+            self.resume_listening = True
+        self.events.publish({"type": "training", "active": False})
+        log("stopped recording wake word samples")
 
     def microphone(self) -> subprocess.Popen[bytes]:
         return subprocess.Popen(
@@ -649,9 +781,23 @@ class Voice:
             raw = recorder.stdout.read(FRAME * 2)
             if len(raw) < FRAME * 2:
                 return
-            frame = self.boosted(np.frombuffer(raw, dtype=np.int16))
+            heard = np.frombuffer(raw, dtype=np.int16)
+            frame = self.boosted(heard)
             if self.busy:
                 continue
+            if training := self.training:
+                if training.pop("fresh", False):
+                    self.wake.reset()
+                    self.vad.reset_states()
+                    self.utterances = Utterances()
+                if time.monotonic() >= training["until"]:
+                    self.stop_training()
+                else:
+                    self.record_sample(heard, frame, training)
+                continue
+            if self.resume_listening:
+                self.resume_listening = False
+                self.rest()
             if command is None:
                 score = max(self.wake.predict(frame).values(), default=0)
                 if NEAR_MISS <= score < WAKE_THRESHOLD and time.monotonic() - last_near_miss > 1.5:
@@ -694,6 +840,30 @@ class Voice:
                 self.busy = True
                 play(self.end_chime, SAMPLE_RATE)
                 threading.Thread(target=self.respond, args=(audio,), daemon=True).start()
+
+    def record_sample(self, heard: Any, frame: Any, training: dict[str, Any]) -> None:
+        """Score the wake word as usual but act on nothing, and keep each utterance."""
+        score = max(self.wake.predict(frame).values(), default=0)
+        speech = float(self.vad.predict(frame, frame_size=640))
+        # Keep what the mic heard, before the service's boost, for training.
+        if finished := self.utterances.feed(heard, score, speech):
+            frames, best = finished
+            threading.Thread(target=self.keep_sample, args=(self.np.concatenate(frames), best, training), daemon=True).start()
+
+    def keep_sample(self, audio: Any, score: float, training: dict[str, Any]) -> None:
+        try:
+            sample = self.samples.save(audio.tobytes(), {
+                "at": datetime.now(ZONE).isoformat(timespec="seconds"),
+                **{key: training[key] for key in TRAINING_CHOICES},
+                "score": round(float(score), 3),
+                "wouldWake": bool(score >= WAKE_THRESHOLD),
+                "heard": self.transcribe(audio),
+                "seconds": round(len(audio) / SAMPLE_RATE, 1),
+            })
+            log(f"sample {sample['id']}: score {sample['score']}, heard {sample['heard']!r}")
+            self.events.publish({"type": "sample", "sample": sample})
+        except Exception as error:  # A failed save must never stop the listener.
+            log(f"could not keep a sample: {error!r}")
 
     def rest(self) -> None:
         # Ignore the wake word briefly so the chime or reply can't retrigger it.
@@ -754,6 +924,7 @@ class VoiceHandler(BaseHTTPRequestHandler):
     sys_version = ""
     voice: Voice | None = None
     events: Events
+    samples: SampleStore
 
     def allowed(self) -> bool:
         port = self.server.server_address[1]
@@ -770,6 +941,15 @@ class VoiceHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def read_json(self) -> dict[str, Any]:
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > 4096:
+            raise ValueError("Request too large")
+        value = json.loads(self.rfile.read(length) or b"{}")
+        if not isinstance(value, dict):
+            raise ValueError("Expected a JSON object")
+        return value
+
     def do_GET(self) -> None:
         if not self.allowed():
             return
@@ -777,19 +957,39 @@ class VoiceHandler(BaseHTTPRequestHandler):
             self.reply(200, {"ok": True, "ready": self.voice is not None})
         elif self.path == "/events":
             self.stream()
+        elif self.path == "/training":
+            self.reply(200, {"samples": self.samples.list()})
         else:
             self.reply(404, {"error": "Not found"})
 
     def do_POST(self) -> None:
         if not self.allowed():
             return
-        if self.voice is None:
+        try:
+            body = self.read_json()
+        except ValueError as error:
+            self.reply(400, {"error": str(error)})
+            return
+        if self.path == "/training/delete":
+            found = self.samples.delete(str(body.get("id", "")))
+            self.reply(200 if found else 404, {"ok": found})
+        elif self.voice is None:
             self.reply(503, {"error": "Voice is still starting"})
         elif self.path == "/listen":
             self.voice.request_listen()
             self.reply(202, {"ok": True})
         elif self.path == "/cancel":
             self.voice.cancel()
+            self.reply(202, {"ok": True})
+        elif self.path == "/training/start":
+            try:
+                self.voice.start_training(training_choice(body))
+            except ValueError as error:
+                self.reply(400, {"error": str(error)})
+                return
+            self.reply(202, {"ok": True})
+        elif self.path == "/training/stop":
+            self.voice.stop_training()
             self.reply(202, {"ok": True})
         else:
             self.reply(404, {"error": "Not found"})
@@ -824,7 +1024,9 @@ class VoiceServer(ThreadingHTTPServer):
 
 def main() -> None:
     events = Events()
+    samples = SampleStore()
     VoiceHandler.events = events
+    VoiceHandler.samples = samples
     server = VoiceServer((LISTEN_HOST, LISTEN_PORT), VoiceHandler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     agent = Agent()
@@ -832,7 +1034,7 @@ def main() -> None:
     log(f"{len(agent.devices)} devices: {', '.join(device.name for device in agent.devices)}")
     log(f"questions go to {CLOUD_MODEL} through OpenRouter" if load_openrouter_key() else "no OpenRouter key, so the local model answers questions")
     threading.Thread(target=agent.warm, daemon=True).start()
-    voice = Voice(agent, events)
+    voice = Voice(agent, events, samples)
     VoiceHandler.voice = voice
     log(f"ready, listening for {Path(WAKE_WORD).stem}")
     voice.run()

@@ -32,7 +32,7 @@ export function useVoice(handlers: VoiceHandlers) {
         setLevel(event.value);
       } else if (event.type === "command") {
         handlersRef.current.onOpenApp(event.app);
-      } else {
+      } else if (event.type === "state") {
         if (event.phase === "listening" && phaseRef.current !== "listening") handlersRef.current.onWake();
         phaseRef.current = event.phase;
         setState({ phase: event.phase, heard: event.heard, reply: event.reply });

@@ -16,6 +16,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import tempfile
 import threading
 import unittest
 
@@ -275,10 +276,58 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(outcome.reply, "Sorry, my brain isn't answering right now.")
 
 
+class TrainingTest(unittest.TestCase):
+    """Recording wake word samples around the room."""
+
+    def test_splits_utterances_with_a_little_audio_before_them(self) -> None:
+        utterances = voice.Utterances()
+        quiet, talking = 0.0, 0.9
+        for n in range(10):
+            self.assertIsNone(utterances.feed(f"quiet{n}", 0.0, quiet))
+        for n, score in enumerate([0.1, 0.8, 0.3]):
+            self.assertIsNone(utterances.feed(f"talk{n}", score, talking))
+        finished = None
+        for n in range(20):
+            finished = finished or utterances.feed(f"after{n}", 0.0, quiet)
+        frames, best = finished
+        self.assertEqual(frames[:7], [f"quiet{n}" for n in range(3, 10)])
+        self.assertEqual(frames[7:10], ["talk0", "talk1", "talk2"])
+        # It ends after 0.7 s of quiet (nine 80 ms frames).
+        self.assertEqual(len(frames), 7 + 3 + 9)
+        self.assertEqual(best, 0.8)
+
+    def test_a_long_utterance_is_cut_at_eight_seconds(self) -> None:
+        utterances = voice.Utterances()
+        results = [utterances.feed(n, 0.0, 0.9) for n in range(200)]
+        frames, _ = next(result for result in results if result)
+        self.assertEqual(len(frames), 100)
+
+    def test_choices_are_checked(self) -> None:
+        self.assertEqual(voice.training_choice({"speaker": "kelsie", "spot": "far", "saying": "wake"}),
+                         {"speaker": "kelsie", "spot": "far", "saying": "wake"})
+        for bad in ({"speaker": "../etc", "spot": "far", "saying": "wake"}, {"speaker": "mike", "spot": "far"}):
+            with self.assertRaises(ValueError):
+                voice.training_choice(bad)
+
+    def test_stores_lists_and_deletes_samples(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            store = voice.SampleStore(Path(folder) / "samples")
+            first = store.save(b"\x00\x01" * 1600, {"speaker": "josh", "score": 0.7})
+            self.assertTrue(voice.SAMPLE_ID.fullmatch(first["id"]))
+            self.assertEqual(oct((Path(folder) / "samples").stat().st_mode & 0o777), "0o700")
+            self.assertEqual([sample["id"] for sample in store.list()], [first["id"]])
+            self.assertFalse(store.delete("../../home-assistant"))
+            self.assertTrue(store.delete(first["id"]))
+            self.assertEqual(store.list(), [])
+            self.assertEqual(list((Path(folder) / "samples").iterdir()), [])
+
+
 class EventsTest(unittest.TestCase):
     def setUp(self) -> None:
         self.events = voice.Events()
+        self.folder = tempfile.TemporaryDirectory()
         voice.VoiceHandler.events = self.events
+        voice.VoiceHandler.samples = voice.SampleStore(Path(self.folder.name))
         voice.VoiceHandler.voice = None
         self.server = voice.VoiceServer(("127.0.0.1", 0), voice.VoiceHandler)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
@@ -287,11 +336,35 @@ class EventsTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.server.shutdown()
         self.server.server_close()
+        self.folder.cleanup()
+
+    def request(self, method: str, path: str, body: bytes | None = None) -> tuple[int, dict]:
+        connection = HTTPConnection("127.0.0.1", self.port, timeout=5)
+        connection.request(method, path, body=body, headers={"Host": f"127.0.0.1:{self.port}"})
+        response = connection.getresponse()
+        result = response.status, json.loads(response.read() or b"null")
+        connection.close()
+        return result
 
     def test_new_pages_get_the_current_state(self) -> None:
         self.events.phase("listening")
+        self.events.publish({"type": "training", "active": True, "speaker": "josh"})
         client = self.events.subscribe()
         self.assertEqual(client.get_nowait()["phase"], "listening")
+        self.assertEqual(client.get_nowait()["speaker"], "josh")
+
+    def test_lists_and_deletes_training_samples(self) -> None:
+        sample = voice.VoiceHandler.samples.save(b"\x00\x00" * 160, {"speaker": "mike"})
+        status, body = self.request("GET", "/training")
+        self.assertEqual((status, [item["id"] for item in body["samples"]]), (200, [sample["id"]]))
+        status, _ = self.request("POST", "/training/delete", json.dumps({"id": sample["id"]}).encode())
+        self.assertEqual(status, 200)
+        status, _ = self.request("POST", "/training/delete", json.dumps({"id": sample["id"]}).encode())
+        self.assertEqual(status, 404)
+
+    def test_training_needs_the_voice_running(self) -> None:
+        status, _ = self.request("POST", "/training/start", b'{"speaker": "mike", "spot": "far", "saying": "wake"}')
+        self.assertEqual(status, 503)
 
     def test_streams_events(self) -> None:
         connection = HTTPConnection("127.0.0.1", self.port, timeout=5)

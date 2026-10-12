@@ -12,11 +12,13 @@ import {
   PackageSearch,
   PencilLine,
   Power,
+  SlidersHorizontal,
   CloudSun,
   CloudOff,
   LoaderCircle,
   Sun,
 } from "lucide-react";
+import { AdminApp } from "./apps/AdminApp";
 import { CalendarApp } from "./apps/CalendarApp";
 import { ChoresApp } from "./apps/ChoresApp";
 import { DisplayApp } from "./apps/DisplayApp";
@@ -51,6 +53,7 @@ type AppId =
   | "home-automation"
   | "sammy-tablets"
   | "sammy-cam"
+  | "admin"
   | "inventory"
   | "display";
 
@@ -69,15 +72,18 @@ const moreApps = [
   { id: "sammy-tablets" as const, label: "Sammy", description: "Tablet schedule", icon: Dog },
   { id: "sammy-cam" as const, label: "Sammy Cam", description: "Live view and last night", icon: Cctv },
   { id: "inventory" as const, label: "Inventory", description: "Find household items", icon: PackageSearch },
+  { id: "admin" as const, label: "Admin", description: "Wake word training", icon: SlidersHorizontal },
 ];
 
 const appIds = new Set<string>([...primaryApps, ...moreApps].map(({ id }) => id));
 const isAppId = (value: string): value is AppId => value === "display" || appIds.has(value);
 
 const DEFAULT_IDLE_TIMEOUT = 5 * 60 * 1000;
-// Touches inside Sammy Cam's page never reach Cannvas, so the usual timeout
-// would send someone home halfway through scrubbing back through the night.
-const SAMMY_CAM_IDLE_TIMEOUT = 30 * 60 * 1000;
+// Touches inside Sammy Cam's page never reach Cannvas, and wake word training
+// is done by talking from across the room, so the usual timeout would send
+// someone home halfway through scrubbing back through the night or recording.
+const SLOW_IDLE_APPS = new Set<AppId>(["sammy-cam", "admin"]);
+const SLOW_IDLE_TIMEOUT = 30 * 60 * 1000;
 
 export function App() {
   const { isReady, backupStatus } = useDeviceStatus();
@@ -111,7 +117,7 @@ export function App() {
     window.clearTimeout(idleTimer.current);
     idleTimer.current = window.setTimeout(() => {
       openDisplay();
-    }, shownApp.current === "sammy-cam" ? Math.max(idleTimeout, SAMMY_CAM_IDLE_TIMEOUT) : idleTimeout);
+    }, SLOW_IDLE_APPS.has(shownApp.current) ? Math.max(idleTimeout, SLOW_IDLE_TIMEOUT) : idleTimeout);
   }, [idleTimeout, openDisplay]);
 
   useEffect(() => {
@@ -213,6 +219,7 @@ export function App() {
               {activeApp === "home-automation" && <HomeAutomationApp />}
               {activeApp === "sammy-tablets" && <SammyTabletTickerApp />}
               {activeApp === "sammy-cam" && <SammyCamApp />}
+              {activeApp === "admin" && <AdminApp />}
               {activeApp === "inventory" && <KioskInventoryApp />}
               {activeApp === "display" && <DisplayApp displaySession={displaySession} onActivity={resetIdleTimer} onOpenCalendar={() => openApp("calendar")} onOpenWeather={() => openApp("weather")} onOpenSolar={() => openApp("solar")} />}
             </Suspense>

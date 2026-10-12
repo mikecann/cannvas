@@ -386,6 +386,17 @@ relays from the voice service's loopback port, so the browser still only
 talks to its own server. After a reply, the mic button on the card listens
 again without the wake word.
 
+**More → Admin → Wake word training** records the family saying "Hey Canvas"
+around the room, to train the wake word on. Pick who is talking, roughly where
+they are, and whether they'll say the wake word or something else, then start
+recording. While it records, voice commands act on nothing: each utterance is
+scored with the live model, shown large enough to read from across the room
+("Would wake" or "Wouldn't wake"), and saved with its score and transcript in
+`/var/lib/cannvas/voice-samples` on the Pi, readable only by `pi`. Recording
+stops when you leave the page, and after 20 minutes regardless. Copy the clips
+off with `scp -r cannvas:/var/lib/cannvas/voice-samples .` and see
+`deploy/wake-word/training/README.md` for retraining.
+
 Set it up once with:
 
 ```sh
