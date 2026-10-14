@@ -1,4 +1,4 @@
-const CACHE_NAME = "cannvas-inventory-v3";
+const CACHE_NAME = "cannvas-inventory-v4";
 const APP_SHELL = [
   "/inventory/",
   "/inventory/manifest.webmanifest",
@@ -22,7 +22,32 @@ self.addEventListener("activate", (event) => {
     ),
   );
   self.clients.claim();
+  event.waitUntil(moveToStandalone());
 });
+
+async function moveToStandalone() {
+  try {
+    const response = await fetch("/inventory/migration.json", { cache: "no-store" });
+    const migration = await response.json();
+    if (migration.origin !== "https://inventory.mikecann.app") return false;
+    const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    await Promise.all(windows.map(async client => {
+      const current = new URL(client.url);
+      if (!current.pathname.startsWith("/inventory")) return;
+      const destination = new URL("/", migration.origin);
+      destination.search = current.search;
+      destination.hash = current.hash;
+      await client.navigate(destination.href);
+    }));
+    await self.registration.unregister();
+    const names = await caches.keys();
+    await Promise.all(names.filter(name => name.startsWith("cannvas-inventory-")).map(name => caches.delete(name)));
+    return true;
+  } catch {
+    // An offline device can try again the next time it opens the app.
+    return false;
+  }
+}
 
 self.addEventListener("fetch", (event) => {
   const request = event.request;
@@ -33,7 +58,12 @@ self.addEventListener("fetch", (event) => {
 
   if (request.mode === "navigate" && url.pathname.startsWith("/inventory")) {
     event.respondWith(
-      fetch(request)
+      moveToStandalone().then(moved => {
+        if (!moved) return fetch(request);
+        const destination = new URL("/", "https://inventory.mikecann.app");
+        destination.search = url.search;
+        return Response.redirect(destination.href, 302);
+      })
         .then((response) => {
           if (response.ok) {
             const copy = response.clone();

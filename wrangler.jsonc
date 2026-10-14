@@ -5,6 +5,8 @@
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
+  // Set this to https://inventory.mikecann.app only at verified cutover.
+  "vars": { "INVENTORY_ORIGIN": "" },
   "routes": [
     {
       "pattern": "cannvas.mikecann.app",
