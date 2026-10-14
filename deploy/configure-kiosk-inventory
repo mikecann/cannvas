@@ -18,7 +18,7 @@ case "$convex_site_url" in
     ;;
 esac
 
-for command in openssl python3 pnpm; do
+for command in openssl python3 node; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "$command is required." >&2
     exit 1
@@ -30,9 +30,13 @@ if [ ! -x "$tailscale_bin" ]; then
   exit 1
 fi
 
+# Regional URLs include a region label before convex.site. Target the exact
+# deployment from that URL so the project's older default cannot receive it.
+deployment_name=$(python3 -c 'import sys; from urllib.parse import urlparse; print(urlparse(sys.argv[1]).hostname.split(".")[0])' "$convex_site_url")
+
 # The token exists only in this process, Convex, and the Pi's mode-0600 file.
 inventory_token=$(openssl rand -hex 32)
-printf '%s' "$inventory_token" | pnpm exec convex env set --prod CANNVAS_KIOSK_INVENTORY_TOKEN >/dev/null
+printf '%s' "$inventory_token" | node node_modules/convex/dist/cli.bundle.cjs env set CANNVAS_KIOSK_INVENTORY_TOKEN --deployment "$deployment_name" >/dev/null
 printf '%s' "$inventory_token" \
   | python3 -c 'import json, sys; print(json.dumps({"url": sys.argv[1], "token": sys.stdin.read()}))' "$convex_site_url" \
   | "$tailscale_bin" ssh "pi@$pi_host" \
