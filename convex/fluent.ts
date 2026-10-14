@@ -14,6 +14,7 @@ import {
 } from "fluent-convex";
 import type { DataModel } from "./_generated/dataModel";
 import { tokensMatch } from "./lib/tokens";
+import { inventoryWritesPaused } from "./lib/inventoryWriteGuard";
 
 export const convex = createBuilder<DataModel>();
 
@@ -142,7 +143,7 @@ const inventoryUserMiddleware = convex
 
 export const inventoryQuery = convex.query().use(inventoryUserMiddleware);
 const inventoryWriteMiddleware = convex.createMiddleware(async (ctx, next) => {
-  if (process.env.INVENTORY_READ_ONLY === "1") {
+  if (inventoryWritesPaused()) {
     throw new ConvexError("Inventory has moved. Open https://inventory.mikecann.app to make changes.");
   }
   return next(ctx);
