@@ -1,8 +1,9 @@
 import { Lightbulb, LightbulbOff, Moon } from "lucide-react";
 import { type PointerEvent, useState } from "react";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
-import { schedulePowerOffRecovery, SLEEP_RECOVERY_MS } from "../../lib/actionTiming";
+import { HOME_ASSISTANT_POWER_OFF_RECOVERY_MS, schedulePowerOffRecovery } from "../../lib/actionTiming";
 import { type HomeAssistantAction, type HomeAssistantEntity, type HomeAssistantEntityStatus, isOn, isUnavailable } from "../../lib/homeAssistant";
+import { runHomeAssistantAction } from "../../lib/homeAssistantAction";
 import { errorText, readJsonResponse } from "../../lib/http";
 import { isLightsTime } from "../../lib/nightDim";
 import { useMinuteClock } from "../../lib/useMinuteClock";
@@ -19,15 +20,6 @@ const REFRESH_MS = 15_000;
 // The TV Lamp's bulbs report back through Tuya's cloud, which takes a second
 // or two. Checking sooner would briefly show the old state again.
 const AFTER_ACTION_REFRESH_MS = 2_500;
-
-async function runHomeAction(entityId: string, action: HomeAssistantAction, fallback: string) {
-  const response = await fetch("/api/home-assistant/action", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ entityId, action }),
-  });
-  await readJsonResponse(response, fallback);
-}
 
 /** Big lights and sleep time buttons for the evening, from when the lights come on until sunrise. */
 export function LightsHomeWidget({ onActivity }: { onActivity: () => void }) {
@@ -62,7 +54,7 @@ function LightsButtons({ onActivity }: { onActivity: () => void }) {
     setPending(true);
     setLights({ ...lights, state: action === "turn_on" ? "on" : "off" });
     try {
-      await runHomeAction(LIGHTS, action, "The lights did not respond");
+      await runHomeAssistantAction(LIGHTS, action, "The lights did not respond");
     } catch {
       // The refresh below puts the real state back.
     } finally {
@@ -75,14 +67,14 @@ function LightsButtons({ onActivity }: { onActivity: () => void }) {
     setSleepPending(true);
     setSleepError("");
     const recoveryTimer = schedulePowerOffRecovery({
-      delayMs: SLEEP_RECOVERY_MS,
+      delayMs: HOME_ASSISTANT_POWER_OFF_RECOVERY_MS,
       recover: () => {
         setSleepPending(false);
         setSleepError("Cannvas is still on. Please try again.");
       },
     });
     try {
-      await runHomeAction(SLEEP_TIME, "turn_on", "Home Assistant did not respond");
+      await runHomeAssistantAction(SLEEP_TIME, "turn_on", "Home Assistant did not respond");
       setLights((current) => current && { ...current, state: "off" });
     } catch (error) {
       window.clearTimeout(recoveryTimer);

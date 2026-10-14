@@ -2,10 +2,10 @@ export const ROUTINE_ACTION_COOLDOWN_MS = 1_000;
 export const CONTROL_REFRESH_DELAY_MS = 500;
 export const POWER_OFF_RECOVERY_MS = 15_000;
 export const POWER_OFF_RECOVERY_MESSAGE = "Cannvas is still online. Please try again.";
-// Sleep time goes through Home Assistant, which waits for the Pi's next poll
-// (every 10 s) and cuts the plug within about two minutes even if the Pi never
-// answers. Only offer a retry once all of that should be long over.
-export const SLEEP_RECOVERY_MS = 3 * 60_000;
+// Turning off through Home Assistant waits for the Pi's next poll (every 10 s)
+// and cuts the plug within about two minutes even if the Pi never answers.
+// Only offer a retry once all of that should be long over.
+export const HOME_ASSISTANT_POWER_OFF_RECOVERY_MS = 3 * 60_000;
 
 type Schedule = (callback: () => void, delay: number) => number;
 

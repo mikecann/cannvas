@@ -316,16 +316,19 @@ heartbeat). The 30 second display recovery check and the kiosk watchdog use
 ### Sleep time power off
 
 Home Assistant switches the smart plug feeding the TV and Pi off when someone
-taps Sleep time on the home screen, and back on at 06:00. There's no fixed
-off time, so Cannvas stays on for anyone up late. (A "Turn off Cannvas at
-midnight" automation is still in Home Assistant, switched off, if that's ever
-wanted again.) Cutting power to a running Pi risks the SD card, so the Pi
-shuts itself down first, through the `script.cannvas_power_off` script in
-Home Assistant:
+taps Sleep time on the home screen or Turn off Cannvas in the More menu, and
+back on at 06:00. There's no fixed off time, so Cannvas stays on for anyone
+up late. (A "Turn off Cannvas at midnight" automation is still in Home
+Assistant, switched off, if that's ever wanted again.) Cutting power to a
+running Pi risks the SD card, so the Pi shuts itself down first, through the
+`script.cannvas_power_off` script in Home Assistant:
 
 1. Sleep time runs `script.sleep_time`, which turns off
-   `light.living_room_lights` and then runs `script.cannvas_power_off`. That
-   turns on `input_boolean.cannvas_shutdown`.
+   `light.living_room_lights` and then runs `script.cannvas_power_off`. Turn
+   off Cannvas runs `script.cannvas_power_off` on its own, and if Home
+   Assistant can't be reached it falls back to `/api/system/poweroff`, which
+   shuts down only the Pi. The script turns on
+   `input_boolean.cannvas_shutdown`.
 2. `cannvas-ha-shutdown.service` on the Pi polls that helper every 10 seconds,
    using the Home Assistant token the web server already stores. When it sees
    the helper on, it starts `cannvas-poweroff.service`, the same
