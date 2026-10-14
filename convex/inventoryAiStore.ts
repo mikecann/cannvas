@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { MAX_INVENTORY_PHOTOS } from "./inventoryConstants";
 import { buildSearchText } from "./lib/inventorySearch";
+import { inventoryWritesPaused } from "./lib/inventoryWriteGuard";
 
 // Enrichment normally takes well under a minute. If the action dies (deploy,
 // timeout, crash) nothing else would ever move the item out of "processing".
@@ -57,6 +58,7 @@ export const markProcessing = internalMutation({
   args: { itemId: v.id("inventoryItems"), generation: v.number() },
   returns: v.boolean(),
   handler: async (ctx, args) => {
+    if (inventoryWritesPaused()) return false;
     const item = await ctx.db.get(args.itemId);
     if (!item || (item.enrichmentGeneration ?? 0) !== args.generation) return false;
     await ctx.db.patch(args.itemId, { enrichmentStatus: "processing", enrichmentError: undefined });
@@ -79,6 +81,7 @@ export const applyEnrichment = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    if (inventoryWritesPaused()) return null;
     const item = await ctx.db.get(args.itemId);
     if (!item || (item.enrichmentGeneration ?? 0) !== args.generation) return null;
     const reviewReason = args.enrichment.reviewReason.trim();
@@ -131,6 +134,7 @@ export const markFailed = internalMutation({
   args: { itemId: v.id("inventoryItems"), generation: v.number(), error: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
+    if (inventoryWritesPaused()) return null;
     const item = await ctx.db.get(args.itemId);
     if (!item || (item.enrichmentGeneration ?? 0) !== args.generation) return null;
     const now = Date.now();
@@ -153,6 +157,7 @@ export const expireProcessing = internalMutation({
   args: { itemId: v.id("inventoryItems"), generation: v.number() },
   returns: v.null(),
   handler: async (ctx, args) => {
+    if (inventoryWritesPaused()) return null;
     const item = await ctx.db.get(args.itemId);
     if (!item || (item.enrichmentGeneration ?? 0) !== args.generation) return null;
     if (item.enrichmentStatus !== "processing") return null;
