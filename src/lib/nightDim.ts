@@ -62,6 +62,14 @@ export function sunTimesFromNext(now: Date, nextRising: Date, nextSetting: Date)
   return { sunrise: today(nextRising), sunset: today(nextSetting) };
 }
 
+/** Home Assistant turns the living room lights on this long before sunset. */
+export const LIGHTS_ON_BEFORE_SUNSET_MS = 60 * 60_000;
+
+/** Whether the home screen offers the lights buttons: from when the lights come on until sunrise. */
+export function isLightsTime(now: Date, { sunrise, sunset }: SunTimes): boolean {
+  return now < sunrise || now.getTime() >= sunset.getTime() - LIGHTS_ON_BEFORE_SUNSET_MS;
+}
+
 /** Overlay opacity for `now`: 0 in daylight, rising to DEEPEST_DIM at 21:00. */
 export function nightDimLevel(now: Date, { sunrise, sunset }: SunTimes): number {
   if (now < sunrise) return DEEPEST_DIM;

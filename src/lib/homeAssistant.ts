@@ -53,6 +53,12 @@ export type HomeAssistantStatus = {
   network?: NetworkStatus;
 };
 
+/** One entity from /api/home-assistant/entity. `entity` is null when Home Assistant has no such entity. */
+export type HomeAssistantEntityStatus = {
+  configured: boolean;
+  entity?: HomeAssistantEntity | null;
+};
+
 export type HomeAssistantAction = "turn_on" | "turn_off";
 export type ControlFilter = "all" | "lights" | "switches" | "media" | "routines";
 

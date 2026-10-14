@@ -750,6 +750,27 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         except Exception as error:  # The response deliberately avoids leaking network or token details.
             self.home_assistant_error(error)
 
+    def get_home_assistant_entity(self, query: str) -> None:
+        # One switchable entity, so the home screen's lights buttons don't
+        # pull every state in the house every few seconds.
+        config = load_config()
+        if not config:
+            self.send_json(200, {"configured": False})
+            return
+        entity_id = (parse_qs(query).get("id") or [""])[0]
+        if not ENTITY_ID.fullmatch(entity_id) or entity_id.partition(".")[0] not in ALLOWED_ACTIONS["turn_off"]:
+            self.send_json(400, {"error": "That Home Assistant entity is not allowed"})
+            return
+        try:
+            self.send_json(200, {"configured": True, "entity": public_entity(home_assistant_request(config, f"/api/states/{entity_id}"))})
+        except HTTPError as error:
+            if error.code == 404:
+                self.send_json(200, {"configured": True, "entity": None})
+            else:
+                self.home_assistant_error(error)
+        except Exception as error:  # The response deliberately avoids leaking network or token details.
+            self.home_assistant_error(error)
+
     def get_home_assistant_status(self, query: str) -> None:
         config = load_config()
         if not config:
@@ -856,6 +877,7 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         "/api/solar": get_solar,
         "/api/sun": get_sun,
         "/api/home-assistant/status": get_home_assistant_status,
+        "/api/home-assistant/entity": get_home_assistant_entity,
         "/api/heartbeat": heartbeat,
         "/api/health": health,
     }

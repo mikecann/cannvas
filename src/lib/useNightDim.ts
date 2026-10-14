@@ -1,39 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { readJsonResponse } from "./http";
-import { calculateSunTimes, nightDimLevel, type SunTimes, sunTimesFromNext, TOUCH_WAKE_MS } from "./nightDim";
+import { nightDimLevel, TOUCH_WAKE_MS } from "./nightDim";
 import { useMinuteClock } from "./useMinuteClock";
-import { usePolling } from "./usePolling";
-
-type SunResponse = { configured: boolean; nextRising?: string | null; nextSetting?: string | null };
-type HomeAssistantSun = { nextRising: Date; nextSetting: Date };
-
-const SUN_REFRESH_MS = 30 * 60_000;
-
-function parseSun(body: SunResponse): HomeAssistantSun | null {
-  if (!body.configured || !body.nextRising || !body.nextSetting) return null;
-  const nextRising = new Date(body.nextRising);
-  const nextSetting = new Date(body.nextSetting);
-  return Number.isNaN(nextRising.getTime()) || Number.isNaN(nextSetting.getTime()) ? null : { nextRising, nextSetting };
-}
+import { useSunTimes } from "./useSunTimes";
 
 /**
- * The opacity of the evening dimming overlay. Uses Home Assistant's sun.sun
- * when it answers and a local sunrise calculation when it doesn't. A touch
- * brings back full brightness for a few minutes.
+ * The opacity of the evening dimming overlay, following today's sunset and
+ * sunrise. A touch brings back full brightness for a few minutes.
  */
 export function useNightDim(): number {
   const now = useMinuteClock();
-  const [sun, setSun] = useState<HomeAssistantSun | null>(null);
+  const times = useSunTimes(now);
   const [awake, setAwake] = useState(false);
   const wakeTimer = useRef<number | undefined>(undefined);
-
-  usePolling(async (signal) => {
-    try {
-      setSun(parseSun(await readJsonResponse<SunResponse>(await fetch("/api/sun", { signal }), "Sun times are unavailable")));
-    } catch {
-      setSun(null);
-    }
-  }, SUN_REFRESH_MS);
 
   useEffect(() => {
     // Only the timer restarts on each touch. State changes once per wake, so
@@ -51,6 +29,5 @@ export function useNightDim(): number {
   }, []);
 
   if (awake) return 0;
-  const times: SunTimes = sun ? sunTimesFromNext(now, sun.nextRising, sun.nextSetting) : calculateSunTimes(now);
   return nightDimLevel(now, times);
 }
