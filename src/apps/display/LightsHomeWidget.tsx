@@ -13,7 +13,7 @@ import { useSunTimes } from "../../lib/useSunTimes";
 // lamps can join it there without a Cannvas release.
 const LIGHTS = "light.living_room_lights";
 // A Home Assistant script: turns LIGHTS off, then shuts the Pi down and cuts
-// the plug for the TV and Pi until the 07:00 automation turns it back on.
+// the plug for the TV and Pi until the 06:00 automation turns it back on.
 const SLEEP_TIME = "script.sleep_time";
 const REFRESH_MS = 15_000;
 // The TV Lamp's bulbs report back through Tuya's cloud, which takes a second
@@ -151,7 +151,7 @@ function LightsButtons({ onActivity }: { onActivity: () => void }) {
           }}
           onConfirm={() => void goToSleep()}
         >
-          <p>This turns off the living room lights and Cannvas. Cannvas comes back on by itself at 7am.</p>
+          <p>This turns off the living room lights and Cannvas. Cannvas comes back on by itself at 6am.</p>
           {sleepError && <p className="dialog-error">{sleepError}</p>}
         </ConfirmDialog>
       </div>

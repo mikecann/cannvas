@@ -313,17 +313,19 @@ read-only system, and a 256M memory cap. It can write only
 heartbeat). The 30 second display recovery check and the kiosk watchdog use
 `LogLevelMax=notice`, so they only log when they act.
 
-### Nightly power off
+### Sleep time power off
 
 Home Assistant switches the smart plug feeding the TV and Pi off when someone
-taps Sleep time on the home screen, or at midnight if nobody does, and back on
-at 07:00. Cutting power to a running Pi risks the SD card, so the Pi shuts
-itself down first. Both go through the `script.cannvas_power_off` script in
+taps Sleep time on the home screen, and back on at 06:00. There's no fixed
+off time, so Cannvas stays on for anyone up late. (A "Turn off Cannvas at
+midnight" automation is still in Home Assistant, switched off, if that's ever
+wanted again.) Cutting power to a running Pi risks the SD card, so the Pi
+shuts itself down first, through the `script.cannvas_power_off` script in
 Home Assistant:
 
-1. The script turns on `input_boolean.cannvas_shutdown`. Sleep time runs
-   `script.sleep_time`, which turns off `light.living_room_lights` first. The
-   midnight automation only runs it while the plug is still on.
+1. Sleep time runs `script.sleep_time`, which turns off
+   `light.living_room_lights` and then runs `script.cannvas_power_off`. That
+   turns on `input_boolean.cannvas_shutdown`.
 2. `cannvas-ha-shutdown.service` on the Pi polls that helper every 10 seconds,
    using the Home Assistant token the web server already stores. When it sees
    the helper on, it starts `cannvas-poweroff.service`, the same
@@ -336,7 +338,7 @@ Home Assistant:
 If the Pi never answers, the plug still goes off after two minutes, as before.
 The Pi only makes outgoing requests, so nothing new listens on the network. It
 ignores a request more than ten minutes old (measured on Home Assistant's
-clock, because the Pi has no real-time clock), and the 07:00 automation clears
+clock, because the Pi has no real-time clock), and the 06:00 automation clears
 the helper before switching the plug on, so a leftover request cannot switch the
 display straight back off in the morning. The plug's power sensor can't show
 when the Pi has halted because the TV draws most of the power, which is why the
