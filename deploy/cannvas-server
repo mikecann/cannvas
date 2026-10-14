@@ -764,6 +764,9 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         try:
             self.send_json(200, {"configured": True, "entity": public_entity(home_assistant_request(config, f"/api/states/{entity_id}"))})
         except HTTPError as error:
+            # The error holds Home Assistant's open response. Close it, or a
+            # missing entity leaks a socket on every poll.
+            error.close()
             if error.code == 404:
                 self.send_json(200, {"configured": True, "entity": None})
             else:
