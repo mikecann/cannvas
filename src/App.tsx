@@ -30,7 +30,8 @@ import { AppErrorBoundary } from "./components/AppErrorBoundary";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { useDeviceStatus } from "./data/DataProvider";
 import type { BackupStatus } from "./data/types";
-import { POWER_OFF_RECOVERY_MESSAGE, schedulePowerOffRecovery } from "./lib/actionTiming";
+import { HOME_ASSISTANT_POWER_OFF_RECOVERY_MS, POWER_OFF_RECOVERY_MESSAGE, schedulePowerOffRecovery } from "./lib/actionTiming";
+import { runHomeAssistantAction } from "./lib/homeAssistantAction";
 import { dismissNativeKeyboard, installNativeKeyboard } from "./lib/nativeKeyboard";
 import { useHeartbeat } from "./lib/useHeartbeat";
 import { useNightDim } from "./lib/useNightDim";
@@ -68,6 +69,10 @@ const moreApps = [
   { id: "sammy-cam" as const, label: "Sammy Cam", description: "Live view and last night", icon: Cctv },
   { id: "inventory" as const, label: "Inventory", description: "Find household items", icon: PackageSearch },
 ];
+
+// A Home Assistant script that shuts the Pi down cleanly, then cuts the smart
+// plug feeding the TV and Pi until the 06:00 automation turns it back on.
+const POWER_OFF_SCRIPT = "script.cannvas_power_off";
 
 const DEFAULT_IDLE_TIMEOUT = 5 * 60 * 1000;
 // Touches inside Sammy Cam's page never reach Cannvas, so the usual timeout
@@ -165,12 +170,18 @@ export function App() {
   const powerOff = async () => {
     setPowerOffPending(true);
     setPowerOffError("");
-    const recoveryTimer = schedulePowerOffRecovery({
-      recover: () => {
-        setPowerOffPending(false);
-        setPowerOffError(POWER_OFF_RECOVERY_MESSAGE);
-      },
-    });
+    const recover = () => {
+      setPowerOffPending(false);
+      setPowerOffError(POWER_OFF_RECOVERY_MESSAGE);
+    };
+    try {
+      await runHomeAssistantAction(POWER_OFF_SCRIPT, "turn_on", "Home Assistant did not respond");
+      schedulePowerOffRecovery({ delayMs: HOME_ASSISTANT_POWER_OFF_RECOVERY_MS, recover });
+      return;
+    } catch {
+      // Without Home Assistant, still shut the Pi down. The TV stays powered.
+    }
+    const recoveryTimer = schedulePowerOffRecovery({ recover });
     try {
       const response = await fetch("/api/system/poweroff", {
         method: "POST",
@@ -260,7 +271,7 @@ export function App() {
                 ))}
                 <button className="more-power-button" onClick={requestPowerOff}>
                   <span className="more-app-icon"><Power /></span>
-                  <span><strong>Turn off Cannvas</strong><small>Shut down the screen safely</small></span>
+                  <span><strong>Turn off Cannvas</strong><small>And the TV, until 6am</small></span>
                 </button>
               </div>
             )}
@@ -298,7 +309,7 @@ export function App() {
         }}
         onConfirm={() => void powerOff()}
       >
-        <p>This safely shuts down the Cannvas computer. You will need to turn its power back on to start it again.</p>
+        <p>This safely shuts down Cannvas and turns off the TV. Cannvas comes back on by itself at 6am.</p>
         {powerOffError && <p className="dialog-error">{powerOffError}</p>}
       </ConfirmDialog>
 

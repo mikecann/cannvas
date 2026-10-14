@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { calculateSunTimes, DEEPEST_DIM, nightDimLevel, sunTimesFromNext } from "../src/lib/nightDim.ts";
+import { calculateSunTimes, DEEPEST_DIM, isLightsTime, nightDimLevel, sunTimesFromNext } from "../src/lib/nightDim.ts";
 
 // These tests use Perth time, like the Pi.
 process.env.TZ = "Australia/Perth";
@@ -52,4 +52,14 @@ test("stays dim before sunrise and undims at sunrise", () => {
   const sun = { sunrise: at("2026-06-22T07:17:00"), sunset: at("2026-06-22T17:20:00") };
   assert.equal(nightDimLevel(at("2026-06-22T07:05:00"), sun), DEEPEST_DIM);
   assert.equal(nightDimLevel(at("2026-06-22T07:17:00"), sun), 0);
+});
+
+test("offers the lights buttons from an hour before sunset until sunrise", () => {
+  const sun = { sunrise: at("2026-10-14T05:40:00"), sunset: at("2026-10-14T18:30:00") };
+  assert.equal(isLightsTime(at("2026-10-14T05:00:00"), sun), true);
+  assert.equal(isLightsTime(at("2026-10-14T05:40:00"), sun), false);
+  assert.equal(isLightsTime(at("2026-10-14T12:00:00"), sun), false);
+  assert.equal(isLightsTime(at("2026-10-14T17:29:00"), sun), false);
+  assert.equal(isLightsTime(at("2026-10-14T17:30:00"), sun), true);
+  assert.equal(isLightsTime(at("2026-10-14T21:10:00"), sun), true);
 });

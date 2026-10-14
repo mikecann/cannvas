@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   scheduleHomeActionRefresh,
   schedulePowerOffRecovery,
+  HOME_ASSISTANT_POWER_OFF_RECOVERY_MS,
 } from "../src/lib/actionTiming.ts";
 
 function captureSchedule() {
@@ -81,4 +82,11 @@ test("power-off recovery becomes available after fifteen seconds", () => {
   timer.scheduled.callback();
 
   assert.equal(recoveries, 1);
+});
+
+test("turning off through Home Assistant waits out its whole shutdown before offering a retry", () => {
+  const timer = captureSchedule();
+  schedulePowerOffRecovery({ recover: () => {}, delayMs: HOME_ASSISTANT_POWER_OFF_RECOVERY_MS, schedule: timer.schedule });
+  // Home Assistant cuts the plug within about two minutes, so three is past it.
+  assert.equal(timer.scheduled.delay, 180_000);
 });

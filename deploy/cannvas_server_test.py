@@ -68,6 +68,16 @@ class FakeUpstream(BaseHTTPRequestHandler):
                 },
             }).encode()
             self.reply(200, body, "application/json")
+        elif self.path == "/api/states/light.living_room_lights":
+            body = json.dumps({
+                "entity_id": "light.living_room_lights",
+                "state": "on",
+                "last_changed": "2026-10-14T09:30:00+00:00",
+                "attributes": {"friendly_name": "Living room lights", "brightness": 255, "entity_id": ["light.tv_lamp"]},
+            }).encode()
+            self.reply(200, body, "application/json")
+        elif self.path.startswith("/api/states/"):
+            self.reply(404, b'{"message": "Entity not found."}', "application/json")
         elif self.path.startswith("/api/history/"):
             self.reply(200, b"[]", "application/json")
         elif self.path == "/redirect":
@@ -296,6 +306,42 @@ class CannvasServerTest(unittest.TestCase):
         response, body = self.request("GET", "/api/sun")
         self.assertEqual(response.status, 502)
         self.assertEqual(json.loads(body), {"error": "Home Assistant is unavailable"})
+
+    def test_entity_without_home_assistant(self) -> None:
+        response, body = self.request("GET", "/api/home-assistant/entity?id=light.living_room_lights")
+        self.assertEqual(response.status, 200)
+        self.assertEqual(json.loads(body), {"configured": False})
+
+    def test_entity_reports_one_light(self) -> None:
+        (self.temp / "home-assistant.json").write_text(json.dumps({"url": self.upstream_url, "token": "t" * 40}))
+        response, body = self.request("GET", "/api/home-assistant/entity?id=light.living_room_lights")
+        self.assertEqual(response.status, 200)
+        self.assertEqual(json.loads(body), {
+            "configured": True,
+            "entity": {
+                "entityId": "light.living_room_lights",
+                "domain": "light",
+                "name": "Living room lights",
+                "state": "on",
+                "lastChanged": "2026-10-14T09:30:00+00:00",
+                "attributes": {"brightness": 255},
+            },
+        })
+        self.assertEqual(FakeUpstream.requests, [("/api/states/light.living_room_lights", "Bearer " + "t" * 40)])
+
+    def test_entity_that_does_not_exist_is_null(self) -> None:
+        (self.temp / "home-assistant.json").write_text(json.dumps({"url": self.upstream_url, "token": "t" * 40}))
+        response, body = self.request("GET", "/api/home-assistant/entity?id=light.missing")
+        self.assertEqual(response.status, 200)
+        self.assertEqual(json.loads(body), {"configured": True, "entity": None})
+
+    def test_entity_only_reads_switchable_domains(self) -> None:
+        (self.temp / "home-assistant.json").write_text(json.dumps({"url": self.upstream_url, "token": "t" * 40}))
+        for entity_id in ("sensor.solis_load_power", "person.mike", "light.../../config", ""):
+            response, body = self.request("GET", f"/api/home-assistant/entity?id={entity_id}")
+            self.assertEqual(response.status, 400, entity_id)
+            self.assertEqual(json.loads(body), {"error": "That Home Assistant entity is not allowed"})
+        self.assertEqual(FakeUpstream.requests, [])
 
     def test_home_assistant_redirects_are_not_followed(self) -> None:
         FakeUpstream.redirect_to = f"{self.upstream_url}/stolen"

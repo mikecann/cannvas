@@ -1,6 +1,7 @@
 // Gentle evening dimming for the wall screen. There is no light sensor, so
 // the sun stands in for the room: start dimming at sunset, reach the deepest
-// level at 21:00 (the Pi powers off at 21:15) and stay there until sunrise.
+// level at 21:00 and stay there until sunrise. Cannvas stays on until someone
+// taps Sleep time.
 // A light sensor or camera could replace this later: only nightDimLevel and
 // useNightDim decide the level, and the overlay just shows what they return.
 
@@ -60,6 +61,14 @@ function sameLocalDay(left: Date, right: Date) {
 export function sunTimesFromNext(now: Date, nextRising: Date, nextSetting: Date): SunTimes {
   const today = (next: Date) => sameLocalDay(next, now) ? next : new Date(next.getTime() - DAY_MS);
   return { sunrise: today(nextRising), sunset: today(nextSetting) };
+}
+
+/** Home Assistant turns the living room lights on this long before sunset. */
+export const LIGHTS_ON_BEFORE_SUNSET_MS = 60 * 60_000;
+
+/** Whether the home screen offers the lights buttons: from when the lights come on until sunrise. */
+export function isLightsTime(now: Date, { sunrise, sunset }: SunTimes): boolean {
+  return now < sunrise || now.getTime() >= sunset.getTime() - LIGHTS_ON_BEFORE_SUNSET_MS;
 }
 
 /** Overlay opacity for `now`: 0 in daylight, rising to DEEPEST_DIM at 21:00. */

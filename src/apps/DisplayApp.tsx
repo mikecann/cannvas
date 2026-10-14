@@ -6,6 +6,7 @@ import { useMinuteClock } from "../lib/useMinuteClock";
 import { useSolar } from "../lib/useSolar";
 import { CalendarHomeWidget } from "./display/CalendarHomeWidget";
 import { IdleVideo } from "./display/IdleVideo";
+import { LightsHomeWidget } from "./display/LightsHomeWidget";
 
 const YR_METEOGRAM = "https://www.yr.no/en/content/2-2075265/meteogram.svg";
 
@@ -37,6 +38,7 @@ export function DisplayApp({
       <CalendarHomeWidget onOpen={onOpenCalendar} />
 
       <div className="display-widgets">
+        <LightsHomeWidget onActivity={onActivity} />
         <SolarHomeWidget onOpen={onOpenSolar} />
         <WeatherWidget onOpen={onOpenWeather} />
         <NewsWidget />
