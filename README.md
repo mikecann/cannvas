@@ -52,8 +52,8 @@ account or configure a backend just to try the wall display.
 The project has separate web experiences for different jobs:
 
 - `/` is the portrait family touchscreen.
-- `/inventory/` is the private, phone-first inventory app.
-- `/giveaway/` is the public, read-only giveaway page.
+- `/inventory/` redirects to the standalone private inventory at [inventory.mikecann.app](https://inventory.mikecann.app/).
+- `/giveaway/` redirects to the standalone public, read-only [Giveaway page](https://inventory.mikecann.app/giveaway/).
 
 ## Add the Convex backend
 
@@ -95,25 +95,16 @@ few deliberately public reads.
 
 ### Inventory
 
-The inventory app uploads photos to Convex file storage and keeps an append-only
-history of edits, moves, added photos, AI enrichment, and removal states. Its
-search covers item details and the current storage location.
+The phone app and its Convex backend now live in the private
+[inventory repository](https://github.com/mikecann/inventory). It uses the official
+Convex Auth v2 passkey provider. Account creation alone grants no household
+access. Its repo owns photos, full-text search, AI enrichment, locations and the
+append-only edit and movement history.
 
-Add the development secret before using it:
-
-```sh
-pnpm exec convex env set OPENAI_API_KEY '<OpenAI API key>'
-npx @convex-dev/auth --skip-git-check --web-server-url http://localhost:5173/inventory/
-```
-
-Create the account through `/inventory/`, then grant it access by email:
-
-```sh
-pnpm exec convex run inventoryAccessStore:grantByEmail '{"email":"you@example.com"}'
-```
-
-The first granted account becomes the owner. Other accounts cannot see or
-change inventory data until they are granted access the same way.
+Cannvas retains its old inventory records for rollback. Keep
+`INVENTORY_READ_ONLY=1` on the Cannvas production backend after cutover so an
+old client cannot keep writing to that retained copy. The source schema stays
+unchanged. Do not set up new inventory password accounts in this repo.
 
 The Giveaway page uses a separate anonymous Convex query. It only exposes active
 items placed in Giveaway or To Giveaway and leaves out household locations,
@@ -124,7 +115,8 @@ ask for a login. Its access token stays on the Pi and is never included in
 the public browser bundle. When setting up a new Pi, configure it with:
 
 ```sh
-./deploy/configure-kiosk-inventory https://your-deployment.convex.site
+# Run from the standalone inventory checkout so Convex selects its backend.
+/path/to/cannvas/deploy/configure-kiosk-inventory https://hushed-meerkat-855.convex.site
 ```
 
 You can pass the Pi's Tailscale hostname as a second argument when it is not
