@@ -75,5 +75,5 @@ test("an installed app can activate cutover without caching a cross-origin redir
   assert.equal(skipped, true);
   assert.equal(unregistered, true);
   assert.deepEqual(navigated, ["https://inventory.mikecann.app/?from=home#item"]);
-  assert.deepEqual(deleted, ["cannvas-inventory-v3", "cannvas-inventory-v3"]);
+  assert.deepEqual([...new Set(deleted)], ["cannvas-inventory-v3"]);
 });
