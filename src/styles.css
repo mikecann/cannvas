@@ -629,7 +629,7 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 
 /* Dialogs */
 .dialog-backdrop { position: fixed; z-index: 100; inset: 0; padding: 30px; display: grid; place-items: center; background: rgba(31,31,30,.52); backdrop-filter: blur(10px); }
-.dialog-card { width: min(92vw, 480px); padding: 30px; border-radius: 28px; background: var(--paper); box-shadow: 0 28px 80px rgba(0,0,0,.25); text-align: center; }
+.dialog-card { width: min(92vw, 480px); padding: 30px; border-radius: 28px; color: var(--ink); background: var(--paper); box-shadow: 0 28px 80px rgba(0,0,0,.25); text-align: center; }
 .dialog-card h2 { margin: 12px 0 8px; font: 700 2rem "Fraunces", serif; }
 .dialog-symbol { width: 54px; height: 54px; margin: auto; display: grid; place-items: center; border-radius: 18px; color: white; background: #d74c43; font: 800 1.7rem "Fraunces", serif; }
 .dialog-symbol.add { background: var(--green); }
@@ -861,3 +861,6 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .lights-home-widget .is-off.is-current { border-color: rgba(255,255,255,.92); color: var(--ink); background: rgba(255,255,255,.92); }
 .lights-home-widget button:active { transform: scale(.96); }
 .lights-home-widget button:disabled { opacity: .5; }
+.lights-home-widget .is-sleep svg { color: #b9b4ff; }
+/* Only there to catch taps on the Sleep time dialog. It must not take a grid cell. */
+.lights-home-dialog { display: contents; }

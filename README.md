@@ -315,19 +315,22 @@ heartbeat). The 30 second display recovery check and the kiosk watchdog use
 
 ### Nightly power off
 
-Home Assistant switches the smart plug feeding the TV and Pi off at 21:15 and
-on at 07:00. Cutting power to a running Pi risks the SD card, so the Pi now
-shuts itself down first:
+Home Assistant switches the smart plug feeding the TV and Pi off when someone
+taps Sleep time on the home screen, or at midnight if nobody does, and back on
+at 07:00. Cutting power to a running Pi risks the SD card, so the Pi shuts
+itself down first. Both go through the `script.cannvas_power_off` script in
+Home Assistant:
 
-1. At 21:15 the Home Assistant automation turns on
-   `input_boolean.cannvas_shutdown`.
+1. The script turns on `input_boolean.cannvas_shutdown`. Sleep time runs
+   `script.sleep_time`, which turns off `light.living_room_lights` first. The
+   midnight automation only runs it while the plug is still on.
 2. `cannvas-ha-shutdown.service` on the Pi polls that helper every 10 seconds,
    using the Home Assistant token the web server already stores. When it sees
    the helper on, it starts `cannvas-poweroff.service`, the same
    polkit-approved helper the on-screen power button uses, then turns the
    helper back off as an acknowledgement. If the power-off can't start, it
    leaves the helper on and tries again on the next poll.
-3. The automation waits up to 60 seconds for that acknowledgement, then 60
+3. The script waits up to 60 seconds for that acknowledgement, then 60
    seconds more for the Pi to halt, then cuts the plug and clears the helper.
 
 If the Pi never answers, the plug still goes off after two minutes, as before.
@@ -337,7 +340,16 @@ clock, because the Pi has no real-time clock), and the 07:00 automation clears
 the helper before switching the plug on, so a leftover request cannot switch the
 display straight back off in the morning. The plug's power sensor can't show
 when the Pi has halted because the TV draws most of the power, which is why the
-automation uses a fixed wait.
+script uses a fixed wait.
+
+### Evening buttons
+
+From an hour before sunset, when Home Assistant turns the living room lights
+on, until sunrise, the home screen shows Lights on, Lights off and Sleep time.
+The lights buttons switch the `light.living_room_lights` group, so a new lamp
+only needs adding to that group in Home Assistant. The home screen reads that
+one entity through `/api/home-assistant/entity` rather than every state in the
+house. Sleep time asks first, then runs `script.sleep_time`.
 
 ### Evening dimming
 
