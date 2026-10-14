@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import worker from "../cloudflare/worker.ts";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
 
 const assetCalls = [];
 const assets = { fetch: async request => {
@@ -38,4 +40,40 @@ test("existing installed apps can discover cutover while the worker file remains
   const serviceWorker = await worker.fetch(new Request("https://cannvas.mikecann.app/inventory/sw.js"), env);
   assert.equal(serviceWorker.status, 200);
   assert.equal(assetCalls.at(-1), "/inventory/sw.js");
+});
+
+test("an installed app can activate cutover without caching a cross-origin redirect", async () => {
+  const listeners = {};
+  const deleted = [];
+  const navigated = [];
+  let skipped = false;
+  let unregistered = false;
+  const context = {
+    URL, Response,
+    fetch: async () => Response.json({ origin: "https://inventory.mikecann.app" }),
+    caches: {
+      open: async () => { throw new Error("The redirected old shell must not be cached"); },
+      keys: async () => ["cannvas-inventory-v3", "unrelated-cache"],
+      delete: async name => { deleted.push(name); return true; },
+    },
+    self: {
+      addEventListener: (name, fn) => { listeners[name] = fn; },
+      skipWaiting: async () => { skipped = true; },
+      clients: {
+        claim: async () => {},
+        matchAll: async () => [{ url: "https://cannvas.mikecann.app/inventory/?from=home#item", navigate: async url => navigated.push(url) }],
+      },
+      registration: { unregister: async () => { unregistered = true; } },
+    },
+  };
+  vm.runInNewContext(readFileSync(new URL("../public/inventory/sw.js", import.meta.url), "utf8"), context);
+  for (const name of ["install", "activate"]) {
+    const pending = [];
+    listeners[name]({ waitUntil: promise => pending.push(promise) });
+    await Promise.all(pending);
+  }
+  assert.equal(skipped, true);
+  assert.equal(unregistered, true);
+  assert.deepEqual(navigated, ["https://inventory.mikecann.app/?from=home#item"]);
+  assert.deepEqual(deleted, ["cannvas-inventory-v3", "cannvas-inventory-v3"]);
 });

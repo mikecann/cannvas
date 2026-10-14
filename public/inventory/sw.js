@@ -7,8 +7,15 @@ const APP_SHELL = [
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
-  self.skipWaiting();
+  event.waitUntil((async () => {
+    // Once cutover is active the old shell redirects across origins. Caching
+    // it would fail CORS and prevent this worker from replacing the old one.
+    if (!await standaloneOrigin()) {
+      const cache = await caches.open(CACHE_NAME);
+      await cache.addAll(APP_SHELL);
+    }
+    await self.skipWaiting();
+  })());
 });
 
 self.addEventListener("activate", (event) => {
@@ -21,20 +28,26 @@ self.addEventListener("activate", (event) => {
       ),
     ),
   );
-  self.clients.claim();
-  event.waitUntil(moveToStandalone());
+  event.waitUntil(self.clients.claim().then(() => moveToStandalone()));
 });
 
-async function moveToStandalone() {
+async function standaloneOrigin() {
   try {
     const response = await fetch("/inventory/migration.json", { cache: "no-store" });
     const migration = await response.json();
-    if (migration.origin !== "https://inventory.mikecann.app") return false;
+    return migration.origin === "https://inventory.mikecann.app" ? migration.origin : null;
+  } catch { return null; }
+}
+
+async function moveToStandalone() {
+  try {
+    const origin = await standaloneOrigin();
+    if (!origin) return false;
     const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     await Promise.all(windows.map(async client => {
       const current = new URL(client.url);
       if (!current.pathname.startsWith("/inventory")) return;
-      const destination = new URL("/", migration.origin);
+      const destination = new URL("/", origin);
       destination.search = current.search;
       destination.hash = current.hash;
       await client.navigate(destination.href);
