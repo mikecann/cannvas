@@ -141,4 +141,10 @@ const inventoryUserMiddleware = convex
   });
 
 export const inventoryQuery = convex.query().use(inventoryUserMiddleware);
-export const inventoryMutation = convex.mutation().use(inventoryUserMiddleware);
+const inventoryWriteMiddleware = convex.createMiddleware(async (ctx, next) => {
+  if (process.env.INVENTORY_READ_ONLY === "1") {
+    throw new ConvexError("Inventory has moved. Open https://inventory.mikecann.app to make changes.");
+  }
+  return next(ctx);
+});
+export const inventoryMutation = convex.mutation().use(inventoryUserMiddleware).use(inventoryWriteMiddleware);

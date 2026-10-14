@@ -18,7 +18,7 @@ case "$convex_site_url" in
     ;;
 esac
 
-for command in openssl jq pnpm; do
+for command in openssl python3 pnpm; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "$command is required." >&2
     exit 1
@@ -32,9 +32,9 @@ fi
 
 # The token exists only in this process, Convex, and the Pi's mode-0600 file.
 inventory_token=$(openssl rand -hex 32)
-pnpm exec convex env set --prod CANNVAS_KIOSK_INVENTORY_TOKEN "$inventory_token" >/dev/null
-jq -nc --arg url "$convex_site_url" --arg token "$inventory_token" \
-  '{url:$url,token:$token}' \
+printf '%s' "$inventory_token" | pnpm exec convex env set --prod CANNVAS_KIOSK_INVENTORY_TOKEN >/dev/null
+printf '%s' "$inventory_token" \
+  | python3 -c 'import json, sys; print(json.dumps({"url": sys.argv[1], "token": sys.stdin.read()}))' "$convex_site_url" \
   | "$tailscale_bin" ssh "pi@$pi_host" \
       'sudo install -o pi -g pi -m 0600 /dev/stdin /var/lib/cannvas/inventory.json'
 unset inventory_token
