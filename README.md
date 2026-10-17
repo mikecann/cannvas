@@ -192,6 +192,27 @@ On the Raspberry Pi, `deploy/cannvas-server` stores that connection in
 The browser talks to this small local server and never receives the Home
 Assistant token.
 
+### Family videos
+
+The home screen plays videos from a Mac on the home network. That Mac runs
+[`deploy/bruce-media-server.mjs`](deploy/bruce-media-server.mjs) (started by
+[`deploy/com.mikerosoft.cannvas-media.plist`](deploy/com.mikerosoft.cannvas-media.plist)),
+and the Pi's local server proxies it at `/videos`.
+
+The media server only answers requests that carry a shared bearer token, and
+only for its own host names (`bruce.local` and loopback by default; set
+`CANNVAS_MEDIA_ALLOWED_HOSTS` to change them). It refuses to start without the
+token. To create one and give it to both machines:
+
+```sh
+./deploy/configure-kiosk-media [bruce-ssh-host] [pi-tailscale-host]
+```
+
+That writes the token to a mode-0600 file on the Mac (named by
+`CANNVAS_MEDIA_TOKEN_FILE`), restarts the media server, and writes
+`/var/lib/cannvas/media.json` on the Pi. Set `CANNVAS_MEDIA_HOST` to the
+Mac's LAN address to stop it listening on every interface.
+
 ## Running it as a wall display
 
 The files in [`deploy/`](deploy/) cover the Raspberry Pi kiosk used by the real

@@ -30,6 +30,7 @@ from zoneinfo import ZoneInfo
 CONFIG_PATH = Path(os.environ.get("CANNVAS_HOME_ASSISTANT_CONFIG", "/var/lib/cannvas/home-assistant.json"))
 UNIFI_CONFIG_PATH = Path(os.environ.get("CANNVAS_UNIFI_CONFIG", "/var/lib/cannvas/unifi.json"))
 INVENTORY_CONFIG_PATH = Path(os.environ.get("CANNVAS_INVENTORY_CONFIG", "/var/lib/cannvas/inventory.json"))
+MEDIA_CONFIG_PATH = Path(os.environ.get("CANNVAS_MEDIA_CONFIG", "/var/lib/cannvas/media.json"))
 VIDEO_URL = os.environ.get("CANNVAS_VIDEO_URL", "http://bruce.local:6113").rstrip("/")
 # Only the web build is served. Releases keep it in www/ next to this script so
 # the script, units and other deployment files are never reachable over HTTP.
@@ -59,7 +60,7 @@ class RejectRedirects(HTTPRedirectHandler):
 
 _INVENTORY_OPENER = build_opener(HTTPSHandler(), RejectRedirects())
 _HOME_ASSISTANT_OPENER = build_opener(RejectRedirects())
-_VIDEO_OPENER = build_opener()
+_VIDEO_OPENER = build_opener(RejectRedirects())
 
 
 def load_config() -> dict[str, str] | None:
@@ -116,6 +117,18 @@ def load_inventory_config() -> dict[str, str] | None:
     ):
         return None
     return config
+
+
+def load_media_token() -> str | None:
+    try:
+        value = json.loads(MEDIA_CONFIG_PATH.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(value, dict):
+        return None
+    # Bruce trims its copy, and a header value can't carry spaces or newlines.
+    token = str(value.get("token", "")).strip()
+    return token if len(token) >= 32 and re.fullmatch(r"[\x21-\x7e]+", token) else None
 
 
 def inventory_request(config: dict[str, str], cursor: str | None) -> Any:
@@ -665,6 +678,9 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         request_headers = {}
         if range_header := self.headers.get("Range"):
             request_headers["Range"] = range_header
+        # Bruce only answers requests carrying the token shared with this Pi.
+        if token := load_media_token():
+            request_headers["Authorization"] = f"Bearer {token}"
         request = Request(f"{VIDEO_URL}{suffix}", headers=request_headers)
         try:
             response = _VIDEO_OPENER.open(request, timeout=20)
