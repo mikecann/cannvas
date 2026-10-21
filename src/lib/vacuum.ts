@@ -4,7 +4,9 @@ import type { HomeAssistantEntity } from "./homeAssistant";
 
 export const VACUUM = "vacuum.roborock_q7_max";
 /** The only vacuum actions the Pi server lets the kiosk run. */
-export type VacuumAction = "start" | "pause" | "return_to_base";
+export type VacuumAction = "start" | "pause" | "return_to_base" | "clean_area";
+/** A room clean the Pi server knows by name. It sends Home Assistant the areas. */
+export const LIVING_ROOM_AND_KITCHEN = "living_room_kitchen";
 /** Consumables with this many hours of use left, or fewer, are shown. */
 export const LOW_CONSUMABLE_HOURS = 10;
 
@@ -126,11 +128,12 @@ export function vacuumHeadline(vacuum: Vacuum): VacuumHeadline {
   }
 }
 
-/** Which buttons make sense right now. Start also resumes a paused clean. */
+/** Which buttons make sense right now. Start (Full clean) also resumes a paused clean. */
 export function vacuumActions(vacuum: Vacuum): Record<VacuumAction, boolean> {
-  if (vacuum.state === "unavailable" || vacuum.state === "unknown") return { start: false, pause: false, return_to_base: false };
+  if (vacuum.state === "unavailable" || vacuum.state === "unknown") return { start: false, clean_area: false, pause: false, return_to_base: false };
   return {
     start: vacuum.state !== "cleaning",
+    clean_area: vacuum.state !== "cleaning",
     pause: vacuum.state === "cleaning" || vacuum.state === "returning",
     return_to_base: vacuum.state !== "docked" && vacuum.state !== "returning",
   };

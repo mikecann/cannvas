@@ -5,7 +5,6 @@ import type { HomeAssistantEntity } from "./homeAssistant";
 export const FRONT_DOOR = {
   camera: "camera.front_door_live_view",
   ding: "event.front_door_ding",
-  motion: "event.front_door_motion",
   battery: "sensor.front_door_battery",
 } as const;
 
@@ -23,7 +22,6 @@ export type DingReading = {
 export type FrontDoor = {
   available: boolean;
   lastRing: Date | null;
-  lastMotion: Date | null;
   battery: number | null;
 };
 
@@ -47,7 +45,6 @@ export function frontDoorFrom(entities: HomeAssistantEntity[]): FrontDoor | null
   return {
     available: camera !== undefined && !isUnavailable(camera),
     lastRing: eventTime(ding),
-    lastMotion: eventTime(byId.get(FRONT_DOOR.motion)),
     battery: Number.isFinite(percent) ? percent : null,
   };
 }

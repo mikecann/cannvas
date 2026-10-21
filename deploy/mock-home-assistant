@@ -5,17 +5,17 @@ It serves made-up states for the devices Cannvas shows, a drawn vacuum map and
 front door picture, and accepts actions by changing its own pretend states, so
 nothing real ever moves or switches. deploy.sh never ships this file.
 
-    deploy/mock-home-assistant [--port 8124] [--no-camera]
+    deploy/mock-home-assistant [--port 8124] [--no-camera] [--rooms]
 
 Point a local cannvas-server at it with a config file such as
 {"url": "http://127.0.0.1:8124", "token": "mock-token-0000000000"}. Then:
 
     curl -X POST localhost:8124/mock/ding      ring the doorbell
-    curl -X POST localhost:8124/mock/motion    motion at the front door
     curl -X POST localhost:8124/mock/state -d '{"entity_id": "vacuum.roborock_q7_max", "state": "error"}'
 
 --no-camera makes the front door camera fail the way Ring does without a
-Ring Protect plan.
+Ring Protect plan. Room cleans fail the way they do before the vacuum's rooms
+are matched to Home Assistant areas, unless you pass --rooms.
 """
 
 from __future__ import annotations
@@ -81,7 +81,6 @@ def initial_states() -> dict[str, dict[str, Any]]:
         # The Ring doorbell. Its events read "unknown" until they first fire.
         entity("camera.front_door_live_view", "idle", "Front Door Live view"),
         entity("event.front_door_ding", now(-60 * 26), "Front Door Ding", device_class="doorbell", event_types=["ring"]),
-        entity("event.front_door_motion", now(-2), "Front Door Motion", device_class="motion", event_types=["motion"]),
         entity("sensor.front_door_battery", "76", "Front Door Battery", device_class="battery", unit_of_measurement="%"),
     ]
     return {row["entity_id"]: row for row in rows}
@@ -176,6 +175,7 @@ class MockHomeAssistant(BaseHTTPRequestHandler):
     lock = Lock()
     camera = True
     pictures: dict[str, bytes] = {}
+    rooms = False
 
     def send_body(self, status: int, body: bytes, content_type: str = "application/json") -> None:
         self.send_response(status)
@@ -228,10 +228,12 @@ class MockHomeAssistant(BaseHTTPRequestHandler):
             if path == "/mock/ding":
                 self.set_state("event.front_door_ding", now(), {"event_type": "ring"})
                 print("mock: the doorbell rang", flush=True)
-            elif path == "/mock/motion":
-                self.set_state("event.front_door_motion", now(), {"event_type": "motion"})
             elif path == "/mock/state":
                 self.set_state(str(body["entity_id"]), str(body["state"]), body.get("attributes"))
+            elif path == "/api/services/vacuum/clean_area" and not self.rooms:
+                print(f"mock: vacuum.clean_area {body.get('cleaning_area_id')} refused, no rooms", flush=True)
+                self.send_value({"message": f"Area mapping is not configured for `{body.get('entity_id')}`. Configure the segment-to-area mapping before using this action."}, 400)
+                return
             elif path.startswith("/api/services/"):
                 domain, _, service = path.removeprefix("/api/services/").partition("/")
                 self.run_service(domain, service, str(body.get("entity_id", "")))
@@ -245,7 +247,8 @@ class MockHomeAssistant(BaseHTTPRequestHandler):
         if service in {"turn_on", "turn_off"} and domain in {"light", "switch", "fan", "input_boolean"}:
             self.set_state(entity_id, "on" if service == "turn_on" else "off")
         elif domain == "vacuum":
-            state, status = {"start": ("cleaning", "cleaning"), "pause": ("paused", "paused"),
+            state, status = {"start": ("cleaning", "cleaning"), "clean_area": ("cleaning", "segment_cleaning"),
+                             "pause": ("paused", "paused"),
                              "return_to_base": ("returning", "returning_home")}.get(service, ("idle", "idle"))
             self.set_state(entity_id, state)
             self.set_state(f"sensor.{VACUUM}_status", status)
@@ -260,9 +263,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--port", type=int, default=8124)
     parser.add_argument("--no-camera", action="store_true", help="answer camera snapshots with a 500, like Ring without a plan")
+    parser.add_argument("--rooms", action="store_true", help="let room cleans work, as if the vacuum's rooms were matched to areas")
     options = parser.parse_args()
     MockHomeAssistant.states = initial_states()
     MockHomeAssistant.camera = not options.no_camera
+    MockHomeAssistant.rooms = options.rooms
     MockHomeAssistant.pictures = {"map": draw_map(), "front_door": draw_front_door()}
     print(f"Mock Home Assistant on http://127.0.0.1:{options.port}", flush=True)
     ThreadingHTTPServer(("127.0.0.1", options.port), MockHomeAssistant).serve_forever()

@@ -74,12 +74,13 @@ test("a full battery on the dock reads as fully charged", () => {
 
 test("only offers buttons that make sense", () => {
   const actions = (state) => vacuumActions(vacuumFrom(roborock(state)));
-  assert.deepEqual(actions("docked"), { start: true, pause: false, return_to_base: false });
-  assert.deepEqual(actions("cleaning"), { start: false, pause: true, return_to_base: true });
-  assert.deepEqual(actions("paused"), { start: true, pause: false, return_to_base: true });
-  assert.deepEqual(actions("returning"), { start: true, pause: true, return_to_base: false });
-  assert.deepEqual(actions("error"), { start: true, pause: false, return_to_base: true });
-  assert.deepEqual(actions("unavailable"), { start: false, pause: false, return_to_base: false });
+  assert.deepEqual(actions("docked"), { start: true, clean_area: true, pause: false, return_to_base: false });
+  assert.deepEqual(actions("cleaning"), { start: false, clean_area: false, pause: true, return_to_base: true });
+  // Full clean resumes a paused clean.
+  assert.deepEqual(actions("paused"), { start: true, clean_area: true, pause: false, return_to_base: true });
+  assert.deepEqual(actions("returning"), { start: true, clean_area: true, pause: true, return_to_base: false });
+  assert.deepEqual(actions("error"), { start: true, clean_area: true, pause: false, return_to_base: true });
+  assert.deepEqual(actions("unavailable"), { start: false, clean_area: false, pause: false, return_to_base: false });
 });
 
 test("shows only consumables that are nearly worn out, most urgent first", () => {

@@ -53,12 +53,3 @@ export function whenLabel(date: Date, now: Date): string {
   if (days < 7) return `${date.toLocaleDateString("en-AU", { weekday: "short" })} ${clockTime(date)}`;
   return date.toLocaleDateString("en-AU", { day: "numeric", month: "short" });
 }
-
-/** "just now", "2 min ago" and "3 h ago" for the last few hours, then like whenLabel. */
-export function timeAgo(date: Date, now: Date): string {
-  const minutes = Math.floor((now.getTime() - date.getTime()) / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  if (minutes < 6 * 60) return `${Math.floor(minutes / 60)} h ago`;
-  return whenLabel(date, now);
-}

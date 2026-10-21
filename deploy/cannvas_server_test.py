@@ -48,6 +48,7 @@ class FakeUpstream(BaseHTTPRequestHandler):
     ding = "unknown"
     map_type = "image/png"
     camera_works = False
+    vacuum_has_rooms = False
 
     def date_time_string(self, timestamp: float | None = None) -> str:
         return FakeUpstream.date or super().date_time_string(timestamp)
@@ -55,7 +56,12 @@ class FakeUpstream(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length") or 0)
         FakeUpstream.posts.append((self.path, json.loads(self.rfile.read(length))))
-        self.reply(200, b"[]", "application/json")
+        if self.path == "/api/services/vacuum/clean_area" and not FakeUpstream.vacuum_has_rooms:
+            # What Home Assistant answers before the vacuum's rooms are matched to areas.
+            message = {"message": "Area mapping is not configured for `vacuum.roborock_q7_max`. Configure the segment-to-area mapping before using this action."}
+            self.reply(400, json.dumps(message).encode(), "application/json")
+        else:
+            self.reply(200, b"[]", "application/json")
 
     def do_GET(self) -> None:
         FakeUpstream.requests.append((self.path, self.headers.get("Authorization")))
@@ -163,6 +169,7 @@ class CannvasServerTest(unittest.TestCase):
         FakeUpstream.ding = "unknown"
         FakeUpstream.map_type = "image/png"
         FakeUpstream.camera_works = False
+        FakeUpstream.vacuum_has_rooms = False
         self.module._VIDEO_DOWN_UNTIL = 0.0
         self.module.VIDEO_URL = self.upstream_url
         config = self.temp / "home-assistant.json"
@@ -377,8 +384,8 @@ class CannvasServerTest(unittest.TestCase):
     def connect_home_assistant(self) -> None:
         (self.temp / "home-assistant.json").write_text(json.dumps({"url": self.upstream_url, "token": "t" * 40}))
 
-    def action(self, entity_id: str, action: str):
-        body = json.dumps({"entityId": entity_id, "action": action}).encode()
+    def action(self, entity_id: str, action: str, **extra: str):
+        body = json.dumps({"entityId": entity_id, "action": action, **extra}).encode()
         return self.request("POST", "/api/home-assistant/action", body, {"Content-Type": "application/json"})
 
     def test_vacuum_can_start_pause_and_go_home(self) -> None:
@@ -391,6 +398,32 @@ class CannvasServerTest(unittest.TestCase):
             ("/api/services/vacuum/pause", {"entity_id": "vacuum.roborock_q7_max"}),
             ("/api/services/vacuum/return_to_base", {"entity_id": "vacuum.roborock_q7_max"}),
         ])
+
+    def test_vacuum_cleans_a_named_set_of_rooms(self) -> None:
+        self.connect_home_assistant()
+        FakeUpstream.vacuum_has_rooms = True
+        response, _ = self.action("vacuum.roborock_q7_max", "clean_area", preset="living_room_kitchen")
+        self.assertEqual(response.status, 200)
+        self.assertEqual(FakeUpstream.posts, [
+            ("/api/services/vacuum/clean_area", {"entity_id": "vacuum.roborock_q7_max", "cleaning_area_id": ["living_room", "kitchen"]}),
+        ])
+
+    def test_room_cleans_only_use_the_presets(self) -> None:
+        self.connect_home_assistant()
+        FakeUpstream.vacuum_has_rooms = True
+        for extra in ({}, {"preset": "bedroom"}, {"preset": ""}, {"cleaning_area_id": "bedroom"}):
+            response, body = self.action("vacuum.roborock_q7_max", "clean_area", **extra)
+            self.assertEqual(response.status, 400, extra)
+            self.assertEqual(json.loads(body), {"error": "That Home Assistant action is not allowed"})
+        response, _ = self.action("vacuum.another_vacuum", "clean_area", preset="living_room_kitchen")
+        self.assertEqual(response.status, 400)
+        self.assertEqual(FakeUpstream.posts, [])
+
+    def test_room_clean_before_the_vacuum_knows_its_rooms(self) -> None:
+        self.connect_home_assistant()
+        response, body = self.action("vacuum.roborock_q7_max", "clean_area", preset="living_room_kitchen")
+        self.assertEqual(response.status, 409)
+        self.assertEqual(json.loads(body), {"error": "The vacuum doesn't know its rooms yet"})
 
     def test_only_those_vacuum_actions_are_allowed(self) -> None:
         self.connect_home_assistant()

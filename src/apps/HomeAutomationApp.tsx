@@ -238,12 +238,8 @@ export function HomeAutomationApp() {
               <HomeLocationMap people={people} />
             </section>
 
-            {(frontDoor || vacuum) && (
-              <div className="home-feature-grid">
-                {frontDoor && <FrontDoorCard door={frontDoor} />}
-                {vacuum && <VacuumCard vacuum={vacuum} onChanged={() => void refresh()} />}
-              </div>
-            )}
+            {frontDoor && <FrontDoorCard door={frontDoor} />}
+            {vacuum && <VacuumCard vacuum={vacuum} onChanged={() => void refresh()} />}
 
             {keyLights.length > 0 && (
               <section className="home-filming-section">

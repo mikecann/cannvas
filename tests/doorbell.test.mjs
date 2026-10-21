@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { checkDing, eventTime, frontDoorFrom, isBatteryLow } from "../src/lib/doorbell.ts";
 import { isFilming, keyLightName } from "../src/lib/keyLights.ts";
-import { timeAgo, whenLabel } from "../src/lib/dates.ts";
+import { whenLabel } from "../src/lib/dates.ts";
 
 // Perth time, like the Pi.
 process.env.TZ = "Australia/Perth";
@@ -59,12 +59,10 @@ test("reads the front door from Home Assistant's states", () => {
   const door = frontDoorFrom([
     entity("camera.front_door_live_view", "idle"),
     entity("event.front_door_ding", "unknown"),
-    entity("event.front_door_motion", "2026-10-21T01:02:00.000+00:00"),
     entity("sensor.front_door_battery", "15", { unit_of_measurement: "%" }),
   ]);
   assert.equal(door.available, true);
   assert.equal(door.lastRing, null);
-  assert.equal(door.lastMotion.toISOString(), "2026-10-21T01:02:00.000Z");
   assert.equal(door.battery, 15);
   assert.equal(isBatteryLow(door.battery), true);
   assert.equal(isBatteryLow(76), false);
@@ -75,9 +73,6 @@ test("reads the front door from Home Assistant's states", () => {
 
 test("says when things happened the way people do", () => {
   const now = new Date("2026-10-21T15:00:00+08:00");
-  assert.equal(timeAgo(new Date("2026-10-21T14:59:40+08:00"), now), "just now");
-  assert.equal(timeAgo(new Date("2026-10-21T14:58:00+08:00"), now), "2 min ago");
-  assert.equal(timeAgo(new Date("2026-10-21T12:00:00+08:00"), now), "3 h ago");
   assert.equal(whenLabel(new Date("2026-10-21T08:05:00+08:00"), now), "8:05 am");
   assert.equal(whenLabel(new Date("2026-10-20T17:23:00+08:00"), now), "Yesterday 5:23 pm");
   assert.equal(whenLabel(new Date("2026-10-18T15:52:00+08:00"), now), "Sun 3:52 pm");

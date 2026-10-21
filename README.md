@@ -200,21 +200,26 @@ Home controls has a card for the Ring doorbell at the front door, one for the
 Roborock vacuum, and switches for the two Elgato Key Lights.
 
 - **Doorbell:** when `event.front_door_ding` fires, a pop-up shows over
-  whatever is on screen with the front door picture and the time. A tap or a
-  minute closes it. The page asks the Pi every 1.5 seconds and the Pi reads
-  just that entity from Home Assistant, so it shows within a couple of seconds
-  of Home Assistant hearing the ring. A ring from before Cannvas started, or an
-  old one Home Assistant restores after a restart, never pops up (ages are
-  measured on Home Assistant's clock). The card shows the latest picture, the
-  last ring, recent motion and a warning under 20% battery. Pictures come from
-  Home Assistant's camera proxy through `/api/doorbell/snapshot`. Ring only
-  gives Home Assistant pictures with a Ring Protect plan, so without one the
-  card and pop-up say there's no picture.
+  whatever is on screen with a big bell and the time. A tap or a minute closes
+  it. The page asks the Pi every 1.5 seconds and the Pi reads just that entity
+  from Home Assistant, so it shows within a couple of seconds of Home Assistant
+  hearing the ring. A ring from before Cannvas started, or an old one Home
+  Assistant restores after a restart, never pops up (ages are measured on Home
+  Assistant's clock). The card shows the last ring and a warning under 20%
+  battery. Ring only gives Home Assistant pictures with a Ring Protect plan,
+  which we don't have, so the card and pop-up only show the front door
+  picture (through `/api/doorbell/snapshot`) if one actually loads.
 - **Vacuum:** its state (with the error when it has one), battery, the map
-  through `/api/vacuum/map` zoomed to the house, Start, Pause and Return to
-  dock, and any brush, filter or sensor with 10 hours or less left. The Pi
-  server allows only `vacuum.start`, `vacuum.pause` and
-  `vacuum.return_to_base`, and only for `vacuum.roborock_q7_max`.
+  through `/api/vacuum/map` zoomed to the house, Full clean (which also
+  resumes a paused clean), Living room & kitchen, Pause and Return to dock,
+  and any brush, filter or sensor with 10 hours or less left. The Pi server
+  allows only `vacuum.start`, `vacuum.pause`, `vacuum.return_to_base` and
+  `vacuum.clean_area`, and only for `vacuum.roborock_q7_max`. For a room
+  clean the page sends a preset name and the Pi turns it into Home Assistant
+  area ids (`living_room_kitchen` is `living_room` and `kitchen`), so the page
+  can't choose other areas. Room cleans need the Roborock map to have rooms
+  matched to those Home Assistant areas. Until then Home Assistant refuses
+  them and the card says the vacuum doesn't know its rooms yet.
 - **Filming lights:** while either Key Light is on, the home screen says
   "Dad's filming" under the clock.
 
@@ -236,7 +241,7 @@ CANNVAS_WEB_ROOT=dist CANNVAS_HOME_ASSISTANT_CONFIG=tmp/mock-ha.json \
 
 Open [http://localhost:4173](http://localhost:4173), then
 `curl -X POST localhost:8124/mock/ding` rings the doorbell. See the top of the
-script for motion, changing any state, and a camera with no picture.
+script for changing any state, a camera with no picture, and room cleans.
 
 ## Running it as a wall display
 

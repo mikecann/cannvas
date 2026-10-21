@@ -510,23 +510,31 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 @keyframes home-spin { to { transform: rotate(360deg); } }
 
 /* Front door, vacuum and filming lights in Home controls */
-.home-feature-grid { margin-bottom: 26px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-.home-feature-card { min-width: 0; padding: 16px; display: flex; flex-direction: column; gap: 12px; border: 1px solid #e2dbd0; border-radius: 22px; background: white; box-shadow: 0 5px 14px rgba(57,48,37,.05); }
+.home-feature-card { min-width: 0; margin-bottom: 16px; padding: 16px; display: flex; flex-direction: column; gap: 12px; border: 1px solid #e2dbd0; border-radius: 22px; background: white; box-shadow: 0 5px 14px rgba(57,48,37,.05); }
 .home-feature-card .home-section-title { margin-bottom: 0; }
 .home-section-title > strong { display: flex; align-items: center; gap: 4px; }
 .home-section-title > strong svg { width: 14px; height: 14px; }
-.home-section-title > strong.is-warning { color: #8d3932; background: #fff0ed; }
 .home-section-title > strong.is-filming { color: white; background: #d74c43; }
 .home-feature-facts { margin: 0; padding: 0; display: grid; gap: 8px; list-style: none; }
 .home-feature-facts li { display: flex; align-items: center; gap: 9px; font-size: .82rem; font-weight: 700; }
 .home-feature-facts svg { width: 18px; height: 18px; flex: 0 0 auto; color: var(--green); }
 .home-feature-warning { margin: 0; padding: 10px 12px; display: flex; align-items: center; gap: 9px; border: 1px solid #efb5ad; border-radius: 14px; color: #8d3932; background: #fff0ed; font-size: .78rem; font-weight: 800; }
 .home-feature-warning svg { width: 19px; height: 19px; flex: 0 0 auto; }
+.front-door-summary { display: flex; align-items: center; gap: 14px; }
+.front-door-icon { width: 52px; height: 52px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 16px; color: #8d4a1f; background: #ffe4d6; }
+.front-door-icon svg { width: 26px; height: 26px; }
+.front-door-summary > div { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+.front-door-summary > div > span { color: var(--green); font-size: .7rem; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
+.front-door-summary h2 { margin: 0; font: 700 1.55rem "Fraunces", serif; }
+.front-door-summary small { margin-top: 2px; color: var(--muted); font-size: .8rem; font-weight: 700; }
+.front-door-summary > strong { padding: 5px 10px; flex: 0 0 auto; border-radius: 999px; color: #326d5f; background: #dff2ec; font-size: .7rem; }
+.front-door-summary > strong.is-warning { color: #8d3932; background: #fff0ed; }
 .doorbell-snapshot { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 16px; background: #2b2f36; }
 .doorbell-snapshot img { width: 100%; height: 100%; display: block; object-fit: cover; }
-.doorbell-snapshot-empty { position: absolute; inset: 0; padding: 18px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; color: rgba(255,255,255,.72); font-size: .8rem; font-weight: 700; text-align: center; }
-.doorbell-snapshot-empty svg { width: 30px; height: 30px; }
-.vacuum-map { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 16px; background: #f3efe8; }
+.front-door-picture { width: min(100%, 520px); }
+.vacuum-body { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.vacuum-controls { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.vacuum-map { position: relative; aspect-ratio: 4 / 3; overflow: hidden; border-radius: 16px; background: #f3efe8; }
 .vacuum-map img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: contain; }
 .vacuum-map.is-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--muted); font-size: .8rem; font-weight: 700; }
 .vacuum-map.is-empty svg { width: 28px; height: 28px; }
@@ -540,9 +548,9 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .vacuum-status strong { font: 700 1.3rem "Fraunces", serif; }
 .vacuum-status small { margin-top: 1px; color: var(--muted); font-size: .76rem; font-weight: 700; }
 .vacuum-status.tone-problem small { color: #8d3932; }
-.vacuum-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.vacuum-actions button { min-height: 62px; padding: 0 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border: 1px solid #e2dbd0; border-radius: 16px; color: var(--ink); background: #f7f3eb; font-size: .74rem; font-weight: 800; }
-.vacuum-actions button svg { width: 21px; height: 21px; }
+.vacuum-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.vacuum-actions button { min-height: 62px; padding: 6px 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border: 1px solid #e2dbd0; border-radius: 16px; color: var(--ink); background: #f7f3eb; font-size: .74rem; font-weight: 800; line-height: 1.15; }
+.vacuum-actions button svg { width: 21px; height: 21px; flex: 0 0 auto; }
 .vacuum-actions button.is-primary:not(:disabled) { border-color: var(--ink); color: white; background: var(--ink); }
 .vacuum-actions button:disabled { opacity: .4; }
 .vacuum-actions button:active:not(:disabled) { transform: scale(.97); }
@@ -550,24 +558,19 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .vacuum-actions button.is-pending svg { animation: home-spin 1s linear infinite; }
 .vacuum-attention svg { color: #c26a1b; }
 .vacuum-last-clean { margin: 0; color: var(--muted); font-size: .74rem; font-weight: 700; }
-.home-filming-section { margin-bottom: 26px; }
+.home-filming-section { margin-top: 10px; margin-bottom: 26px; }
 .home-filming-section .home-device-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
 /* Doorbell pop-up. Above everything, including the evening dimming. */
 .doorbell-alert { position: fixed; z-index: 1100; inset: 0; padding: 40px; display: grid; place-items: center; background: rgba(20,22,26,.72); backdrop-filter: blur(12px); animation: doorbell-in .25s ease-out; }
-.doorbell-alert-card { width: min(92vw, 860px); padding: 30px; display: flex; flex-direction: column; gap: 20px; border-radius: 32px; color: var(--ink); background: var(--paper); box-shadow: 0 30px 90px rgba(0,0,0,.4); text-align: center; }
-.doorbell-alert-card header { display: flex; align-items: center; gap: 18px; text-align: left; }
-.doorbell-alert-icon { width: 76px; height: 76px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 24px; color: white; background: var(--orange); animation: doorbell-ring 1.2s ease-in-out 3; }
-.doorbell-alert-icon svg { width: 42px; height: 42px; }
-.doorbell-alert-card h2 { margin: 0; font: 700 2.5rem/1.05 "Fraunces", serif; }
-.doorbell-alert-card header p { margin: 6px 0 0; color: var(--muted); font-size: 1.3rem; font-weight: 800; }
-.doorbell-alert-picture { border-radius: 22px; }
-/* Without a picture, a short note instead of a big empty frame. */
-.doorbell-alert-picture.is-failed { aspect-ratio: auto; height: 120px; }
-.doorbell-alert-picture .doorbell-snapshot-empty { font-size: 1.1rem; }
-.doorbell-alert-picture .doorbell-snapshot-empty svg { width: 48px; height: 48px; }
-.doorbell-alert-card .button { min-height: 72px; font-size: 1.3rem; }
-.doorbell-alert-card small { margin-top: -8px; color: var(--muted); font-size: .85rem; font-weight: 700; }
+.doorbell-alert-card { width: min(92vw, 780px); padding: 44px 36px 30px; display: flex; flex-direction: column; align-items: center; gap: 18px; border-radius: 36px; color: var(--ink); background: var(--paper); box-shadow: 0 30px 90px rgba(0,0,0,.4); text-align: center; }
+.doorbell-alert-icon { width: 150px; height: 150px; display: grid; place-items: center; border-radius: 46px; color: white; background: var(--orange); box-shadow: 0 18px 40px rgba(255,118,94,.35); animation: doorbell-ring 1.2s ease-in-out 3; }
+.doorbell-alert-icon svg { width: 84px; height: 84px; }
+.doorbell-alert-card h2 { margin: 10px 0 0; font: 700 3.1rem/1.05 "Fraunces", serif; }
+.doorbell-alert-card p { margin: -6px 0 6px; color: var(--muted); font-size: 1.5rem; font-weight: 800; }
+.doorbell-alert-picture { width: 100%; border-radius: 22px; }
+.doorbell-alert-card .button { width: 100%; min-height: 76px; font-size: 1.35rem; }
+.doorbell-alert-card small { margin-top: -6px; color: var(--muted); font-size: .85rem; font-weight: 700; }
 @keyframes doorbell-in { from { opacity: 0; transform: scale(1.03); } }
 @keyframes doorbell-ring { 0%, 100% { transform: rotate(0); } 15% { transform: rotate(-12deg); } 30% { transform: rotate(10deg); } 45% { transform: rotate(-6deg); } 60% { transform: rotate(3deg); } }
 

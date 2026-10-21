@@ -49,13 +49,9 @@ export function DoorbellAlert() {
       onClick={() => setRang(null)}
     >
       <section className="doorbell-alert-card">
-        <header>
-          <span className="doorbell-alert-icon"><BellRing aria-hidden="true" /></span>
-          <div>
-            <h2 id="doorbell-alert-title">Someone's at the front door</h2>
-            <p>Rang at {clockTime(rang)}</p>
-          </div>
-        </header>
+        <span className="doorbell-alert-icon"><BellRing aria-hidden="true" /></span>
+        <h2 id="doorbell-alert-title">Someone's at the front door</h2>
+        <p>Rang at {clockTime(rang)}</p>
         <DoorbellSnapshot refreshMs={2_000} className="doorbell-alert-picture" />
         <button type="button" className="button primary">OK</button>
         <small>Tap anywhere to close</small>

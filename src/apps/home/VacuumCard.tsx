@@ -1,4 +1,4 @@
-import { AlertTriangle, BatteryCharging, Droplets, House, LoaderCircle, MapIcon, Pause, Play, Wrench } from "lucide-react";
+import { AlertTriangle, BatteryCharging, Droplets, House, LoaderCircle, MapIcon, Pause, Play, Sofa, Wrench } from "lucide-react";
 import { type CSSProperties, useState } from "react";
 import { whenLabel } from "../../lib/dates";
 import { runHomeAssistantAction } from "../../lib/homeAssistantAction";
@@ -6,6 +6,7 @@ import { errorText } from "../../lib/http";
 import { useMinuteClock } from "../../lib/useMinuteClock";
 import {
   consumableLabel,
+  LIVING_ROOM_AND_KITCHEN,
   lowConsumables,
   type Vacuum,
   type VacuumAction,
@@ -29,7 +30,7 @@ export function VacuumCard({ vacuum, onChanged }: { vacuum: Vacuum; onChanged: (
     setPending(action);
     setError("");
     try {
-      await runHomeAssistantAction(vacuum.entityId, action, "The vacuum didn't respond");
+      await runHomeAssistantAction(vacuum.entityId, action, "The vacuum didn't respond", action === "clean_area" ? LIVING_ROOM_AND_KITCHEN : undefined);
       for (const delay of AFTER_ACTION_REFRESH_MS) window.setTimeout(onChanged, delay);
     } catch (requestError) {
       setError(errorText(requestError, "The vacuum didn't respond"));
@@ -64,24 +65,30 @@ export function VacuumCard({ vacuum, onChanged }: { vacuum: Vacuum; onChanged: (
         <div><span>Roborock</span><h2>Vacuum</h2></div>
         {vacuum.battery !== null && <strong>{vacuum.charging && <BatteryCharging aria-hidden="true" />}{Math.round(vacuum.battery)}% battery</strong>}
       </div>
-      <VacuumMap version={vacuum.mapVersion} />
-      <div className={`vacuum-status tone-${headline.tone}`} role="status">
-        <span>{headline.tone === "problem" ? <AlertTriangle aria-hidden="true" /> : headline.tone === "busy" ? <Play aria-hidden="true" /> : <House aria-hidden="true" />}</span>
-        <div><strong>{headline.title}</strong>{headline.detail && <small>{headline.detail}</small>}</div>
+      <div className="vacuum-body">
+        <VacuumMap version={vacuum.mapVersion} />
+        <div className="vacuum-controls">
+          <div className={`vacuum-status tone-${headline.tone}`} role="status">
+            <span>{headline.tone === "problem" ? <AlertTriangle aria-hidden="true" /> : headline.tone === "busy" ? <Play aria-hidden="true" /> : <House aria-hidden="true" />}</span>
+            <div><strong>{headline.title}</strong>{headline.detail && <small>{headline.detail}</small>}</div>
+          </div>
+          <div className="vacuum-actions" role="group" aria-label="Vacuum controls">
+            {/* Start resumes a paused clean, whichever rooms it was doing. */}
+            {button("start", vacuum.state === "paused" ? "Resume" : "Full clean", Play, true)}
+            {button("clean_area", "Living room & kitchen", Sofa)}
+            {button("pause", "Pause", Pause)}
+            {button("return_to_base", "Return to dock", House)}
+          </div>
+          {error && <p className="home-feature-warning" role="alert"><AlertTriangle aria-hidden="true" />{error}</p>}
+          {(consumables.length > 0 || vacuum.waterShortage) && (
+            <ul className="home-feature-facts vacuum-attention">
+              {vacuum.waterShortage && <li><Droplets aria-hidden="true" />Water tank is empty</li>}
+              {consumables.map((item) => <li key={item.key}><Wrench aria-hidden="true" />{consumableLabel(item)}</li>)}
+            </ul>
+          )}
+          {lastClean && <p className="vacuum-last-clean">{lastClean}</p>}
+        </div>
       </div>
-      <div className="vacuum-actions" role="group" aria-label="Vacuum controls">
-        {button("start", vacuum.state === "paused" ? "Resume" : "Start", Play, true)}
-        {button("pause", "Pause", Pause)}
-        {button("return_to_base", "Return to dock", House)}
-      </div>
-      {error && <p className="home-feature-warning" role="alert"><AlertTriangle aria-hidden="true" />{error}</p>}
-      {(consumables.length > 0 || vacuum.waterShortage) && (
-        <ul className="home-feature-facts vacuum-attention">
-          {vacuum.waterShortage && <li><Droplets aria-hidden="true" />Water tank is empty</li>}
-          {consumables.map((item) => <li key={item.key}><Wrench aria-hidden="true" />{consumableLabel(item)}</li>)}
-        </ul>
-      )}
-      {lastClean && <p className="vacuum-last-clean">{lastClean}</p>}
     </section>
   );
 }
