@@ -1,5 +1,5 @@
 import { AlertTriangle, BatteryCharging, Droplets, House, LoaderCircle, MapIcon, Pause, Play, Sofa, Wrench } from "lucide-react";
-import { type CSSProperties, useState } from "react";
+import { type CSSProperties, useEffect, useState } from "react";
 import { whenLabel } from "../../lib/dates";
 import { runHomeAssistantAction } from "../../lib/homeAssistantAction";
 import { errorText } from "../../lib/http";
@@ -93,11 +93,22 @@ export function VacuumCard({ vacuum, onChanged }: { vacuum: Vacuum; onChanged: (
   );
 }
 
+// A docked vacuum's map version can stay the same for days, so a map that
+// failed to load (Home Assistant restarting, say) is asked for again.
+const MAP_RETRY_MS = 60_000;
+
 function VacuumMap({ version }: { version: string | null }) {
-  const src = `/api/vacuum/map?v=${encodeURIComponent(version ?? "none")}`;
+  const [attempt, setAttempt] = useState(0);
+  const src = `/api/vacuum/map?v=${encodeURIComponent(version ?? "none")}&attempt=${attempt}`;
   const [failedSrc, setFailedSrc] = useState("");
   const [crop, setCrop] = useState<string | undefined>(undefined);
-  if (failedSrc === src) {
+  const failed = failedSrc === src;
+  useEffect(() => {
+    if (!failed) return;
+    const timer = window.setTimeout(() => setAttempt((count) => count + 1), MAP_RETRY_MS);
+    return () => window.clearTimeout(timer);
+  }, [failed]);
+  if (failed) {
     return <div className="vacuum-map is-empty"><MapIcon aria-hidden="true" /><span>No map yet</span></div>;
   }
   return (
