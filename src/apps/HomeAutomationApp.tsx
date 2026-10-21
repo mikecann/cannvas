@@ -37,12 +37,17 @@ import {
   type NetworkStatus,
   stateLabel,
 } from "../lib/homeAssistant";
+import { frontDoorFrom } from "../lib/doorbell";
 import { errorText, readJsonResponse } from "../lib/http";
+import { isFilming, KEY_LIGHTS, keyLightName } from "../lib/keyLights";
 import { usePolling } from "../lib/usePolling";
+import { vacuumFrom } from "../lib/vacuum";
 import { FAMILY, familyPersonFor } from "./home/family";
+import { FrontDoorCard } from "./home/FrontDoorCard";
 import { HomeLocationMap } from "./home/HomeLocationMap";
 import { HomeNetworkSection } from "./home/HomeNetworkSection";
 import { HomeSettingsDialog } from "./home/HomeSettingsDialog";
+import { VacuumCard } from "./home/VacuumCard";
 
 const STATUS_REFRESH_MS = 15_000;
 // UniFi rates are live numbers, but the Pi only needs to ask every few seconds.
@@ -68,6 +73,28 @@ function EntityIcon({ entity }: { entity: HomeAssistantEntity }) {
   if (entity.domain === "media_player") return <Tv />;
   if (isRoutine(entity)) return <Sparkles />;
   return <Activity />;
+}
+
+function DeviceCard({ entity, name = entity.name, pending, onPress }: {
+  entity: HomeAssistantEntity;
+  name?: string;
+  pending: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <button
+      className={`home-device-card ${isOn(entity) ? "is-on" : ""}${isRoutine(entity) ? " is-action" : ""}`}
+      onClick={onPress}
+      disabled={pending || isUnavailable(entity)}
+      aria-pressed={isRoutine(entity) ? undefined : isOn(entity)}
+    >
+      <span className="home-device-icon"><EntityIcon entity={entity} /></span>
+      <span className="home-device-copy"><strong>{name}</strong><small>{stateLabel(entity)}</small></span>
+      {isRoutine(entity)
+        ? <span className="home-device-action"><Sparkles /></span>
+        : <span className="home-device-toggle"><i /></span>}
+    </button>
+  );
 }
 
 export function HomeAutomationApp() {
@@ -110,10 +137,15 @@ export function HomeAutomationApp() {
   const peopleHome = people.filter(isHome).length;
   const controls = useMemo(() => entities
     .filter((entity) => CONTROL_DOMAINS.has(entity.domain))
+    // The Key Lights have their own section.
+    .filter((entity) => !KEY_LIGHTS.includes(entity.entityId))
     .filter((entity) => showUnavailable || !isUnavailable(entity))
     .filter((entity) => matchesFilter(entity, filter))
     .sort((left, right) => Number(isOn(right)) - Number(isOn(left)) || left.name.localeCompare(right.name)), [entities, filter, showUnavailable]);
   const sensors = useMemo(() => entities.filter(isGlanceSensor).slice(0, 12), [entities]);
+  const frontDoor = useMemo(() => frontDoorFrom(entities), [entities]);
+  const vacuum = useMemo(() => vacuumFrom(entities), [entities]);
+  const keyLights = useMemo(() => entities.filter((entity) => KEY_LIGHTS.includes(entity.entityId)), [entities]);
 
   const releasePending = (entityId: string) => setPending((current) => {
     const next = new Set(current);
@@ -206,6 +238,24 @@ export function HomeAutomationApp() {
               <HomeLocationMap people={people} />
             </section>
 
+            {(frontDoor || vacuum) && (
+              <div className="home-feature-grid">
+                {frontDoor && <FrontDoorCard door={frontDoor} />}
+                {vacuum && <VacuumCard vacuum={vacuum} onChanged={() => void refresh()} />}
+              </div>
+            )}
+
+            {keyLights.length > 0 && (
+              <section className="home-filming-section">
+                <div className="home-section-title"><div><span>Key Lights</span><h2>Filming lights</h2></div>{isFilming(keyLights) && <strong className="is-filming">Dad's filming</strong>}</div>
+                <div className="home-device-grid">
+                  {keyLights.map((entity) => (
+                    <DeviceCard key={entity.entityId} entity={entity} name={keyLightName(entity)} pending={pending.has(entity.entityId)} onPress={() => void runAction(entity)} />
+                  ))}
+                </div>
+              </section>
+            )}
+
             {network?.configured && <HomeNetworkSection network={network} />}
 
             <section className="home-control-section">
@@ -216,19 +266,7 @@ export function HomeAutomationApp() {
               </div>
               <div className="home-device-grid">
                 {controls.map((entity) => (
-                  <button
-                    className={`home-device-card ${isOn(entity) ? "is-on" : ""}${isRoutine(entity) ? " is-action" : ""}`}
-                    key={entity.entityId}
-                    onClick={() => void runAction(entity)}
-                    disabled={pending.has(entity.entityId) || isUnavailable(entity)}
-                    aria-pressed={isRoutine(entity) ? undefined : isOn(entity)}
-                  >
-                    <span className="home-device-icon"><EntityIcon entity={entity} /></span>
-                    <span className="home-device-copy"><strong>{entity.name}</strong><small>{stateLabel(entity)}</small></span>
-                    {isRoutine(entity)
-                      ? <span className="home-device-action"><Sparkles /></span>
-                      : <span className="home-device-toggle"><i /></span>}
-                  </button>
+                  <DeviceCard key={entity.entityId} entity={entity} pending={pending.has(entity.entityId)} onPress={() => void runAction(entity)} />
                 ))}
                 {controls.length === 0 && <p className="home-section-empty">No matching controls found.</p>}
               </div>

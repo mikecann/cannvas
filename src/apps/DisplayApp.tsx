@@ -5,6 +5,7 @@ import { FLOW_THRESHOLD_KW, formatKw, isSolarFresh } from "../lib/solar";
 import { useMinuteClock } from "../lib/useMinuteClock";
 import { useSolar } from "../lib/useSolar";
 import { CalendarHomeWidget } from "./display/CalendarHomeWidget";
+import { FilmingBanner } from "./display/FilmingBanner";
 import { IdleVideo } from "./display/IdleVideo";
 import { LightsHomeWidget } from "./display/LightsHomeWidget";
 
@@ -34,7 +35,10 @@ export function DisplayApp({
   return (
     <section className="display-app">
       <IdleVideo muted={videoMuted} onPlayableChange={setVideoPlayable} />
-      <IdleClock />
+      <div className="display-content">
+        <IdleClock />
+        <FilmingBanner />
+      </div>
       <CalendarHomeWidget onOpen={onOpenCalendar} />
 
       <div className="display-widgets">
@@ -68,10 +72,10 @@ export function DisplayApp({
 function IdleClock() {
   const now = useMinuteClock();
   return (
-    <div className="display-content">
+    <>
       <p className="display-date">{now.toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long" })}</p>
       <div className="display-time">{now.toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit", hour12: false })}</div>
-    </div>
+    </>
   );
 }
 
