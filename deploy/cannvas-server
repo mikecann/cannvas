@@ -18,6 +18,7 @@ import ssl
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from threading import Lock
 import time
 from typing import Any
@@ -45,6 +46,22 @@ ALLOWED_ACTIONS = {
     "turn_on": {"light", "switch", "fan", "input_boolean", "media_player", "scene", "script"},
     "turn_off": {"light", "switch", "fan", "input_boolean", "media_player"},
 }
+# The Roborock drives around the house, so the kiosk gets these actions for
+# this one vacuum and nothing else in its domain.
+VACUUM = "vacuum.roborock_q7_max"
+ENTITY_ACTIONS = {VACUUM: {"start", "pause", "return_to_base", "clean_area"}}
+# Rooms the kiosk can ask the vacuum to clean. It sends only the preset's name,
+# so it can never choose other Home Assistant areas.
+VACUUM_AREA_PRESETS = {"living_room_kitchen": ["living_room", "kitchen"]}
+VACUUM_MAP = "image.roborock_q7_max_map_0"
+# The Ring doorbell. The kiosk polls the ding every couple of seconds so the
+# doorbell pop-up shows straight away, and reads the camera's snapshots.
+FRONT_DOOR_CAMERA = "camera.front_door_live_view"
+FRONT_DOOR_DING = "event.front_door_ding"
+# Pictures pass through only if Home Assistant labels them as one of these, so
+# nothing else from Home Assistant is ever served from the kiosk's origin.
+IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+MAX_IMAGE_BYTES = 8 * 1024 * 1024
 _UNIFI_LOCK = Lock()
 _UNIFI_OPENER: Any = None
 _UNIFI_SIGNATURE: tuple[str, str, str] | None = None
@@ -136,7 +153,8 @@ def validate_url(value: str) -> str:
     return url
 
 
-def home_assistant_request(config: dict[str, str], path: str, payload: dict[str, Any] | None = None, timeout: float = 8) -> Any:
+def home_assistant_call(config: dict[str, str], path: str, payload: dict[str, Any] | None = None, timeout: float = 8) -> tuple[Any, datetime | None]:
+    """The JSON reply and Home Assistant's own time, from its Date header."""
     body = json.dumps(payload).encode("utf-8") if payload is not None else None
     request = Request(
         f"{config['url']}{path}",
@@ -149,7 +167,51 @@ def home_assistant_request(config: dict[str, str], path: str, payload: dict[str,
     )
     with _HOME_ASSISTANT_OPENER.open(request, timeout=timeout) as response:
         raw = response.read()
-        return json.loads(raw) if raw else None
+        date = response.headers.get("Date")
+        try:
+            server_now = parsedate_to_datetime(date) if date else None
+        except (TypeError, ValueError):
+            server_now = None
+        return (json.loads(raw) if raw else None), server_now
+
+
+def home_assistant_request(config: dict[str, str], path: str, payload: dict[str, Any] | None = None, timeout: float = 8) -> Any:
+    return home_assistant_call(config, path, payload, timeout)[0]
+
+
+def home_assistant_image(config: dict[str, str], path: str, timeout: float = 10) -> tuple[bytes, str]:
+    request = Request(f"{config['url']}{path}", headers={"Authorization": f"Bearer {config['token']}"})
+    with _HOME_ASSISTANT_OPENER.open(request, timeout=timeout) as response:
+        content_type = response.headers.get_content_type()
+        body = response.read(MAX_IMAGE_BYTES + 1)
+    if content_type not in IMAGE_TYPES or len(body) > MAX_IMAGE_BYTES:
+        raise ValueError("Home Assistant sent something other than a picture")
+    return body, content_type
+
+
+def event_time(state: Any) -> str | None:
+    """An event entity's state is the time it last fired, or unknown/unavailable."""
+    value = state.get("state") if isinstance(state, dict) else None
+    try:
+        aware = parse_time(str(value)).tzinfo is not None
+    except ValueError:
+        return None
+    return str(value) if aware else None
+
+
+def doorbell_ding(config: dict[str, str]) -> dict[str, Any]:
+    try:
+        state, server_now = home_assistant_call(config, f"/api/states/{FRONT_DOOR_DING}", timeout=4)
+    except HTTPError as error:
+        error.close()
+        if error.code != 404:
+            raise
+        state, server_now = None, None
+    ding = event_time(state)
+    # Measured on Home Assistant's clock. The Pi has no real-time clock, so
+    # its own time can be wrong until NTP syncs after boot.
+    age = (server_now - parse_time(ding)).total_seconds() if ding and server_now else None
+    return {"configured": True, "ding": ding, "ageSeconds": round(age, 1) if age is not None else None}
 
 
 def unifi_login(config: dict[str, str], context: ssl.SSLContext) -> Any:
@@ -774,6 +836,55 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         except Exception as error:  # The response deliberately avoids leaking network or token details.
             self.home_assistant_error(error)
 
+    def send_home_assistant_image(self, path: str, missing: str) -> None:
+        config = load_config()
+        if not config:
+            self.send_json(409, {"error": "Home Assistant is not connected"})
+            return
+        try:
+            body, content_type = home_assistant_image(config, path)
+        except HTTPError as error:
+            error.close()
+            if error.code in {401, 403}:
+                self.home_assistant_error(error)
+                return
+            # Home Assistant answers 500 when a camera has no picture to give,
+            # which Ring does without a Ring Protect plan. That's expected, so
+            # keep it out of the journal.
+            self.quiet = True
+            self.send_json(502, {"error": missing})
+            return
+        except ValueError:
+            self.send_json(502, {"error": missing})
+            return
+        except Exception as error:  # The response deliberately avoids leaking network or token details.
+            self.home_assistant_error(error)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def get_vacuum_map(self, query: str) -> None:
+        self.send_home_assistant_image(f"/api/image_proxy/{VACUUM_MAP}", "The vacuum has no map right now")
+
+    def get_doorbell_snapshot(self, query: str) -> None:
+        self.send_home_assistant_image(f"/api/camera_proxy/{FRONT_DOOR_CAMERA}", "The doorbell has no picture right now")
+
+    def get_doorbell_ding(self, query: str) -> None:
+        config = load_config()
+        if not config:
+            self.send_json(200, {"configured": False})
+            return
+        try:
+            self.send_json(200, doorbell_ding(config))
+        except Exception as error:  # The response deliberately avoids leaking network or token details.
+            # The kiosk asks every couple of seconds, so an outage would flood the journal.
+            self.quiet = True
+            self.home_assistant_error(error)
+
     def get_home_assistant_status(self, query: str) -> None:
         config = load_config()
         if not config:
@@ -857,17 +968,33 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         if not config:
             self.send_json(409, {"error": "Home Assistant is not connected"})
             return
+        action = ""
         try:
             body = self.read_json()
             entity_id = str(body.get("entityId", ""))
             action = str(body.get("action", ""))
             domain = entity_id.partition(".")[0]
-            if not ENTITY_ID.fullmatch(entity_id) or action not in ALLOWED_ACTIONS or domain not in ALLOWED_ACTIONS[action]:
+            allowed = domain in ALLOWED_ACTIONS.get(action, set()) or action in ENTITY_ACTIONS.get(entity_id, set())
+            if not ENTITY_ID.fullmatch(entity_id) or not allowed:
                 raise ValueError("That Home Assistant action is not allowed")
-            result = home_assistant_request(config, f"/api/services/{domain}/{action}", {"entity_id": entity_id})
+            payload: dict[str, Any] = {"entity_id": entity_id}
+            if action == "clean_area":
+                areas = VACUUM_AREA_PRESETS.get(str(body.get("preset", "")))
+                if not areas:
+                    raise ValueError("That Home Assistant action is not allowed")
+                payload["cleaning_area_id"] = areas
+            result = home_assistant_request(config, f"/api/services/{domain}/{action}", payload)
             self.send_json(200, {"ok": True, "states": [public_entity(entity) for entity in result or []]})
         except ValueError as error:
             self.send_json(400, {"error": str(error)})
+        except HTTPError as error:
+            error.close()
+            if action == "clean_area" and error.code == 400:
+                # Home Assistant refuses room cleans until the vacuum's map has
+                # rooms and they're matched to Home Assistant areas.
+                self.send_json(409, {"error": "The vacuum doesn't know its rooms yet"})
+            else:
+                self.home_assistant_error(error)
         except Exception as error:
             self.home_assistant_error(error)
 
@@ -881,6 +1008,9 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         "/api/sun": get_sun,
         "/api/home-assistant/status": get_home_assistant_status,
         "/api/home-assistant/entity": get_home_assistant_entity,
+        "/api/vacuum/map": get_vacuum_map,
+        "/api/doorbell/ding": get_doorbell_ding,
+        "/api/doorbell/snapshot": get_doorbell_snapshot,
         "/api/heartbeat": heartbeat,
         "/api/health": health,
     }

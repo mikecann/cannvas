@@ -28,6 +28,7 @@ import { TodosApp } from "./apps/TodosApp";
 import { WhiteboardApp } from "./apps/WhiteboardApp";
 import { AppErrorBoundary } from "./components/AppErrorBoundary";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { DoorbellAlert } from "./components/DoorbellAlert";
 import { useDeviceStatus } from "./data/DataProvider";
 import type { BackupStatus } from "./data/types";
 import { HOME_ASSISTANT_POWER_OFF_RECOVERY_MS, POWER_OFF_RECOVERY_MESSAGE, schedulePowerOffRecovery } from "./lib/actionTiming";
@@ -314,6 +315,8 @@ export function App() {
       </ConfirmDialog>
 
       <NightDimOverlay />
+      {/* Above the evening dimming, so a visitor is never missed. */}
+      <DoorbellAlert />
     </main>
   );
 }

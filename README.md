@@ -24,8 +24,10 @@ it or adapt it for your own home.
   optional Google Tasks connection for Dad's list.
 - **Calendar:** show today, the next week, and a full monthly view from a private
   Google Calendar feed.
-- **Home controls:** see and control useful Home Assistant devices, check UniFi
-  network activity, and show family locations when those are available.
+- **Home controls:** see and control useful Home Assistant devices, including
+  the robot vacuum and the filming lights, check UniFi network activity, and
+  show family locations when those are available.
+- **Doorbell:** pop up over any screen when someone rings the front door.
 - **Pet care:** keep track of Sammy's regular tablets and when each one was last
   given.
 - **Household inventory:** photograph an item on your phone, record where it is,
@@ -191,6 +193,55 @@ On the Raspberry Pi, `deploy/cannvas-server` stores that connection in
 `/var/lib/cannvas/home-assistant.json`, readable only by the Cannvas service.
 The browser talks to this small local server and never receives the Home
 Assistant token.
+
+#### Front door, vacuum and filming lights
+
+Home controls has a card for the Ring doorbell at the front door, one for the
+Roborock vacuum, and switches for the two Elgato Key Lights.
+
+- **Doorbell:** when `event.front_door_ding` fires, a pop-up shows over
+  whatever is on screen with a big bell and the time. A tap or a minute closes
+  it. The page asks the Pi every 1.5 seconds and the Pi reads just that entity
+  from Home Assistant, so it shows within a couple of seconds of Home Assistant
+  hearing the ring. A ring from before Cannvas started, or an old one Home
+  Assistant restores after a restart, never pops up (ages are measured on Home
+  Assistant's clock). The card shows the last ring and a warning under 20%
+  battery. Ring only gives Home Assistant pictures with a Ring Protect plan,
+  which we don't have, so the card and pop-up only show the front door
+  picture (through `/api/doorbell/snapshot`) if one actually loads.
+- **Vacuum:** its state (with the error when it has one), battery, the map
+  through `/api/vacuum/map` zoomed to the house, Full clean (which also
+  resumes a paused clean), Living room & kitchen, Pause and Return to dock,
+  and any brush, filter or sensor with 10 hours or less left. The Pi server
+  allows only `vacuum.start`, `vacuum.pause`, `vacuum.return_to_base` and
+  `vacuum.clean_area`, and only for `vacuum.roborock_q7_max`. For a room
+  clean the page sends a preset name and the Pi turns it into Home Assistant
+  area ids (`living_room_kitchen` is `living_room` and `kitchen`), so the page
+  can't choose other areas. Room cleans need the Roborock map to have rooms
+  matched to those Home Assistant areas. Until then Home Assistant refuses
+  them and the card says the vacuum doesn't know its rooms yet.
+- **Filming lights:** while either Key Light is on, the home screen says
+  "Dad's filming" under the clock.
+
+The Pi only passes on pictures Home Assistant labels as JPEG, PNG, WebP or GIF.
+
+#### Trying it without Home Assistant
+
+`deploy/mock-home-assistant` is a pretend Home Assistant for a laptop. It has
+made-up states for these devices and switches nothing real, and deploys never
+ship it. Run it next to a local `cannvas-server`:
+
+```sh
+pnpm build
+deploy/mock-home-assistant &
+echo '{"url": "http://127.0.0.1:8124", "token": "mock-token-0000000000"}' > tmp/mock-ha.json
+CANNVAS_WEB_ROOT=dist CANNVAS_HOME_ASSISTANT_CONFIG=tmp/mock-ha.json \
+  CANNVAS_HEARTBEAT_PATH=tmp/heartbeat python3 deploy/cannvas-server
+```
+
+Open [http://localhost:4173](http://localhost:4173), then
+`curl -X POST localhost:8124/mock/ding` rings the doorbell. See the top of the
+script for changing any state, a camera with no picture, and room cleans.
 
 ## Running it as a wall display
 

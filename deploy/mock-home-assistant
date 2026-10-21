@@ -1,0 +1,277 @@
+#!/usr/bin/env python3
+"""A pretend Home Assistant for trying Cannvas on a laptop. Development only.
+
+It serves made-up states for the devices Cannvas shows, a drawn vacuum map and
+front door picture, and accepts actions by changing its own pretend states, so
+nothing real ever moves or switches. deploy.sh never ships this file.
+
+    deploy/mock-home-assistant [--port 8124] [--no-camera] [--rooms]
+
+Point a local cannvas-server at it with a config file such as
+{"url": "http://127.0.0.1:8124", "token": "mock-token-0000000000"}. Then:
+
+    curl -X POST localhost:8124/mock/ding      ring the doorbell
+    curl -X POST localhost:8124/mock/state -d '{"entity_id": "vacuum.roborock_q7_max", "state": "error"}'
+
+--no-camera makes the front door camera fail the way Ring does without a
+Ring Protect plan. Room cleans fail the way they do before the vacuum's rooms
+are matched to Home Assistant areas, unless you pass --rooms.
+"""
+
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timedelta, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
+from threading import Lock
+import struct
+from typing import Any
+import zlib
+
+
+def now(offset_minutes: float = 0) -> str:
+    return (datetime.now(timezone.utc) + timedelta(minutes=offset_minutes)).isoformat()
+
+
+def entity(entity_id: str, state: str, name: str, **attributes: Any) -> dict[str, Any]:
+    return {
+        "entity_id": entity_id,
+        "state": state,
+        "attributes": {"friendly_name": name, **attributes},
+        "last_changed": now(-90),
+        "last_updated": now(-90),
+    }
+
+
+VACUUM = "roborock_q7_max"
+
+
+def initial_states() -> dict[str, dict[str, Any]]:
+    hours = {"unit_of_measurement": "h", "device_class": "duration"}
+    rows = [
+        entity("person.mike_cann", "home", "Mike Cann", latitude=-31.9523, longitude=115.8613),
+        entity("person.kelsie_cann", "not_home", "Kelsie Cann", latitude=-31.9505, longitude=115.8605),
+        entity("light.living_room_lights", "off", "Living room lights"),
+        entity("light.tv_lamp", "off", "TV Lamp"),
+        entity("light.tree_light", "on", "Tree Light", brightness=180),
+        entity("light.elgato_key_light_mk_2_e1a2", "off", "Elgato Key Light MK.2 E1A2"),
+        entity("light.elgato_key_light_mk_2_b2d7", "off", "Elgato Key Light MK.2 B2D7"),
+        entity("switch.coffee_machine", "off", "Coffee machine"),
+        entity("media_player.living_room_tv", "standby", "Living room TV"),
+        entity("script.sleep_time", "off", "Sleep time"),
+        entity("sensor.lounge_temperature", "22.4", "Lounge temperature", device_class="temperature", unit_of_measurement="°C"),
+        entity("sun.sun", "above_horizon", "Sun", next_rising=now(60 * 14), next_setting=now(60 * 5), elevation=42.0, rising=False),
+        # The Roborock, named the way the Roborock integration names them.
+        entity(f"vacuum.{VACUUM}", "docked", "Roborock Q7 Max", fan_speed="balanced", supported_features=30524),
+        entity(f"sensor.{VACUUM}_status", "charging", "Roborock Q7 Max Status"),
+        entity(f"sensor.{VACUUM}_vacuum_error", "none", "Roborock Q7 Max Vacuum error"),
+        entity(f"sensor.{VACUUM}_battery", "86", "Roborock Q7 Max Battery", device_class="battery", unit_of_measurement="%"),
+        entity(f"binary_sensor.{VACUUM}_cleaning", "off", "Roborock Q7 Max Cleaning", device_class="running"),
+        entity(f"binary_sensor.{VACUUM}_charging", "on", "Roborock Q7 Max Charging", device_class="battery_charging"),
+        entity(f"binary_sensor.{VACUUM}_water_shortage", "off", "Roborock Q7 Max Water shortage", device_class="problem"),
+        entity(f"sensor.{VACUUM}_main_brush_time_left", "212.5", "Roborock Q7 Max Main brush time left", **hours),
+        entity(f"sensor.{VACUUM}_side_brush_time_left", "64.2", "Roborock Q7 Max Side brush time left", **hours),
+        entity(f"sensor.{VACUUM}_filter_time_left", "9.6", "Roborock Q7 Max Filter time left", **hours),
+        entity(f"sensor.{VACUUM}_sensor_time_left", "-3.4", "Roborock Q7 Max Sensor time left", **hours),
+        entity(f"sensor.{VACUUM}_cleaning_time", "52.5", "Roborock Q7 Max Cleaning time", device_class="duration", unit_of_measurement="min"),
+        entity(f"sensor.{VACUUM}_cleaning_area", "64.5", "Roborock Q7 Max Cleaning area", unit_of_measurement="m²"),
+        entity(f"sensor.{VACUUM}_last_clean_end", now(-60 * 20), "Roborock Q7 Max Last clean end", device_class="timestamp"),
+        entity(f"image.{VACUUM}_map_0", now(-60 * 20), "Roborock Q7 Max Map 0"),
+        # The Ring doorbell. Its events read "unknown" until they first fire.
+        entity("camera.front_door_live_view", "idle", "Front Door Live view"),
+        entity("event.front_door_ding", now(-60 * 26), "Front Door Ding", device_class="doorbell", event_types=["ring"]),
+        entity("sensor.front_door_battery", "76", "Front Door Battery", device_class="battery", unit_of_measurement="%"),
+    ]
+    return {row["entity_id"]: row for row in rows}
+
+
+# Drawn pictures ---------------------------------------------------------------
+
+
+class Picture:
+    """RGBA pixels. Colours are (r, g, b) or (r, g, b, alpha)."""
+
+    def __init__(self, width: int, height: int, colour: tuple[int, ...]) -> None:
+        self.width, self.height = width, height
+        self.pixels = bytearray(self.rgba(colour) * width * height)
+
+    @staticmethod
+    def rgba(colour: tuple[int, ...]) -> bytes:
+        return bytes(colour if len(colour) == 4 else (*colour, 255))
+
+    def rect(self, x: int, y: int, w: int, h: int, colour: tuple[int, ...]) -> None:
+        x0, x1 = max(0, x), min(self.width, x + w)
+        for row in range(max(0, y), min(self.height, y + h)):
+            start = (row * self.width + x0) * 4
+            self.pixels[start:start + (x1 - x0) * 4] = self.rgba(colour) * (x1 - x0)
+
+    def circle(self, cx: int, cy: int, radius: int, colour: tuple[int, ...]) -> None:
+        for dy in range(-radius, radius + 1):
+            span = int((radius * radius - dy * dy) ** 0.5)
+            self.rect(cx - span, cy + dy, span * 2 + 1, 1, colour)
+
+    def path(self, points: list[tuple[int, int]], colour: tuple[int, ...], width: int = 2) -> None:
+        for (x0, y0), (x1, y1) in zip(points, points[1:]):
+            steps = max(abs(x1 - x0), abs(y1 - y0), 1)
+            for step in range(steps + 1):
+                self.rect(x0 + (x1 - x0) * step // steps, y0 + (y1 - y0) * step // steps, width, width, colour)
+
+    def png(self) -> bytes:
+        def chunk(kind: bytes, data: bytes) -> bytes:
+            return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+
+        stride = self.width * 4
+        raw = b"".join(b"\0" + bytes(self.pixels[row * stride:(row + 1) * stride]) for row in range(self.height))
+        header = struct.pack(">IIBBBBB", self.width, self.height, 8, 6, 0, 0, 0)
+        return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b"")
+
+
+def draw_map() -> bytes:
+    # A made-up floor plan in Roborock's colours, with the same wide
+    # transparent border real Roborock maps have.
+    picture = Picture(900, 760, (0, 0, 0, 0))
+    left, top = 170, 150
+    rooms = [
+        ((0, 0, 220, 170), (113, 170, 235)),
+        ((230, 0, 250, 120), (240, 168, 102)),
+        ((230, 130, 250, 250), (128, 200, 160)),
+        ((0, 180, 220, 200), (190, 150, 230)),
+    ]
+    for (x, y, w, h), colour in rooms:
+        picture.rect(left + x - 4, top + y - 4, w + 8, h + 8, (90, 96, 108))
+        picture.rect(left + x, top + y, w, h, colour)
+    trail = [(40, 340), (40, 210), (180, 210), (180, 240), (50, 240), (50, 270), (180, 270), (180, 160),
+             (260, 160), (260, 350), (290, 350), (290, 160), (320, 160), (320, 350), (350, 350), (350, 260)]
+    picture.path([(left + x, top + y) for x, y in trail], (250, 250, 250), 3)
+    picture.circle(left + 40, top + 355, 12, (32, 186, 120))
+    picture.circle(left + 350, top + 260, 14, (255, 255, 255))
+    picture.circle(left + 350, top + 260, 9, (52, 120, 212))
+    return picture.png()
+
+
+def draw_front_door() -> bytes:
+    picture = Picture(640, 360, (180, 205, 225))
+    for row in range(0, 120, 4):
+        shade = 150 + row // 2
+        picture.rect(0, row, 640, 4, (shade - 30, shade, 230))
+    picture.rect(0, 120, 640, 240, (214, 200, 178))
+    picture.rect(0, 300, 640, 60, (150, 140, 128))
+    picture.rect(255, 105, 130, 200, (94, 62, 45))
+    picture.rect(265, 115, 110, 185, (126, 84, 58))
+    picture.circle(360, 210, 6, (230, 196, 90))
+    picture.rect(240, 300, 160, 18, (80, 70, 62))
+    for x in (110, 520):
+        picture.rect(x, 230, 36, 70, (120, 90, 70))
+        picture.circle(x + 18, 215, 34, (70, 140, 80))
+    return picture.png()
+
+
+# Server -------------------------------------------------------------------------
+
+
+class MockHomeAssistant(BaseHTTPRequestHandler):
+    states: dict[str, dict[str, Any]] = {}
+    lock = Lock()
+    camera = True
+    pictures: dict[str, bytes] = {}
+    rooms = False
+
+    def send_body(self, status: int, body: bytes, content_type: str = "application/json") -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_value(self, value: Any, status: int = 200) -> None:
+        self.send_body(status, json.dumps(value).encode())
+
+    def read_body(self) -> dict[str, Any]:
+        length = int(self.headers.get("Content-Length") or 0)
+        value = json.loads(self.rfile.read(length) or b"{}") if length else {}
+        return value if isinstance(value, dict) else {}
+
+    def set_state(self, entity_id: str, state: str, attributes: dict[str, Any] | None = None) -> None:
+        row = self.states.setdefault(entity_id, entity(entity_id, state, entity_id))
+        row["state"] = state
+        row["attributes"].update(attributes or {})
+        row["last_changed"] = row["last_updated"] = now()
+
+    def do_GET(self) -> None:
+        path = self.path.split("?")[0]
+        with self.lock:
+            if path == "/api/":
+                self.send_value({"message": "API running."})
+            elif path == "/api/config":
+                self.send_value({"location_name": "Home", "version": "2026.9.4"})
+            elif path == "/api/states":
+                self.send_value(list(self.states.values()))
+            elif path.startswith("/api/states/"):
+                row = self.states.get(path.removeprefix("/api/states/"))
+                self.send_value(row or {"message": "Entity not found."}, 200 if row else 404)
+            elif path.startswith("/api/history/"):
+                self.send_value([])
+            elif path == f"/api/image_proxy/image.{VACUUM}_map_0":
+                self.send_body(200, self.pictures["map"], "image/png")
+            elif path == "/api/camera_proxy/camera.front_door_live_view" and self.camera:
+                self.send_body(200, self.pictures["front_door"], "image/png")
+            elif path.startswith("/api/camera_proxy/"):
+                self.send_body(500, b"500: Internal Server Error", "text/plain; charset=utf-8")
+            else:
+                self.send_value({"message": "Not found"}, 404)
+
+    def do_POST(self) -> None:
+        path = self.path.split("?")[0]
+        body = self.read_body()
+        with self.lock:
+            if path == "/mock/ding":
+                self.set_state("event.front_door_ding", now(), {"event_type": "ring"})
+                print("mock: the doorbell rang", flush=True)
+            elif path == "/mock/state":
+                self.set_state(str(body["entity_id"]), str(body["state"]), body.get("attributes"))
+            elif path == "/api/services/vacuum/clean_area" and not self.rooms:
+                print(f"mock: vacuum.clean_area {body.get('cleaning_area_id')} refused, no rooms", flush=True)
+                self.send_value({"message": f"Area mapping is not configured for `{body.get('entity_id')}`. Configure the segment-to-area mapping before using this action."}, 400)
+                return
+            elif path.startswith("/api/services/"):
+                domain, _, service = path.removeprefix("/api/services/").partition("/")
+                self.run_service(domain, service, str(body.get("entity_id", "")))
+            else:
+                self.send_value({"message": "Not found"}, 404)
+                return
+            self.send_value([])
+
+    def run_service(self, domain: str, service: str, entity_id: str) -> None:
+        print(f"mock: {domain}.{service} {entity_id}", flush=True)
+        if service in {"turn_on", "turn_off"} and domain in {"light", "switch", "fan", "input_boolean"}:
+            self.set_state(entity_id, "on" if service == "turn_on" else "off")
+        elif domain == "vacuum":
+            state, status = {"start": ("cleaning", "cleaning"), "clean_area": ("cleaning", "segment_cleaning"),
+                             "pause": ("paused", "paused"),
+                             "return_to_base": ("returning", "returning_home")}.get(service, ("idle", "idle"))
+            self.set_state(entity_id, state)
+            self.set_state(f"sensor.{VACUUM}_status", status)
+            self.set_state(f"binary_sensor.{VACUUM}_cleaning", "on" if state == "cleaning" else "off")
+            self.set_state(f"binary_sensor.{VACUUM}_charging", "off")
+
+    def log_message(self, *args: object) -> None:
+        pass
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--port", type=int, default=8124)
+    parser.add_argument("--no-camera", action="store_true", help="answer camera snapshots with a 500, like Ring without a plan")
+    parser.add_argument("--rooms", action="store_true", help="let room cleans work, as if the vacuum's rooms were matched to areas")
+    options = parser.parse_args()
+    MockHomeAssistant.states = initial_states()
+    MockHomeAssistant.camera = not options.no_camera
+    MockHomeAssistant.rooms = options.rooms
+    MockHomeAssistant.pictures = {"map": draw_map(), "front_door": draw_front_door()}
+    print(f"Mock Home Assistant on http://127.0.0.1:{options.port}", flush=True)
+    ThreadingHTTPServer(("127.0.0.1", options.port), MockHomeAssistant).serve_forever()
+
+
+if __name__ == "__main__":
+    main()
