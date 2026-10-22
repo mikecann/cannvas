@@ -13,6 +13,18 @@ function needsNativeKeyboard(target: EventTarget | null): target is HTMLElement 
   return target.isContentEditable;
 }
 
+// Chef's panel keeps its fields in a shadow root, where document-level events
+// and document.activeElement only see the <chef-panel> host. Look inside.
+function eventTarget(event: Event) {
+  return event.composedPath()[0] ?? event.target;
+}
+
+function deepActiveElement() {
+  let element = document.activeElement;
+  while (element?.shadowRoot?.activeElement) element = element.shadowRoot.activeElement;
+  return element;
+}
+
 function notifyVisibility(visible: boolean) {
   for (const listener of visibilityListeners) listener(visible);
 }
@@ -41,7 +53,8 @@ function updateNativeKeyboard(visible: boolean) {
 }
 
 export function dismissNativeKeyboard() {
-  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  const active = deepActiveElement();
+  if (active instanceof HTMLElement) active.blur();
   updateNativeKeyboard(false);
 }
 
@@ -49,9 +62,10 @@ export function installNativeKeyboard(onVisibilityChange: (visible: boolean) => 
   visibilityListeners.add(onVisibilityChange);
 
   const showForEditableTarget = (event: Event) => {
-    if (needsNativeKeyboard(event.target)) {
+    const target = eventTarget(event);
+    if (needsNativeKeyboard(target)) {
       updateNativeKeyboard(true);
-    } else if (event.target instanceof HTMLInputElement) {
+    } else if (target instanceof HTMLInputElement) {
       // Date, time, colour and other picker-based inputs should use Chromium's
       // built-in control without leaving the Wayland keyboard over the screen.
       updateNativeKeyboard(false);
@@ -62,7 +76,7 @@ export function installNativeKeyboard(onVisibilityChange: (visible: boolean) => 
     // focusout fires before the next field receives focus. Wait one frame so
     // moving between inputs does not flash the keyboard closed and open.
     window.requestAnimationFrame(() => {
-      if (!needsNativeKeyboard(document.activeElement)) updateNativeKeyboard(false);
+      if (!needsNativeKeyboard(deepActiveElement())) updateNativeKeyboard(false);
     });
   };
 

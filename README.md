@@ -245,6 +245,79 @@ Open [http://localhost:4173](http://localhost:4173), then
 `curl -X POST localhost:8124/mock/ding` rings the doorbell. See the top of the
 script for changing any state, a camera with no picture, and room cleans.
 
+### Chef (feature requests and cloud builds)
+
+More > **Suggest a feature** opens [Chef](https://github.com/convex/chef-cloud)'s
+request sheet, Seth Raphael's feedback board with cloud builds (private and
+pre-release). Anyone at the wall can type a request, or send a screenshot of
+the screen they're on with a voice note, and see how their requests are
+getting on. There's no floating button. Mike approves requests from his email,
+with no sign-in, and Chef can build an approved request in a cloud sandbox and
+ship it.
+
+- **Packages:** `@convex-dev/feedback` and `@convex-dev/chef-cloud` are vendored
+  in `vendor/` from the same commit of `convex/chef-cloud` (`7054e5a`), because
+  Chef's build sandboxes can only install from the npm registry. To update,
+  pack both again from one commit and `pnpm install`.
+- **Who's who:** the wall has no user, but Chef only takes requests from
+  someone it can name. So the wall is one Chef member, `cannvas-wall`: the sheet
+  trades the device token for an hour-long Convex auth token with that subject
+  (`chefWall:token`, signed with Convex Auth's `JWT_PRIVATE_KEY`). Mike is the
+  admin, `mike`. No caller can ever be `mike`: `getUserId` in
+  [`convex/chef.ts`](convex/chef.ts) only answers `cannvas-wall` or null.
+- **Emails:** every request waiting for approval is emailed to
+  mike.cann@gmail.com with **Approve and build** and **Reject**. Chef's own
+  emails (a build is ready or failed, a release shipped or didn't) go there
+  too, and "ready" gets a **Ship it** button. Each button opens
+  `https://<deployment>.convex.site/chef/link?t=<token>`: a random token, stored
+  only as its SHA-256, for one request (or build) and one action, single use
+  and good for 7 days. The GET only shows what it would do. Pressing the
+  page's button POSTs, and that acts, as `mike`, through the feedback
+  component ([`convex/chefLinks.ts`](convex/chefLinks.ts)). Gmail and link
+  scanners only ever GET. A request's links ran out, or the email never
+  came? `npx convex run chefMail:sendRequestEmail '{"itemId":"<id>"}'`
+  (`--prod`) sends a new email, with new links, while it's still waiting.
+  Links from earlier emails keep working until any one of that request's
+  links is used, which retires the rest.
+- **No admin panel:** nobody signs in to Chef as `mike`, so Chef's own admin
+  panel (watching builds, Try again, the run log) isn't anywhere. The emails
+  are the admin surface, and `npx chef status` and `npx convex run chef:...`
+  the rest.
+- **Sending:** through Chef's bundled Resend in gateway mode, with the
+  deployment's own service token, billed to the Convex team. The sender is
+  `Cannvas <chef@mail.mikecann.app>` (`CHEF_EMAIL_FROM` overrides it), and
+  `mail.mikecann.app` has to be a sending domain the team verified through the
+  gateway ([`docs/runbooks/chef-prod.md`](docs/runbooks/chef-prod.md), step 1).
+  Until it is, sends fail with `domain_not_verified` and nothing else breaks.
+- **Cloud builds:** Chef's repo for the app is `cannvas` on Code Storage (the
+  `chef` git remote). A build previews the wall's Vite build from static
+  hosting on a preview deployment. A sandbox has no device token, so a preview
+  shows the wall on its sample data and has no Suggest a feature.
+- **Ship it** deploys the backend to the deployment `CHEF_DEPLOY_KEY` is for,
+  publishes the same token-less frontend to that deployment's static hosting
+  (not the wall), and moves main in Chef's repo. The wall only changes when
+  you run `deploy/ship-from-chef.sh`: it fast-forwards main to Chef's, pushes
+  it to GitHub and runs `deploy/deploy.sh`. It refuses if GitHub's main or
+  your checkout has commits Chef's main doesn't, so it only ever deploys what
+  Chef shipped. Until it runs, the wall runs the old frontend against the new
+  backend.
+- **Chef follows GitHub:** after every production deploy, the workflow runs
+  `deploy/chef-follow-github.sh`, which fast-forwards Chef's main to the
+  commit it deployed (`chef sync --prod`, never forced), so builds start from
+  what's live. It does nothing while Chef isn't set up on prod. If main moves
+  while a build waits for Ship it, Chef doesn't ship the stale base: it
+  merges the new main into the build, re-runs its checks, and ships the
+  merge on the same approval when the change is the same. A merge that
+  needs a person (a conflict it resolved or couldn't) waits for an approval
+  in Chef's admin panel, which Cannvas doesn't have yet (see below).
+  Dev's Chef main doesn't follow anything: `npx chef sync` by hand.
+- **Deploy guard:** `pnpm convex:dev`, `pnpm convex:deploy` and the production
+  workflow run `chef guard` first, which refuses to deploy a checkout that
+  lacks what Chef shipped. `git pull chef main` (or `deploy/ship-from-chef.sh`)
+  fixes it.
+
+`npx chef status` (`--prod` for production) shows the setup, by name only.
+
 ## Running it as a wall display
 
 The files in [`deploy/`](deploy/) cover the Raspberry Pi kiosk used by the real
@@ -538,6 +611,7 @@ pnpm build:mirror       # Build the touchscreen against the production backend
 pnpm build:public       # Build the public website into dist-public/
 pnpm preview            # Preview the touchscreen build
 pnpm convex:dev         # Run or configure the Convex development backend
+deploy/ship-from-chef.sh  # Put what Chef shipped on the wall
 pnpm deploy:cloudflare  # Publish dist-public/ to Cloudflare
 ```
 

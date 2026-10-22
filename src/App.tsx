@@ -8,6 +8,7 @@ import {
   HousePlug,
   Keyboard,
   LayoutDashboard,
+  Lightbulb,
   ListTodo,
   PackageSearch,
   PencilLine,
@@ -44,6 +45,10 @@ import { useNightDim } from "./lib/useNightDim";
 // Leaflet and the bigger dashboards load only when first opened.
 const WeatherApp = lazy(() => import("./apps/WeatherApp").then((module) => ({ default: module.WeatherApp })));
 const HomeAutomationApp = lazy(() => import("./apps/HomeAutomationApp").then((module) => ({ default: module.HomeAutomationApp })));
+// Chef's request sheet. It signs in with the device token, so only the kiosk
+// build against a backend has it.
+const ChefSheet = lazy(() => import("./components/ChefSheet").then((module) => ({ default: module.ChefSheet })));
+const CHEF_ENABLED = Boolean(import.meta.env.VITE_CONVEX_URL && import.meta.env.VITE_CANNVAS_DEVICE_TOKEN?.trim());
 
 type AppId =
   | "whiteboard"
@@ -97,6 +102,7 @@ export function App() {
   const [activeApp, setActiveApp] = useState<AppId>("whiteboard");
   const [displaySession, setDisplaySession] = useState(0);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [chefOpen, setChefOpen] = useState(false);
   const [powerOffOpen, setPowerOffOpen] = useState(false);
   const [powerOffPending, setPowerOffPending] = useState(false);
   const [powerOffError, setPowerOffError] = useState("");
@@ -112,6 +118,7 @@ export function App() {
     // A focused field can be unmounted without firing focusout. Hide the native
     // keyboard explicitly so it never covers the idle display.
     dismissNativeKeyboard();
+    setChefOpen(false);
     // This also fires when the display is already active. Give DisplayApp an
     // explicit reset signal so an idle timeout always mutes the video again.
     setDisplaySession((session) => session + 1);
@@ -282,6 +289,12 @@ export function App() {
                     <span><strong>{label}</strong><small>{description}</small></span>
                   </button>
                 ))}
+                {CHEF_ENABLED && (
+                  <button className="more-chef-button" onClick={() => { setMoreOpen(false); setChefOpen(true); }}>
+                    <span className="more-app-icon"><Lightbulb /></span>
+                    <span><strong>Suggest a feature</strong><small>Ask for something new on Cannvas</small></span>
+                  </button>
+                )}
                 <button className="more-power-button" onClick={requestPowerOff}>
                   <span className="more-app-icon"><Power /></span>
                   <span><strong>Turn off Cannvas</strong><small>And the TV, until 6am</small></span>
@@ -336,6 +349,12 @@ export function App() {
           if (isAppId(app)) openApp(app);
         }}
       />
+
+      {chefOpen && (
+        <Suspense fallback={null}>
+          <ChefSheet keyboardVisible={keyboardVisible} onClose={() => setChefOpen(false)} />
+        </Suspense>
+      )}
 
       <NightDimOverlay />
       {/* Above the evening dimming, so a visitor is never missed. */}

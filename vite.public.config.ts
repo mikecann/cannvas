@@ -13,7 +13,15 @@ const KIOSK_ONLY_ENV = [
   "VITE_CALENDAR_ACCESS_TOKEN",
   "VITE_CANNVAS_TODO_ACCESS_TOKEN",
 ];
-const KIOSK_ONLY_MODULES = ["/src/main.tsx", "/src/kioskMain.tsx", "/src/App.tsx", "/src/data/DataProvider.tsx"];
+const KIOSK_ONLY_MODULES = [
+  "/src/main.tsx",
+  "/src/kioskMain.tsx",
+  "/src/App.tsx",
+  "/src/data/DataProvider.tsx",
+  // Chef ("Suggest a feature") signs in with the device token.
+  "/src/components/ChefSheet.tsx",
+  "/@convex-dev/feedback/panel/chef-panel.browser.js",
+];
 
 function listFiles(directory: string): string[] {
   return readdirSync(directory).flatMap((name) => {

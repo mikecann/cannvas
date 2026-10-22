@@ -1,7 +1,10 @@
+import { mountChefAgentRoutes } from "@convex-dev/feedback/http";
+import { registerStaticRoutes } from "@convex-dev/static-hosting";
 import { httpRouter } from "convex/server";
-import { internal } from "./_generated/api";
+import { components, internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 import { auth } from "./auth";
+import { handleLinkRequest, LINK_PATH, type LinkView } from "./lib/chefLinks";
 import { bearerTokenMatches, tokensMatch } from "./lib/tokens";
 
 const http = httpRouter();
@@ -168,5 +171,34 @@ http.route({
     return json(result);
   }),
 });
+
+// /chef-agent/*: the cloud runner's API and its model proxy.
+mountChefAgentRoutes(http, components.feedback);
+
+// The buttons in Chef's emails. GET only shows the page; its POST acts.
+const chefLink = httpAction(async (ctx, request) => {
+  const page = await handleLinkRequest(
+    { method: request.method, url: request.url, form: async () => new URLSearchParams(await request.text()) },
+    {
+      view: async (tokenHash) => (await ctx.runQuery(internal.chefLinks.view, { tokenHash })) as LinkView,
+      use: async (tokenHash, form) => await ctx.runMutation(internal.chefLinks.use, { tokenHash, ...form }),
+    },
+  );
+  return new Response(page.html, {
+    status: page.status,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+      "Referrer-Policy": "no-referrer",
+      "X-Robots-Tag": "noindex",
+    },
+  });
+});
+http.route({ path: LINK_PATH, method: "GET", handler: chefLink });
+http.route({ path: LINK_PATH, method: "POST", handler: chefLink });
+
+// Only Chef uses this: a build's preview serves the wall's frontend from
+// static hosting. Last, so every route above wins over its catch-all.
+registerStaticRoutes(http, components.staticHosting);
 
 export default http;

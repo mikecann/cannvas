@@ -19,6 +19,9 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          # Chef's deploy guard checks that this commit contains Chef's main.
+          fetch-depth: 0
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -35,9 +38,18 @@ jobs:
       - name: Run regression tests
         run: pnpm test
 
+      # "Ship it" deploys a Chef build to production and moves main in Chef's
+      # repo, not on GitHub. Deploying a commit without it would roll that
+      # back, so refuse until it's merged (deploy/ship-from-chef.sh does).
+      - name: Check nothing Chef shipped gets rolled back
+        run: pnpm exec chef guard --prod
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+
       # Only the public site is built here. The kiosk build carries the
       # device token and is built on a Mac with `pnpm build:mirror`.
       - name: Deploy Convex and build public website
+        id: convex
         run: >-
           pnpm exec convex deploy
           --cmd "pnpm build:public"
@@ -51,3 +63,14 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # Chef's cloud builds start from Chef's main on Code Storage. Move it
+      # to what was just deployed, so builds start from what's live and a
+      # Ship it can't put older code back. Fast-forward only; it passes,
+      # doing nothing, while Chef isn't set up on production. Runs even if
+      # the Cloudflare step failed, since the backend is already deployed.
+      - name: Move Chef's main to the deployed commit
+        if: ${{ !cancelled() && steps.convex.outcome == 'success' }}
+        run: deploy/chef-follow-github.sh
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}

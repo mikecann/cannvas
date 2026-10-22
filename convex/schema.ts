@@ -180,4 +180,21 @@ export default defineSchema({
     note: v.optional(v.string()),
     occurredAt: v.number(),
   }).index("by_item_id_and_occurred_at", ["itemId", "occurredAt"]),
+  // The buttons in Chef's emails to Mike (convex/chefLinks.ts). Only the
+  // token's SHA-256 is stored; the token itself is only ever in the email.
+  chefLinks: defineTable({
+    tokenHash: v.string(),
+    action: v.union(v.literal("approve"), v.literal("reject"), v.literal("ship")),
+    // A request's Chef item id (approve, reject) or a build's run id (ship).
+    itemId: v.optional(v.string()),
+    runId: v.optional(v.string()),
+    // Approve approves exactly the snapshot the email showed.
+    snapshotId: v.optional(v.string()),
+    contentHash: v.optional(v.string()),
+    expiresAt: v.number(),
+    usedAt: v.optional(v.number()),
+    outcome: v.optional(v.string()),
+  })
+    .index("by_token_hash", ["tokenHash"])
+    .index("by_item_id", ["itemId"]),
 });

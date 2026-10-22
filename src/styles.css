@@ -99,6 +99,7 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .more-apps-popover button small { color: var(--muted); font-size: .72rem; }
 .more-apps-popover .more-power-button { color: #9f332d; background: #f8e7e3; }
 .more-apps-popover .more-power-button .more-app-icon { background: #c74840; }
+.more-apps-popover .more-chef-button .more-app-icon { background: var(--orange); }
 .icon-button { width: 56px; height: 56px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid #dfd8cc; border-radius: 17px; background: var(--paper); cursor: pointer; }
 .icon-button:active { transform: scale(.96); }
 .button { min-height: 54px; padding: 0 24px; display: inline-flex; align-items: center; justify-content: center; gap: 9px; border-radius: 17px; border: 0; font-weight: 800; cursor: pointer; }
