@@ -12,11 +12,13 @@ import {
   PackageSearch,
   PencilLine,
   Power,
+  SlidersHorizontal,
   CloudSun,
   CloudOff,
   LoaderCircle,
   Sun,
 } from "lucide-react";
+import { AdminApp } from "./apps/AdminApp";
 import { CalendarApp } from "./apps/CalendarApp";
 import { ChoresApp } from "./apps/ChoresApp";
 import { DisplayApp } from "./apps/DisplayApp";
@@ -29,11 +31,13 @@ import { WhiteboardApp } from "./apps/WhiteboardApp";
 import { AppErrorBoundary } from "./components/AppErrorBoundary";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { DoorbellAlert } from "./components/DoorbellAlert";
+import { VoiceOverlay } from "./components/VoiceOverlay";
 import { useDeviceStatus } from "./data/DataProvider";
 import type { BackupStatus } from "./data/types";
 import { HOME_ASSISTANT_POWER_OFF_RECOVERY_MS, POWER_OFF_RECOVERY_MESSAGE, schedulePowerOffRecovery } from "./lib/actionTiming";
 import { runHomeAssistantAction } from "./lib/homeAssistantAction";
 import { dismissNativeKeyboard, installNativeKeyboard } from "./lib/nativeKeyboard";
+import { SCREEN_WAKE_EVENT } from "./lib/nightDim";
 import { useHeartbeat } from "./lib/useHeartbeat";
 import { useNightDim } from "./lib/useNightDim";
 
@@ -51,6 +55,7 @@ type AppId =
   | "home-automation"
   | "sammy-tablets"
   | "sammy-cam"
+  | "admin"
   | "inventory"
   | "display";
 
@@ -69,16 +74,22 @@ const moreApps = [
   { id: "sammy-tablets" as const, label: "Sammy", description: "Tablet schedule", icon: Dog },
   { id: "sammy-cam" as const, label: "Sammy Cam", description: "Live view and last night", icon: Cctv },
   { id: "inventory" as const, label: "Inventory", description: "Find household items", icon: PackageSearch },
+  { id: "admin" as const, label: "Admin", description: "Wake word training", icon: SlidersHorizontal },
 ];
 
 // A Home Assistant script that shuts the Pi down cleanly, then cuts the smart
 // plug feeding the TV and Pi until the 06:00 automation turns it back on.
 const POWER_OFF_SCRIPT = "script.cannvas_power_off";
 
+const appIds = new Set<string>([...primaryApps, ...moreApps].map(({ id }) => id));
+const isAppId = (value: string): value is AppId => value === "display" || appIds.has(value);
+
 const DEFAULT_IDLE_TIMEOUT = 5 * 60 * 1000;
-// Touches inside Sammy Cam's page never reach Cannvas, so the usual timeout
-// would send someone home halfway through scrubbing back through the night.
-const SAMMY_CAM_IDLE_TIMEOUT = 30 * 60 * 1000;
+// Touches inside Sammy Cam's page never reach Cannvas, and wake word training
+// is done by talking from across the room, so the usual timeout would send
+// someone home halfway through scrubbing back through the night or recording.
+const SLOW_IDLE_APPS = new Set<AppId>(["sammy-cam", "admin"]);
+const SLOW_IDLE_TIMEOUT = 30 * 60 * 1000;
 
 export function App() {
   const { isReady, backupStatus } = useDeviceStatus();
@@ -112,7 +123,7 @@ export function App() {
     window.clearTimeout(idleTimer.current);
     idleTimer.current = window.setTimeout(() => {
       openDisplay();
-    }, shownApp.current === "sammy-cam" ? Math.max(idleTimeout, SAMMY_CAM_IDLE_TIMEOUT) : idleTimeout);
+    }, SLOW_IDLE_APPS.has(shownApp.current) ? Math.max(idleTimeout, SLOW_IDLE_TIMEOUT) : idleTimeout);
   }, [idleTimeout, openDisplay]);
 
   useEffect(() => {
@@ -220,6 +231,7 @@ export function App() {
               {activeApp === "home-automation" && <HomeAutomationApp />}
               {activeApp === "sammy-tablets" && <SammyTabletTickerApp />}
               {activeApp === "sammy-cam" && <SammyCamApp />}
+              {activeApp === "admin" && <AdminApp />}
               {activeApp === "inventory" && <KioskInventoryApp />}
               {activeApp === "display" && <DisplayApp displaySession={displaySession} onActivity={resetIdleTimer} onOpenCalendar={() => openApp("calendar")} onOpenWeather={() => openApp("weather")} onOpenSolar={() => openApp("solar")} />}
             </Suspense>
@@ -313,6 +325,17 @@ export function App() {
         <p>This safely shuts down Cannvas and turns off the TV. Cannvas comes back on by itself at 6am.</p>
         {powerOffError && <p className="dialog-error">{powerOffError}</p>}
       </ConfirmDialog>
+
+      <VoiceOverlay
+        // Hearing the wake word counts as activity, but stays on the same screen.
+        onWake={() => {
+          window.dispatchEvent(new Event(SCREEN_WAKE_EVENT));
+          resetIdleTimer();
+        }}
+        onOpenApp={(app) => {
+          if (isAppId(app)) openApp(app);
+        }}
+      />
 
       <NightDimOverlay />
       {/* Above the evening dimming, so a visitor is never missed. */}

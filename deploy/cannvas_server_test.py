@@ -136,6 +136,46 @@ class FakeUpstream(BaseHTTPRequestHandler):
         pass
 
 
+class FakeVoice(BaseHTTPRequestHandler):
+    """Plays cannvas-voice: a short event stream, the listen button and training."""
+
+    posts: list[tuple[str, str | None, bytes]] = []
+
+    def do_GET(self) -> None:
+        if self.path == "/training":
+            self.reply(200, b'{"samples": [{"id": "20261012-070000-josh-ab12"}]}')
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        self.wfile.write(b'retry: 3000\n\ndata: {"type": "state", "phase": "idle"}\n\n')
+
+    def do_POST(self) -> None:
+        body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        FakeVoice.posts.append((self.path, self.headers.get("Origin"), body))
+        if self.path == "/training/start" and b"nobody" in body:
+            self.reply(400, b'{"error": "Choose a speaker"}')
+        else:
+            self.reply(202, b'{"ok": true}')
+
+    def reply(self, status: int, body: bytes) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args: object) -> None:
+        pass
+
+
+def closed_port() -> int:
+    # Take a free loopback port and close it, so connecting is refused at once.
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
 class CannvasServerTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -155,11 +195,14 @@ class CannvasServerTest(unittest.TestCase):
         cls.port = cls.server.server_address[1]
         cls.upstream = start(ThreadingHTTPServer(("127.0.0.1", 0), FakeUpstream))
         cls.upstream_url = f"http://127.0.0.1:{cls.upstream.server_address[1]}"
+        cls.voice = start(ThreadingHTTPServer(("127.0.0.1", 0), FakeVoice))
+        cls.voice_url = f"http://127.0.0.1:{cls.voice.server_address[1]}"
 
     @classmethod
     def tearDownClass(cls) -> None:
         cls.server.shutdown()
         cls.upstream.shutdown()
+        cls.voice.shutdown()
         cls.temp_dir.cleanup()
 
     def setUp(self) -> None:
@@ -172,6 +215,8 @@ class CannvasServerTest(unittest.TestCase):
         FakeUpstream.vacuum_has_rooms = False
         self.module._VIDEO_DOWN_UNTIL = 0.0
         self.module.VIDEO_URL = self.upstream_url
+        self.module.VOICE_URL = self.voice_url
+        FakeVoice.posts = []
         config = self.temp / "home-assistant.json"
         if config.exists():
             config.unlink()
@@ -522,11 +567,7 @@ class CannvasServerTest(unittest.TestCase):
         self.assertEqual(response.getheader("Content-Range"), "bytes */1234")
 
     def test_video_circuit_breaker(self) -> None:
-        # Take a free loopback port and close it, so connecting is refused at once.
-        with socket.socket() as probe:
-            probe.bind(("127.0.0.1", 0))
-            closed_port = probe.getsockname()[1]
-        self.module.VIDEO_URL = f"http://127.0.0.1:{closed_port}"
+        self.module.VIDEO_URL = f"http://127.0.0.1:{closed_port()}"
         response, _ = self.request("GET", "/videos/a.mp4")
         self.assertEqual(response.status, 502)
         started = time.monotonic()
@@ -534,6 +575,44 @@ class CannvasServerTest(unittest.TestCase):
         self.assertEqual(response.status, 503)
         self.assertTrue(int(response.getheader("Retry-After")) > 0)
         self.assertLess(time.monotonic() - started, 1)
+
+    def test_voice_events_are_relayed(self) -> None:
+        response, body = self.request("GET", "/api/voice/events")
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.getheader("Content-Type"), "text/event-stream")
+        self.assertIn(b'"phase": "idle"', body)
+
+    def test_voice_events_ask_the_page_to_retry_when_voice_is_down(self) -> None:
+        # EventSource stops for good on an error status, so this must stay 200.
+        self.module.VOICE_URL = f"http://127.0.0.1:{closed_port()}"
+        response, body = self.request("GET", "/api/voice/events")
+        self.assertEqual(response.status, 200)
+        self.assertEqual(body, b"retry: 10000\n\n")
+
+    def test_voice_listen_is_forwarded(self) -> None:
+        response, _ = self.request(
+            "POST", "/api/voice/listen", b"{}",
+            {"Content-Type": "application/json", "Origin": f"http://127.0.0.1:{self.port}"},
+        )
+        self.assertEqual(response.status, 202)
+        # The voice service refuses requests with an Origin, so none is passed on.
+        self.assertEqual(FakeVoice.posts, [("/listen", None, b"{}")])
+
+    def test_voice_training_is_relayed_with_its_answers(self) -> None:
+        response, body = self.request("GET", "/api/voice/training")
+        self.assertEqual((response.status, json.loads(body)["samples"][0]["id"]), (200, "20261012-070000-josh-ab12"))
+        choice = json.dumps({"speaker": "josh", "spot": "far", "saying": "wake"}).encode()
+        response, _ = self.request("POST", "/api/voice/training/start", choice, {"Content-Type": "application/json"})
+        self.assertEqual(response.status, 202)
+        self.assertEqual(FakeVoice.posts[-1], ("/training/start", None, choice))
+        # The voice service's reason for refusing comes back to the page.
+        response, body = self.request("POST", "/api/voice/training/start", b'{"speaker": "nobody"}', {"Content-Type": "application/json"})
+        self.assertEqual((response.status, json.loads(body)), (400, {"error": "Choose a speaker"}))
+
+    def test_voice_listen_when_voice_is_down(self) -> None:
+        self.module.VOICE_URL = f"http://127.0.0.1:{closed_port()}"
+        response, _ = self.request("POST", "/api/voice/listen", b"{}", {"Content-Type": "application/json"})
+        self.assertEqual(response.status, 503)
 
 
 if __name__ == "__main__":

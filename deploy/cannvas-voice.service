@@ -1,0 +1,17 @@
+[Unit]
+Description=Cannvas voice commands
+# The microphone and the TV's speakers belong to the desktop's PipeWire session.
+After=pipewire.service wireplumber.service
+Wants=pipewire.service wireplumber.service
+StartLimitIntervalSec=0
+
+[Service]
+ExecStart=/opt/cannvas-voice/venv/bin/python /opt/cannvas/current/cannvas-voice
+Restart=always
+RestartSec=5
+# Listening must not make the touchscreen stutter.
+Nice=5
+MemoryMax=1500M
+
+[Install]
+WantedBy=default.target

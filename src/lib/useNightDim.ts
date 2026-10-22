@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { nightDimLevel, TOUCH_WAKE_MS } from "./nightDim";
+import { nightDimLevel, SCREEN_WAKE_EVENT, TOUCH_WAKE_MS } from "./nightDim";
 import { useMinuteClock } from "./useMinuteClock";
 import { useSunTimes } from "./useSunTimes";
 
 /**
  * The opacity of the evening dimming overlay, following today's sunset and
- * sunrise. A touch brings back full brightness for a few minutes.
+ * sunrise. A touch or the wake word brings back full brightness for a few minutes.
  */
 export function useNightDim(): number {
   const now = useMinuteClock();
@@ -22,8 +22,10 @@ export function useNightDim(): number {
       setAwake(true);
     };
     window.addEventListener("pointerdown", wake, { passive: true, capture: true });
+    window.addEventListener(SCREEN_WAKE_EVENT, wake);
     return () => {
       window.removeEventListener("pointerdown", wake, { capture: true });
+      window.removeEventListener(SCREEN_WAKE_EVENT, wake);
       window.clearTimeout(wakeTimer.current);
     };
   }, []);
