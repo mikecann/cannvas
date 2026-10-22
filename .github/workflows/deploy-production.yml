@@ -19,6 +19,9 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          # Chef's deploy guard checks that this commit contains Chef's main.
+          fetch-depth: 0
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -34,6 +37,14 @@ jobs:
 
       - name: Run regression tests
         run: pnpm test
+
+      # "Ship it" deploys a Chef build to production and moves main in Chef's
+      # repo, not on GitHub. Deploying a commit without it would roll that
+      # back, so refuse until it's merged (deploy/ship-from-chef.sh does).
+      - name: Check nothing Chef shipped gets rolled back
+        run: pnpm exec chef guard --prod
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
 
       # Only the public site is built here. The kiosk build carries the
       # device token and is built on a Mac with `pnpm build:mirror`.
