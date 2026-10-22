@@ -218,7 +218,7 @@ export const use = internalMutation({
         const builds = await ctx.runQuery(components.feedback.chefRuns.buildState, { viewer: CHEF_ADMIN_ID }).catch(() => null);
         outcome = builds?.cloudEnabled
           ? "Approved. Chef is building it, and emails you when it's ready to check."
-          : "Approved. Cloud builds are off, so Chef will build it once they're on.";
+          : "Approved. It's in the queue for when you're back at your desk.";
       } else if (link.action === "reject") {
         await feedback.items.review(ctx, { itemId: asItemId(link.itemId!), approve: false, reviewerId: CHEF_ADMIN_ID });
         outcome = "Rejected.";

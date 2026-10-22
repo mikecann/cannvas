@@ -79,13 +79,15 @@ You want `adminUserId: mike`, `deployKeyPrefix: prod:resolute-dalmatian-719`, `p
 deploy/deploy.sh
 ```
 
-Check on the Pi (AGENTS.md has the screenshot command): More has "Suggest a feature", and it opens Chef's sheet in the middle of the screen. Send one request. Within a minute mike.cann@gmail.com gets "[Cannvas] New request #1 ...". Press Reject (or Approve and build: with cloud builds off it waits). The page asks you to confirm; confirm, and the wall's sheet shows it as Declined (or Planned).
+Check on the Pi (AGENTS.md has the screenshot command): More has "Suggest a feature", and it opens Chef's sheet in the middle of the screen. Send one request. Within a minute mike.cann@gmail.com gets "[Cannvas] New request #1 ...". Press Reject (or Approve: with cloud builds off it joins the queue). The page asks you to confirm; confirm, and the wall's sheet shows it as Declined (or Planned).
 
 ## 6. Dev afterwards
 
 Dev keeps a working Chef for trying Chef itself. Its "Ship it" key still points at dev, so `pnpm convex:dev` stays guarded there: `git pull chef-dev main` if it refuses. Dev never builds unless someone turns cloud builds on there.
 
 ## 7. Turn cloud builds on (only when Mike says go)
+
+On 22 Oct 2026 Mike chose to keep cloud builds off and have approved requests queue up for building by hand, as in Walkies (README, "Chef"). This step is only for if he changes his mind.
 
 Each request Mike approves is then built and billed to the team's Convex bill: about $1 to $2 a build in model calls (capped at $20), plus sandbox time, a preview deployment and up to 2 warm snapshots.
 

@@ -44,7 +44,7 @@ export const chefNotifySend: ChefSend = async (ctx, email) => {
 };
 
 /**
- * A request is waiting for Mike: email it with Approve and build, and Reject.
+ * A request is waiting for Mike: email it with Approve and Reject.
  * Each run is a new email with new links, so this is also how to resend one.
  */
 export const sendRequestEmail = internalAction({

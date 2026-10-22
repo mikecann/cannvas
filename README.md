@@ -252,8 +252,22 @@ request sheet, Seth Raphael's feedback board with cloud builds (private and
 pre-release). Anyone at the wall can type a request, or send a screenshot of
 the screen they're on with a voice note, and see how their requests are
 getting on. There's no floating button. Mike approves requests from his email,
-with no sign-in, and Chef can build an approved request in a cloud sandbox and
-ship it.
+with no sign-in.
+
+Approved requests queue up (Chef's `requested` state, "Planned" on the wall)
+and get built by hand, the same as Walkies: when Mike's at his desk he asks
+his agent to do the Cannvas feature list, which builds each one, deploys it and
+marks it done. Cloud builds are set up on prod but stay off. Mike chose the
+queue over Chef building in the cloud by itself.
+
+- **Read the queue:** `npx convex data items --component feedback --prod
+  --format jsonLines`. Screenshots and voice notes:
+  `npx convex run --component feedback attachments:list
+  '{"itemId":"<id>","viewer":"cannvas-wall"}' --prod` returns signed URLs.
+- **Mark one done:** `items:setChangelog '{"itemId":"<id>","text":"..."}'`,
+  then `items:transitionState '{"itemId":"<id>","state":"completed"}'`, both
+  with `--component feedback --prod`. The changelog is a plain sentence or two
+  the family will read on the wall.
 
 - **Packages:** `@convex-dev/feedback` and `@convex-dev/chef-cloud` are vendored
   in `vendor/` from the same commit of `convex/chef-cloud` (`7054e5a`), because
@@ -266,7 +280,7 @@ ship it.
   admin, `mike`. No caller can ever be `mike`: `getUserId` in
   [`convex/chef.ts`](convex/chef.ts) only answers `cannvas-wall` or null.
 - **Emails:** every request waiting for approval is emailed to
-  mike.cann@gmail.com with **Approve and build** and **Reject**. Chef's own
+  mike.cann@gmail.com with **Approve** and **Reject**. Chef's own
   emails (a build is ready or failed, a release shipped or didn't) go there
   too, and "ready" gets a **Ship it** button. Each button opens
   `https://<deployment>.convex.site/chef/link?t=<token>`: a random token, stored

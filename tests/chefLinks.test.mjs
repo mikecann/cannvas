@@ -74,7 +74,7 @@ test("GET only shows the page and never acts", async () => {
   assert.deepEqual(calls.view, [await hashLinkToken(token)]);
   assert.match(page.html, /<form method="post" action="\/chef\/link">/);
   assert.match(page.html, /name="action" value="approve"/);
-  assert.match(page.html, /Approve and build/);
+  assert.match(page.html, /Approve it\?/);
   // The request's own text is escaped.
   assert.match(page.html, /A &lt;b&gt;bigger&lt;\/b&gt; clock/);
 });
@@ -137,10 +137,10 @@ test("the request email has both buttons and escapes the request", () => {
     rejectUrl: linkUrl("https://x.convex.site", "tok2"),
   });
   assert.equal(email.subject, "[Cannvas] New request #3 A <b>bigger</b> clock");
-  assert.match(email.html, /href="https:\/\/x\.convex\.site\/chef\/link\?t=tok1"[^>]*>Approve and build</);
+  assert.match(email.html, /href="https:\/\/x\.convex\.site\/chef\/link\?t=tok1"[^>]*>Approve</);
   assert.match(email.html, /href="https:\/\/x\.convex\.site\/chef\/link\?t=tok2"[^>]*>Reject</);
   assert.doesNotMatch(email.html, /<script>|<b>bigger/);
-  assert.match(email.text, /Approve and build: https:\/\/x\.convex\.site\/chef\/link\?t=tok1/);
+  assert.match(email.text, /Approve: https:\/\/x\.convex\.site\/chef\/link\?t=tok1/);
   assert.match(email.text, /Voice note:\nand <script>/);
 });
 

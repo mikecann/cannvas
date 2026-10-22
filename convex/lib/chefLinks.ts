@@ -1,4 +1,4 @@
-// The buttons in Chef's emails to Mike (Approve and build, Reject, Ship it).
+// The buttons in Chef's emails to Mike (Approve, Reject, Ship it).
 // Each one links to /chef/link?t=<token>: a random, single-use token, stored
 // only as its SHA-256, bound to one request (or build) and one action, and
 // good for 7 days. A GET only shows what the button would do, with a confirm
@@ -132,7 +132,7 @@ export async function handleLinkRequest(
 const NOT_FOUND = "<p>This link isn't one Cannvas made. Use the buttons in the email.</p>";
 
 const ACTION_WORDS: Record<LinkAction, { title: string; button: string }> = {
-  approve: { title: "Approve and build?", button: "Approve and build" },
+  approve: { title: "Approve it?", button: "Approve" },
   reject: { title: "Reject this request?", button: "Reject" },
   ship: { title: "Ship it to the wall?", button: "Ship it" },
 };
@@ -240,7 +240,7 @@ export function requestEmail(input: { request: LinkRequest; approveUrl: string; 
     ...(request.transcript ? ["Voice note:", request.transcript, ""] : []),
     ...(request.screenshots.length ? [`Screenshots: ${request.screenshots.join(" ")}`, ""] : []),
     ...(request.audioUrl ? [`Voice note recording: ${request.audioUrl}`, ""] : []),
-    `Approve and build: ${approveUrl}`,
+    `Approve: ${approveUrl}`,
     `Reject: ${rejectUrl}`,
     "",
     "Each link opens a page that asks you to confirm. It works once, for 7 days.",
@@ -256,7 +256,7 @@ export function requestEmail(input: { request: LinkRequest; approveUrl: string; 
       .map((url) => `<p><a href="${escapeHtml(url)}"><img src="${escapeHtml(url)}" alt="Screenshot" width="320" style="display:block;max-width:100%;border:1px solid #d9d1c5;border-radius:8px"></a></p>`)
       .join(""),
     request.audioUrl ? `<p><a href="${escapeHtml(request.audioUrl)}">Play the voice note</a></p>` : "",
-    `<p>${buttonHtml(approveUrl, "Approve and build", "#168b70")}${buttonHtml(rejectUrl, "Reject", "#d74c43")}</p>`,
+    `<p>${buttonHtml(approveUrl, "Approve", "#168b70")}${buttonHtml(rejectUrl, "Reject", "#d74c43")}</p>`,
     `<p style="font-size:13px;color:#716e68">Each button opens a page that asks you to confirm. It works once, for 7 days.</p>`,
     `</div>`,
   ].join("");
