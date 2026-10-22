@@ -36,12 +36,12 @@ const vRequest = v.object({
 
 async function insertLink(ctx: MutationCtx, fields: Omit<Doc<"chefLinks">, "_id" | "_creationTime" | "tokenHash" | "expiresAt">) {
   const token = newLinkToken();
-  await ctx.db.insert("chefLinks", {
+  const id = await ctx.db.insert("chefLinks", {
     ...fields,
     tokenHash: await hashLinkToken(token),
     expiresAt: Date.now() + LINK_TTL_MS,
   });
-  return token;
+  return { token, id };
 }
 
 async function findLink(ctx: QueryCtx, tokenHash: string) {
@@ -71,12 +71,18 @@ async function snapshotRequest(ctx: QueryCtx, snapshotId: string): Promise<LinkR
 /**
  * A request is waiting for Mike: snapshot it as the admin and make its
  * Approve and Reject links. The tokens go back to the emailing action only.
+ *
+ * Every call is a new email, so it gets its own delivery id (the email's
+ * idempotency key): a resend is sent again rather than deduplicated to the
+ * last one. Links from earlier emails stay usable until any of the request's
+ * links is used (retireSiblings); Chef refuses an earlier Approve if the
+ * request was edited since that email.
  */
 export const createRequestLinks = internalMutation({
   args: { itemId: v.string() },
   returns: v.union(
     v.null(),
-    v.object({ snapshotId: v.string(), approveToken: v.string(), rejectToken: v.string(), request: vRequest }),
+    v.object({ deliveryId: v.string(), approveToken: v.string(), rejectToken: v.string(), request: vRequest }),
   ),
   handler: async (ctx, { itemId }) => {
     const item = await feedback.items.get(ctx, { itemId: asItemId(itemId) }).catch(() => null);
@@ -84,9 +90,9 @@ export const createRequestLinks = internalMutation({
     const { snapshotId, contentHash } = await feedback.chefSnapshots.prepareApproval(ctx, { itemId, adminUserId: CHEF_ADMIN_ID });
     const request = await snapshotRequest(ctx, snapshotId);
     if (!request) return null;
-    const approveToken = await insertLink(ctx, { action: "approve", itemId, snapshotId, contentHash });
-    const rejectToken = await insertLink(ctx, { action: "reject", itemId });
-    return { snapshotId, approveToken, rejectToken, request };
+    const approve = await insertLink(ctx, { action: "approve", itemId, snapshotId, contentHash });
+    const reject = await insertLink(ctx, { action: "reject", itemId });
+    return { deliveryId: approve.id, approveToken: approve.token, rejectToken: reject.token, request };
   },
 });
 
@@ -94,7 +100,7 @@ export const createRequestLinks = internalMutation({
 export const createShipLink = internalMutation({
   args: { runId: v.string() },
   returns: v.string(),
-  handler: async (ctx, { runId }) => await insertLink(ctx, { action: "ship", runId }),
+  handler: async (ctx, { runId }) => (await insertLink(ctx, { action: "ship", runId })).token,
 });
 
 async function shipView(ctx: QueryCtx, runId: string): Promise<LinkShip> {
@@ -160,14 +166,15 @@ function failure(error: unknown) {
     .split("\n")[0];
 }
 
-// One request's other link is spent once either is used: approving a
-// request it was offered to reject (or the other way round) can't happen later.
+// A request's other links, from this email and any earlier ones, are spent
+// once one is used: approving a request it was offered to reject (or the
+// other way round, or twice) can't happen later.
 async function retireSiblings(ctx: MutationCtx, link: Doc<"chefLinks">, outcome: string) {
   if (!link.itemId) return;
   const siblings = await ctx.db
     .query("chefLinks")
     .withIndex("by_item_id", (q) => q.eq("itemId", link.itemId))
-    .take(20);
+    .take(200);
   for (const sibling of siblings) {
     if (sibling._id !== link._id && sibling.usedAt === undefined) {
       await ctx.db.patch("chefLinks", sibling._id, { usedAt: Date.now(), outcome });

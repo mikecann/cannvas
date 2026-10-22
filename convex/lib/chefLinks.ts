@@ -255,6 +255,12 @@ export function requestEmail(input: { request: LinkRequest; approveUrl: string; 
   return { subject, text, html };
 }
 
+// One request email's idempotency key. `deliveryId` is new for every email
+// Cannvas means to send, so only a retry of the same send is deduplicated.
+export function requestEmailKey(itemId: string, deliveryId: string) {
+  return `cannvas-request-${itemId}-${deliveryId}`;
+}
+
 // Chef's "built" email's idempotency key is `chef-<runId>-built`.
 export function builtRunId(idempotencyKey: string): string | null {
   return idempotencyKey.match(/^chef-([a-z0-9]+)-built$/)?.[1] ?? null;

@@ -10,6 +10,7 @@ import {
   looksLikeLinkToken,
   newLinkToken,
   requestEmail,
+  requestEmailKey,
   withShipButton,
 } from "../convex/lib/chefLinks.ts";
 
@@ -153,3 +154,9 @@ test("Ship it goes right after the preview link in Chef's built email", () => {
   assert.match(email.html, /Open the preview<\/a><\/p><p><a href="https:\/\/x\.convex\.site\/chef\/link\?t=s"[^>]*>Ship it</);
   assert.equal(email.text, "Chef built\n\nPreview: https://p.convex.site\nShip it: https://x.convex.site/chef/link?t=s\nRun: x");
 });
+
+test("each request email gets its own idempotency key", () => {
+  assert.equal(requestEmailKey("item1", "delivery1"), "cannvas-request-item1-delivery1");
+  assert.notEqual(requestEmailKey("item1", "delivery1"), requestEmailKey("item1", "delivery2"));
+});
+

@@ -6,7 +6,7 @@ import type { ChefSend } from "@convex-dev/chef-cloud";
 import { v } from "convex/values";
 import { components, internal } from "./_generated/api";
 import { internalAction, type ActionCtx } from "./_generated/server";
-import { builtRunId, linkUrl, requestEmail, withShipButton } from "./lib/chefLinks";
+import { builtRunId, linkUrl, requestEmail, requestEmailKey, withShipButton } from "./lib/chefLinks";
 
 export const CHEF_OWNER_EMAIL = "mike.cann@gmail.com";
 const DEFAULT_FROM = "Cannvas <chef@mail.mikecann.app>";
@@ -29,7 +29,13 @@ async function send(ctx: ActionCtx, email: { to: string; subject: string; html: 
   return { id };
 }
 
-/** chefCloud's notify.send: Chef's own emails, with Ship it added to "built". */
+/**
+ * chefCloud's notify.send: Chef's own emails, with Ship it added to "built".
+ * Chef sends each run's "built" email once, keyed `chef-<runId>-built`, and
+ * only calls this again to retry that same send, so the key stays Chef's: a
+ * retry Resend deduplicates leaves the first email's Ship it link (still
+ * valid) in the inbox, and the retry's link is never delivered or used.
+ */
 export const chefNotifySend: ChefSend = async (ctx, email) => {
   const runId = email.kind === "built" ? builtRunId(email.idempotencyKey) : null;
   if (!runId) return await send(ctx, email);
@@ -37,7 +43,10 @@ export const chefNotifySend: ChefSend = async (ctx, email) => {
   return await send(ctx, { ...email, ...withShipButton(email, linkUrl(siteUrl(), token)) });
 };
 
-/** A request is waiting for Mike: email it with Approve and build, and Reject. */
+/**
+ * A request is waiting for Mike: email it with Approve and build, and Reject.
+ * Each run is a new email with new links, so this is also how to resend one.
+ */
 export const sendRequestEmail = internalAction({
   args: { itemId: v.string() },
   returns: v.null(),
@@ -49,7 +58,7 @@ export const sendRequestEmail = internalAction({
       approveUrl: linkUrl(siteUrl(), links.approveToken),
       rejectUrl: linkUrl(siteUrl(), links.rejectToken),
     });
-    const { id } = await send(ctx, { to: CHEF_OWNER_EMAIL, ...email, idempotencyKey: `cannvas-request-${itemId}-${links.snapshotId}` });
+    const { id } = await send(ctx, { to: CHEF_OWNER_EMAIL, ...email, idempotencyKey: requestEmailKey(itemId, links.deliveryId) });
     console.log(`Chef: emailed request ${itemId} to the owner (${id})`);
     return null;
   },
