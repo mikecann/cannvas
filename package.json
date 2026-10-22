@@ -28,6 +28,8 @@
     "@auth/core": "0.41.3",
     "@convex-dev/agent": "0.6.4",
     "@convex-dev/auth": "0.0.94",
+    "@convex-dev/chef-cloud": "file:vendor/convex-dev-chef-cloud-0.0.1.tgz",
+    "@convex-dev/feedback": "file:vendor/convex-dev-feedback-0.0.1.tgz",
     "@vitejs/plugin-react": "6.0.5",
     "ai": "6.0.76",
     "convex": "1.46.0",
