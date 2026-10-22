@@ -12,12 +12,14 @@ from http.client import HTTPConnection
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.machinery import SourceFileLoader
 from importlib.util import module_from_spec, spec_from_loader
+import io
 import json
 import os
 from pathlib import Path
 import sys
 import tempfile
 import threading
+from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
@@ -413,6 +415,178 @@ class TrainingTest(unittest.TestCase):
             self.assertTrue(store.delete(first["id"]))
             self.assertEqual(store.list(), [])
             self.assertEqual(list((Path(folder) / "samples").iterdir()), [])
+
+
+class SecondChanceTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.listener = voice.Voice.__new__(voice.Voice)
+        self.listener.np = Mock()
+        self.listener.np.frombuffer.side_effect = lambda raw, dtype: raw
+        self.listener.np.concatenate.side_effect = tuple
+        self.listener.boosted = lambda frame: frame
+        self.listener.wake = Mock()
+        self.listener.wake.predict.return_value = {"hey_canvas": 0.1}
+        self.listener.vad = Mock()
+        self.listener.vad.predict.return_value = 0.9
+        self.listener.events = Mock()
+        self.listener.agent = Mock()
+        self.listener.agent.handle.return_value = voice.Outcome("Okay.")
+        self.listener.speak = Mock()
+        self.listener.transcribe = Mock(return_value="Hey Canvas, turn the lights on.")
+        self.listener.listen_requested = threading.Event()
+        self.listener.idle_utterances = voice.Utterances()
+        self.listener.training = None
+        self.listener.resume_listening = False
+        self.listener.busy = False
+        self.listener.deaf_until = 0.0
+        self.listener.start_chime = b"start"
+        self.listener.end_chime = b"end"
+        for context in (patch.object(voice, "SECOND_CHANCE", 0.05),
+                        patch.object(voice.time, "monotonic", return_value=100.0),
+                        patch.object(voice, "play"), patch.object(voice, "log")):
+            context.start()
+            self.addCleanup(context.stop)
+
+    def test_leading_phrase_variants_preserve_the_command(self) -> None:
+        for text in ("Hey Canvas, turn the lights on.", "Hey, canvas! turn the lights on.",
+                     "CANVAS: turn the lights on.", "Cannvas, turn the lights on.",
+                     ' "Hey Cannvas," turn the lights on.'):
+            with self.subTest(text=text):
+                self.assertEqual(voice.wake_command(text), "turn the lights on.")
+        for text in ("Hey Canvas.", "Canvas", "hey, cannvas!"):
+            self.assertEqual(voice.wake_command(text), "")
+
+    def test_rejects_embedded_names_and_lookalikes(self) -> None:
+        for text in ("", "We should get a new canvas for the painting.", "The canvas is ready.",
+                     "Hey, can you pass me the remote?", "Hey, can I ask us?", "Hey Kansas!",
+                     "Hey canvasback", "Canvas123", "Say hey canvas", "Hey camera"):
+            with self.subTest(text=text):
+                self.assertIsNone(voice.wake_command(text))
+
+    def test_only_a_finished_low_band_utterance_starts_a_check(self) -> None:
+        for score in (0.049, 0.05, 0.49, 0.5, 0.9):
+            with self.subTest(score=score), patch.object(voice.threading, "Thread") as worker:
+                self.listener.busy = False
+                self.listener.idle_utterances = Mock()
+                self.listener.idle_utterances.feed.return_value = (["a", "b"], score)
+                self.listener.check_idle_frame("frame", 0.01)
+                if 0.05 <= score < 0.5:
+                    worker.assert_called_once_with(target=self.listener.check_second_chance,
+                                                   args=(("a", "b"), score), daemon=True)
+                    worker.return_value.start.assert_called_once()
+                    self.assertTrue(self.listener.busy)
+                else:
+                    worker.assert_not_called()
+        self.listener.busy = False
+        self.listener.idle_utterances = Mock()
+        self.listener.idle_utterances.feed.return_value = None
+        with patch.object(voice.threading, "Thread") as worker:
+            self.listener.check_idle_frame("frame", 0.2)
+        worker.assert_not_called()
+
+    def test_disabled_busy_deaf_and_training_never_transcribe(self) -> None:
+        for field, value in (("busy", True), ("training", {"speaker": "mike"}),
+                             ("resume_listening", True), ("deaf_until", 101.0)):
+            with self.subTest(field=field), patch.object(self.listener, field, value):
+                self.listener.vad.reset_mock()
+                self.listener.idle_utterances = Mock()
+                with patch.object(voice.threading, "Thread") as worker:
+                    self.listener.check_idle_frame("frame", 0.3)
+                self.listener.vad.predict.assert_not_called()
+                worker.assert_not_called()
+                self.assertIsNone(self.listener.idle_utterances.frames)
+        for low in (0, -1, 0.5, 0.6):
+            with patch.object(voice, "SECOND_CHANCE", low):
+                self.listener.vad.reset_mock()
+                self.listener.check_idle_frame("frame", 0.3)
+                self.listener.vad.predict.assert_not_called()
+
+    def test_normal_wake_takes_over_an_in_progress_utterance(self) -> None:
+        self.listener.wake.predict.side_effect = [{"hey_canvas": 0.1}, {"hey_canvas": 0.8}]
+        recorder = SimpleNamespace(stdout=io.BytesIO(b"x" * voice.FRAME * 2 * 2))
+        with patch.object(voice.threading, "Thread") as worker:
+            self.listener.listen(recorder)
+        # Low frame starts a buffered utterance; high frame chimes immediately
+        # and discards it instead of allowing a later second wake.
+        voice.play.assert_called_once_with(b"start", voice.SAMPLE_RATE)
+        self.listener.events.phase.assert_called_once_with("listening")
+        self.assertIsNone(self.listener.idle_utterances.frames)
+        self.listener.vad.predict.assert_called_once()
+        worker.assert_not_called()
+
+    def test_training_owns_the_listener(self) -> None:
+        self.listener.training = {"until": 200.0}
+        self.listener.record_sample = Mock()
+        self.listener.check_idle_frame = Mock()
+        self.listener.listen(SimpleNamespace(stdout=io.BytesIO(b"x" * voice.FRAME * 2)))
+        self.listener.record_sample.assert_called_once()
+        self.listener.check_idle_frame.assert_not_called()
+        voice.play.assert_not_called()
+
+    def test_accept_reuses_the_transcript_and_normal_response_path(self) -> None:
+        self.listener.busy = True
+        self.listener.check_second_chance("audio", 0.08)
+        self.listener.transcribe.assert_called_once_with("audio")
+        self.listener.agent.handle.assert_called_once_with("turn the lights on.")
+        self.listener.speak.assert_called_once_with("Okay.")
+        voice.play.assert_called_once_with(b"end", voice.SAMPLE_RATE)
+        self.assertFalse(self.listener.busy)
+        self.assertEqual(self.listener.deaf_until, 101.0)
+        self.listener.wake.reset.assert_called_once()
+        self.listener.vad.reset_states.assert_called_once()
+
+    def test_rejected_room_speech_never_reaches_logs_events_or_agent(self) -> None:
+        private = "We should get a new canvas for the painting."
+        self.listener.transcribe.return_value = private
+        self.listener.busy = True
+        self.listener.check_second_chance("audio", 0.08)
+        voice.log.assert_called_once_with("wake second chance rejected 0.08")
+        self.listener.events.phase.assert_not_called()
+        self.listener.agent.handle.assert_not_called()
+        voice.play.assert_not_called()
+        self.assertFalse(self.listener.busy)
+
+    def test_just_the_phrase_requests_the_normal_chime_and_listen(self) -> None:
+        self.listener.transcribe.return_value = "Canvas."
+        self.listener.busy = True
+        self.listener.check_second_chance("audio", 0.08)
+        self.assertTrue(self.listener.listen_requested.is_set())
+        voice.play.assert_not_called()
+        self.listener.agent.handle.assert_not_called()
+        # The button path also works during the short rest after recognition.
+        self.listener.listen(SimpleNamespace(stdout=io.BytesIO(b"x" * voice.FRAME * 2)))
+        voice.play.assert_called_once_with(b"start", voice.SAMPLE_RATE)
+        self.listener.events.phase.assert_called_once_with("listening")
+        self.assertFalse(self.listener.listen_requested.is_set())
+
+    def test_training_or_rest_started_during_decode_discards_the_result(self) -> None:
+        for field, value in (("training", {"speaker": "mike"}), ("resume_listening", True),
+                             ("deaf_until", 101.0)):
+            with self.subTest(field=field):
+                self.listener.training = None
+                self.listener.resume_listening = False
+                self.listener.deaf_until = 0.0
+                def transcribe(audio):
+                    setattr(self.listener, field, value)
+                    return "Hey Canvas, turn the lights on."
+                self.listener.transcribe.side_effect = transcribe
+                self.listener.check_second_chance("audio", 0.08)
+        self.listener.agent.handle.assert_not_called()
+        self.listener.events.phase.assert_not_called()
+        voice.play.assert_not_called()
+
+    def test_decode_errors_do_not_disclose_conversation_or_stall_listening(self) -> None:
+        self.listener.transcribe.side_effect = RuntimeError("private family conversation")
+        self.listener.busy = True
+        self.listener.check_second_chance("audio", 0.08)
+        voice.log.assert_called_once_with("wake second chance failed 0.08")
+        self.listener.events.phase.assert_not_called()
+        self.assertFalse(self.listener.busy)
+
+    def test_normal_response_still_transcribes_its_audio(self) -> None:
+        self.listener.respond("audio")
+        self.listener.transcribe.assert_called_once_with("audio")
+        self.listener.agent.handle.assert_called_once_with("Hey Canvas, turn the lights on.")
 
 
 class EventsTest(unittest.TestCase):
