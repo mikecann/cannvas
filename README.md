@@ -28,6 +28,8 @@ it or adapt it for your own home.
   the robot vacuum and the filming lights, check UniFi network activity, and
   show family locations when those are available.
 - **Doorbell:** pop up over any screen when someone rings the front door.
+- **Voice commands:** say the wake word, then ask it to switch the lights, open
+  a screen, or answer a quick question. Speech never leaves the Pi.
 - **Pet care:** keep track of Sammy's regular tablets and when each one was last
   given.
 - **Household inventory:** photograph an item on your phone, record where it is,
@@ -406,6 +408,78 @@ sunset, reaches about 45% brightness at 21:00 and stays there until sunrise.
 Any touch brings full brightness back for three minutes. Sunrise and sunset
 come from Home Assistant's `sun.sun` through `/api/sun`, with a local
 calculation for Busselton when Home Assistant can't be reached.
+
+### Voice commands
+
+A USB microphone on the Pi lets the family talk to Cannvas: "Hey Canvas,
+lights off", "Hey Canvas, open the calendar", or just a question. Listening,
+speech recognition, everyday commands and the spoken replies all run on the
+Pi:
+
+1. `cannvas-voice` listens for "Hey Canvas" with
+   [openWakeWord](https://github.com/dscripka/openWakeWord) and plays a chime.
+   The model was trained for this project (see `deploy/wake-word/`).
+2. It records until you stop talking (Silero VAD), then turns that into text
+   with [Moonshine](https://github.com/moonshine-ai/moonshine) through
+   [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx). That takes about 0.2
+   seconds on the Pi, where Whisper takes 1.5 to 3.
+3. Everyday commands ("lights off", "turn on the TV lamp", "set the top lamp
+   to 30 percent", "open the calendar") are matched straight away. Anything
+   else goes to OpenAI's GPT-6 Luna through [OpenRouter](https://openrouter.ai),
+   which either picks a tool or answers in a sentence. Without a key or
+   without internet, Qwen3 1.7B in `llama-server` (`cannvas-llm.service`)
+   answers instead, in 3 to 10 seconds on the Pi.
+4. [Piper](https://github.com/OHF-Voice/piper1-gpl) speaks the reply through
+   the TV, and the screen shows what it heard and what it said.
+
+Audio stays in memory from the wake word until the command is transcribed, and
+never leaves the Pi. Only the text of a request that isn't an everyday command
+goes to OpenRouter.
+
+Voice can switch every Home Assistant light. Other switches need a spoken name
+in `/var/lib/cannvas/voice.json`, for example
+`{"devices": {"switch.athom_outside_lights_smart_plug_v2": "Outside Lights"}}`.
+The plug that powers the TV and the Pi can never be a voice device.
+
+The page follows along through `/api/voice/events`, which `cannvas-server`
+relays from the voice service's loopback port, so the browser still only
+talks to its own server. After a reply, the mic button on the card listens
+again without the wake word.
+
+**More → Admin → Wake word training** records the family saying "Hey Canvas"
+around the room, to train the wake word on. Pick who is talking, roughly where
+they are, and whether they'll say the wake word or something else, then start
+recording. While it records, voice commands act on nothing: each utterance is
+scored with the live model, shown large enough to read from across the room
+("Would wake" or "Wouldn't wake"), and saved with its score and transcript in
+`/var/lib/cannvas/voice-samples` on the Pi, readable only by `pi`. Recording
+stops when you leave the page, and after 20 minutes regardless. Copy the clips
+off with `scp -r cannvas:/var/lib/cannvas/voice-samples .` and see
+`deploy/wake-word/training/README.md` for retraining.
+
+Set it up once with:
+
+```sh
+deploy/install-voice
+```
+
+It builds `llama-server` from a pinned llama.cpp release, installs the
+Python packages from `deploy/voice-requirements.txt` and the models into
+`/opt/cannvas-voice`, and enables both services. It also installs the kiosk's
+audio setup, which stops the TV's HDMI sink from going to sleep between
+sounds. Waking it again let the TV drop the first quarter of a second, which
+clipped the chime and the start of each reply. `deploy/deploy.sh` ships
+`cannvas-voice` with each release and restarts it. Follow it with
+`journalctl --user -u cannvas-voice -f` on the Pi.
+
+Give it an [OpenRouter API key](https://openrouter.ai/settings/keys) with:
+
+```sh
+deploy/configure-openrouter
+```
+
+It asks for the key without showing it, checks it with OpenRouter, and stores
+it in `/var/lib/cannvas/openrouter.json` on the Pi, readable only by `pi`.
 
 ### Kiosk watchdog
 

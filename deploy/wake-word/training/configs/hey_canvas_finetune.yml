@@ -1,0 +1,112 @@
+## Cannvas "Hey Canvas" wakeword2 model (final/hey_canvas.onnx), 2026-10-12.
+## The shipped deploy/wake-word/hey_canvas.onnx (run 3), fine-tuned on the owner's real voice through the CM108 mic.
+##  init:  shipped model with its calibration removed (last_layer.bias + 3.698134 = logit(0.975829)), LOCAL PATCH 9
+##  train: scripts/oww_train.py --train_model, steps 10000 (+1000 +1000 for train.py's sequences 2 and 3), base_lr 2e-5,
+##         same negative-weight schedule (1 -> 1500) and checkpoint averaging as run 3
+##  data:  run 3 synthetic features, regenerated with the README recipe and stock openWakeWord augmentation
+##         (135k positives, 92.7k near-miss/adversarial negatives, ACAV100M 2000 h)
+##         + positive_real (12/batch): the 10 close-range (0.5-1 m) session2 tries seg02 03 05 06 09 10 12 13 38 39,
+##           1500 augmented 2 s windows each, cut from the continuous recording (scripts/real_aug.py)
+##         + negative_owner (16/batch): 18 of the owner's own non-wake utterances (distance labels), 400 windows each,
+##           and 6000 room-only windows (session1/2 silences, half with AudioSet/FMA mixed in)
+##  calibration: last_layer.bias shifted by -logit(t), t = 0.157846 = the smallest raw threshold with no more hot
+##         windows on validation_set_features (10.7 h) than the shipped model has at 0.5 (3 windows); the README's
+##         first-half rule alone (--target-fph 0.4) gave t = 0.114044 (scripts/calib_matched.py)
+##  sha256: see final/SHA256SUMS
+model_name: hey_canvas
+target_phrase:
+- hey canvas
+custom_negative_phrases:
+- hey cameras
+- hey camera
+- hey can you
+- hey can I
+- hey can we
+- hey can
+- hey Kansas
+- Kansas
+- hey Kansas City
+- hey Alexa
+- Alexa
+- hey Jarvis
+- hey Siri
+- hey Google
+- okay Google
+- hey Mycroft
+- the canvas
+- a canvas
+- canvas bag
+- the canvas bag
+- a canvas tote
+- canvas shoes
+- oil on canvas
+- painting on canvas
+- canvassing
+- campus
+- hey campus
+- hey Cass
+- hey Cassie
+- hey Gavin
+- hey Kevin
+- hey Calvin
+- hey Cameron
+- hey Camden
+- hey Cam
+- hey Kenny
+- hey Ken
+- hey candice
+- hey candy
+- hey Vanessa
+- hey cannabis
+- hey Canada
+- hey cancel
+- hey caravan
+- hey canteen
+- hey cabbage
+- heavens
+- heavens above
+- for heaven's sake
+- Ken has
+- can of
+- can of beans
+- can I have
+- hey canvassers
+- hey there
+- hey guys
+- hey man
+- hey everyone
+n_samples: 135000
+n_samples_val: 2000
+tts_batch_size: 64
+augmentation_batch_size: 16
+piper_sample_generator_path: $W/src/piper-sample-generator
+output_dir: $W/runs/FTLq_all
+rir_paths:
+- $W/data/mit_rirs
+background_paths:
+- $W/data/audioset_16k
+- $W/data/fma_16k
+background_paths_duplication_rate:
+- 1
+- 1
+false_positive_validation_data_path: $W/data/features/validation_set_features.npy
+augmentation_rounds: 1
+feature_data_files:
+  ACAV100M_sample: $W/data/features/openwakeword_features_ACAV100M_2000_hrs_16bit.npy
+  positive_real: $W/runs/FTLq_all/real/positive_real.npy
+  negative_owner: $W/runs/FTLq_all/real/negative_owner.npy
+batch_n_per_class:
+  ACAV100M_sample: 1024
+  adversarial_negative: 50
+  positive: 100
+  positive_real: 12
+  negative_owner: 16
+model_type: dnn
+layer_size: 64
+steps: 10000
+max_negative_weight: 1500
+target_false_positives_per_hour: 0.2
+torch_threads: 4
+init_onnx: $W/eval/models/old.onnx
+init_bias_shift: 3.698134
+base_lr: 2.0e-05

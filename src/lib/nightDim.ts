@@ -10,6 +10,8 @@ export const DEEPEST_DIM = 0.55;
 export const DEEPEST_DIM_HOUR = 21;
 /** How long a touch brings the full brightness back. */
 export const TOUCH_WAKE_MS = 3 * 60_000;
+/** Dispatch this on window to wake the screen like a touch does, e.g. for the wake word. */
+export const SCREEN_WAKE_EVENT = "cannvas:wake";
 
 // Busselton, Western Australia.
 export const HOME_LOCATION = { latitude: -33.6516, longitude: 115.347 };

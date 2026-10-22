@@ -1,0 +1,101 @@
+## openWakeWord train.py config for "hey canvas" (run 3).
+## Same training settings as run 2 (layer 64, 100k steps, batch 1024/50/100); only the data changed.
+## Run 2 caught 65/66 held-out positives but 15/87 held-out near misses fired (Kansas,
+## "the canvas is ready"), while the same phrases from the training TTS were rejected: a
+## voice-domain gap plus no negatives shaped like the continuation positives. Added:
+##  - positives: + 25k "hey canvas" and 10k cut "hey canvas <command>" from Piper
+##    en_GB-vctk-medium (109 UK speakers) -> 135k total (100k LibriTTS-R from run 2).
+##  - negatives: + 11.9k LibriTTS-R and 4.8k VCTK "<near miss> <command>" cut 0-150 ms after the
+##    near miss (configs/hard_prefixes.txt), + 8k VCTK custom near misses, + 8k VCTK adversarial
+##    texts -> 92.7k total (60k from run 2).
+## Features from run 2 + the new clips are concatenated and row-shuffled (scripts/merge_features.py).
+## Test features (positive/negative_features_test.npy) are run 2's, so val numbers are comparable.
+model_name: hey_canvas
+target_phrase:
+- hey canvas
+custom_negative_phrases:
+- hey cameras
+- hey camera
+- hey can you
+- hey can I
+- hey can we
+- hey can
+- hey Kansas
+- Kansas
+- hey Kansas City
+- hey Alexa
+- Alexa
+- hey Jarvis
+- hey Siri
+- hey Google
+- okay Google
+- hey Mycroft
+- the canvas
+- a canvas
+- canvas bag
+- the canvas bag
+- a canvas tote
+- canvas shoes
+- oil on canvas
+- painting on canvas
+- canvassing
+- campus
+- hey campus
+- hey Cass
+- hey Cassie
+- hey Gavin
+- hey Kevin
+- hey Calvin
+- hey Cameron
+- hey Camden
+- hey Cam
+- hey Kenny
+- hey Ken
+- hey candice
+- hey candy
+- hey Vanessa
+- hey cannabis
+- hey Canada
+- hey cancel
+- hey caravan
+- hey canteen
+- hey cabbage
+- heavens
+- heavens above
+- for heaven's sake
+- Ken has
+- can of
+- can of beans
+- can I have
+- hey canvassers
+- hey there
+- hey guys
+- hey man
+- hey everyone
+n_samples: 135000
+n_samples_val: 2000
+tts_batch_size: 64
+augmentation_batch_size: 16
+piper_sample_generator_path: $W/src/piper-sample-generator
+output_dir: $W/runs/run3
+rir_paths:
+- $W/data/mit_rirs
+background_paths:
+- $W/data/audioset_16k
+- $W/data/fma_16k
+background_paths_duplication_rate:
+- 1
+- 1
+false_positive_validation_data_path: $W/data/features/validation_set_features.npy
+augmentation_rounds: 1
+feature_data_files:
+  ACAV100M_sample: $W/data/features/openwakeword_features_ACAV100M_2000_hrs_16bit.npy
+batch_n_per_class:
+  ACAV100M_sample: 1024
+  adversarial_negative: 50
+  positive: 100
+model_type: dnn
+layer_size: 64
+steps: 100000
+max_negative_weight: 1500
+target_false_positives_per_hour: 0.2

@@ -1,0 +1,48 @@
+#!/bin/sh
+# Store the OpenRouter API key that voice commands use for questions, then
+# restart voice so it takes effect. The key goes from this hidden prompt to a
+# mode-0600 file on the Pi. It is never put on a command line.
+#
+#   deploy/configure-openrouter [ssh host]
+set -eu
+
+host=${1:-cannvas}
+
+printf 'OpenRouter API key: ' >&2
+trap 'stty echo 2>/dev/null' EXIT INT TERM
+stty -echo
+read -r key
+stty echo
+echo >&2
+
+case "$key" in
+  sk-or-*) ;;
+  *)
+    echo "That doesn't look like an OpenRouter key. They start with sk-or-." >&2
+    exit 2
+    ;;
+esac
+case "$key" in
+  *[!A-Za-z0-9_-]*)
+    echo "The key has unexpected characters. Paste just the key." >&2
+    exit 2
+    ;;
+esac
+
+# Check it before replacing a key that works.
+if ! printf 'Authorization: Bearer %s\n' "$key" | curl -fsS -o /dev/null -H @- https://openrouter.ai/api/v1/key; then
+  echo "OpenRouter didn't accept that key." >&2
+  exit 1
+fi
+
+# Tailscale SSH won't let pi reopen /dev/stdin, so read the stream with cat.
+printf '{"apiKey": "%s"}\n' "$key" | ssh "$host" '
+  set -e
+  umask 077
+  cat >/var/lib/cannvas/openrouter.json.new
+  mv /var/lib/cannvas/openrouter.json.new /var/lib/cannvas/openrouter.json
+  XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user restart cannvas-voice.service
+'
+unset key
+
+echo "Saved. Voice commands now send questions to OpenRouter."

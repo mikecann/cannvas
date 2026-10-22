@@ -1,0 +1,25 @@
+# Python packages for cannvas-voice, installed into /opt/cannvas-voice/venv by
+# deploy/install-voice. Pinned to the versions tested on the Pi 5.
+certifi==2026.7.22
+charset-normalizer==3.5.2
+cloudpickle==3.1.2
+flatbuffers==25.12.19
+idna==3.20
+joblib==1.6.0
+narwhals==2.27.1
+numpy==2.4.6
+onnxruntime==1.31.0
+openwakeword==0.6.0
+packaging==26.3
+pathvalidate==3.3.1
+piper-tts==1.8.0
+protobuf==7.36.2
+requests==2.34.2
+scikit-learn==1.9.1
+scipy==1.17.1
+sherpa-onnx-core==1.13.8
+sherpa_onnx==1.13.8
+tflite-runtime==2.14.0
+threadpoolctl==3.7.0
+tqdm==4.70.1
+urllib3==2.8.0

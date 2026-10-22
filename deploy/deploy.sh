@@ -14,6 +14,7 @@
 # Each release is /opt/cannvas/releases/<YYYYmmdd-HHMMSS>-<sha> owned by root:
 #   www/             the web build, the only directory cannvas-server serves
 #   cannvas-server   the local server started by cannvas-web.service
+#   cannvas-voice    the voice command service (see deploy/install-voice)
 #   RELEASE          the release name
 set -euo pipefail
 
@@ -79,6 +80,17 @@ restart_kiosk() {
   fi
 }
 
+restart_voice() {
+  uid=$(id -u pi)
+  # Voice is optional. deploy/install-voice sets it up once.
+  if ! sudo -u pi XDG_RUNTIME_DIR="/run/user/$uid" systemctl --user cat cannvas-voice.service >/dev/null 2>&1; then
+    return 0
+  fi
+  if ! sudo -u pi XDG_RUNTIME_DIR="/run/user/$uid" systemctl --user restart cannvas-voice.service; then
+    echo "Warning: could not restart voice commands; restart cannvas-voice.service by hand" >&2
+  fi
+}
+
 prune() {
   current=$(readlink -f "$root/current")
   previous=$(readlink -f "$root/previous" 2>/dev/null || true)
@@ -108,6 +120,7 @@ activate() {
   if restart_web && healthy; then
     [ -z "$before" ] || ln -sfn "$before" "$root/previous"
     restart_kiosk
+    restart_voice
     prune
     echo "Cannvas is running $(basename "$target") (previous: ${before:+$(basename "$before")})"
     return 0
@@ -187,8 +200,8 @@ case "$command" in
     chmod 0755 "$stage"
     mkdir "$stage/www"
     cp -R "$dist/." "$stage/www/"
-    cp deploy/cannvas-server "$stage/"
-    chmod 0755 "$stage/cannvas-server"
+    cp deploy/cannvas-server deploy/cannvas-voice "$stage/"
+    chmod 0755 "$stage/cannvas-server" "$stage/cannvas-voice"
     echo "$name" >"$stage/RELEASE"
     find "$stage" -name .DS_Store -delete
 
