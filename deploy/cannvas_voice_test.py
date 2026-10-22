@@ -530,6 +530,7 @@ class SecondChanceTest(unittest.TestCase):
         self.listener.agent.handle.assert_called_once_with("turn the lights on.")
         self.listener.speak.assert_called_once_with("Okay.")
         voice.play.assert_called_once_with(b"end", voice.SAMPLE_RATE)
+        voice.play.return_value.wait.assert_called_once()
         self.assertFalse(self.listener.busy)
         self.assertEqual(self.listener.deaf_until, 101.0)
         self.listener.wake.reset.assert_called_once()

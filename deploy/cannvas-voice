@@ -943,7 +943,8 @@ class Voice:
                 # The listening thread owns the normal chime and command VAD.
                 self.listen_requested.set()
                 return
-            play(self.end_chime, SAMPLE_RATE)
+            # No transcription follows here, so a quick reply could talk over the chime.
+            play(self.end_chime, SAMPLE_RATE).wait()
             answering = True
             self.respond(audio, heard=command)
         except Exception:  # Rejected room speech must never reach logs or SSE.
