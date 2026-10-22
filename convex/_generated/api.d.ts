@@ -11,6 +11,10 @@
 import type * as auth from "../auth.js";
 import type * as boards from "../boards.js";
 import type * as calendar from "../calendar.js";
+import type * as chef from "../chef.js";
+import type * as chefLinks from "../chefLinks.js";
+import type * as chefMail from "../chefMail.js";
+import type * as chefWall from "../chefWall.js";
 import type * as chores from "../chores.js";
 import type * as crons from "../crons.js";
 import type * as deviceBackups from "../deviceBackups.js";
@@ -26,6 +30,8 @@ import type * as inventoryAiStore from "../inventoryAiStore.js";
 import type * as inventoryConstants from "../inventoryConstants.js";
 import type * as inventoryKioskStore from "../inventoryKioskStore.js";
 import type * as lib_backoff from "../lib/backoff.js";
+import type * as lib_chefLinks from "../lib/chefLinks.js";
+import type * as lib_chefWall from "../lib/chefWall.js";
 import type * as lib_inventorySearch from "../lib/inventorySearch.js";
 import type * as lib_inventoryWriteGuard from "../lib/inventoryWriteGuard.js";
 import type * as lib_tokens from "../lib/tokens.js";
@@ -43,6 +49,10 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   boards: typeof boards;
   calendar: typeof calendar;
+  chef: typeof chef;
+  chefLinks: typeof chefLinks;
+  chefMail: typeof chefMail;
+  chefWall: typeof chefWall;
   chores: typeof chores;
   crons: typeof crons;
   deviceBackups: typeof deviceBackups;
@@ -58,6 +68,8 @@ declare const fullApi: ApiFromModules<{
   inventoryConstants: typeof inventoryConstants;
   inventoryKioskStore: typeof inventoryKioskStore;
   "lib/backoff": typeof lib_backoff;
+  "lib/chefLinks": typeof lib_chefLinks;
+  "lib/chefWall": typeof lib_chefWall;
   "lib/inventorySearch": typeof lib_inventorySearch;
   "lib/inventoryWriteGuard": typeof lib_inventoryWriteGuard;
   "lib/tokens": typeof lib_tokens;
@@ -94,4 +106,7 @@ export declare const internal: FilterApi<
 
 export declare const components: {
   agent: import("@convex-dev/agent/_generated/component.js").ComponentApi<"agent">;
+  feedback: import("@convex-dev/feedback/_generated/component.js").ComponentApi<"feedback">;
+  chefCloud: import("@convex-dev/chef-cloud/_generated/component.js").ComponentApi<"chefCloud">;
+  staticHosting: import("@convex-dev/static-hosting/_generated/component.js").ComponentApi<"staticHosting">;
 };
