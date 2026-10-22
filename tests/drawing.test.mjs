@@ -50,3 +50,19 @@ test("a single tap still leaves a dot", () => {
   drawStroke(context, { ...stroke, points: [{ x: 0.5, y: 0.5 }] }, 100, 100);
   assert.equal(context.calls.filter(([name]) => name === "lineTo").length, 1);
 });
+
+test("a bounded segment never draws unrevealed points", () => {
+  const context = recordingContext();
+  drawStroke(context, stroke, 100, 100, 1, 3);
+  assert.deepEqual(context.calls.filter(([name]) => name === "moveTo"), [["moveTo", 0, 0]]);
+  assert.deepEqual(context.calls.filter(([name]) => name === "lineTo"), [["lineTo", 50, 0], ["lineTo", 100, 0]]);
+});
+
+test("the first revealed point leaves a dot, and an empty segment draws nothing", () => {
+  const context = recordingContext();
+  drawStroke(context, stroke, 100, 100, 0, 1);
+  assert.deepEqual(context.calls.filter(([name]) => name === "lineTo"), [["lineTo", 0.01, 0.01]]);
+  context.calls.length = 0;
+  drawStroke(context, stroke, 100, 100, 2, 2);
+  assert.deepEqual(context.calls, []);
+});

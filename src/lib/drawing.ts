@@ -6,8 +6,10 @@ function toCanvas(point: Point, width: number, height: number) {
 
 // Draws the stroke from point `from` onwards. Pen colours are opaque, so a
 // stroke drawn in pieces looks the same as one drawn as a single path.
-export function drawStroke(context: CanvasRenderingContext2D, stroke: Stroke, width: number, height: number, from = 0) {
-  if (stroke.points.length === 0 || from >= stroke.points.length) return;
+// The optional exclusive `to` bounds replay work without copying point arrays.
+export function drawStroke(context: CanvasRenderingContext2D, stroke: Stroke, width: number, height: number, from = 0, to = stroke.points.length) {
+  const end = Math.min(to, stroke.points.length);
+  if (end === 0 || from >= end) return;
   if (stroke.kind === "sticker" && stroke.sticker) {
     const point = toCanvas(stroke.points[0], width, height);
     context.save();
@@ -26,11 +28,11 @@ export function drawStroke(context: CanvasRenderingContext2D, stroke: Stroke, wi
   context.lineJoin = "round";
   const start = toCanvas(stroke.points[Math.max(0, from - 1)], width, height);
   context.moveTo(start.x, start.y);
-  for (let index = Math.max(1, from); index < stroke.points.length; index += 1) {
+  for (let index = Math.max(1, from); index < end; index += 1) {
     const point = toCanvas(stroke.points[index], width, height);
     context.lineTo(point.x, point.y);
   }
-  if (stroke.points.length === 1) context.lineTo(start.x + 0.01, start.y + 0.01);
+  if (end === 1) context.lineTo(start.x + 0.01, start.y + 0.01);
   context.stroke();
 }
 
