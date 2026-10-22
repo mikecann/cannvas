@@ -1,31 +1,40 @@
 import { Home, Sun, UtilityPole, Volume2, VolumeX } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNews } from "../data/DataProvider";
 import { FLOW_THRESHOLD_KW, formatKw, isSolarFresh } from "../lib/solar";
+import { classifySwipe, type Swipe } from "../lib/swipe";
 import { useMinuteClock } from "../lib/useMinuteClock";
 import { useSolar } from "../lib/useSolar";
 import { CalendarHomeWidget } from "./display/CalendarHomeWidget";
 import { FilmingBanner } from "./display/FilmingBanner";
-import { IdleVideo } from "./display/IdleVideo";
+import { IdleVideo, type IdleVideoHandle } from "./display/IdleVideo";
 import { LightsHomeWidget } from "./display/LightsHomeWidget";
+
+// Mike's choice: swiping left goes back a clip, swiping right goes on to the
+// next. Swap the two numbers for the photo-gallery way round.
+const SWIPE_STEP: Record<Swipe, 1 | -1> = { left: -1, right: 1 };
 
 const YR_METEOGRAM = "https://www.yr.no/en/content/2-2075265/meteogram.svg";
 
 export function DisplayApp({
   displaySession,
   onActivity,
+  onWake,
   onOpenCalendar,
   onOpenWeather,
   onOpenSolar,
 }: {
   displaySession: number;
   onActivity: () => void;
+  onWake: () => void;
   onOpenCalendar: () => void;
   onOpenWeather: () => void;
   onOpenSolar: () => void;
 }) {
   const [videoAudio, setVideoAudio] = useState(() => ({ session: displaySession, muted: true }));
   const [videoPlayable, setVideoPlayable] = useState(false);
+  const video = useRef<IdleVideoHandle>(null);
+  const press = useRef<{ pointerId: number; x: number; y: number; at: number } | null>(null);
 
   // Derive this during render so a new session is muted before the video can
   // commit or produce even a brief audio blip. The stored choice only belongs
@@ -33,8 +42,28 @@ export function DisplayApp({
   const videoMuted = videoAudio.session === displaySession ? videoAudio.muted : true;
 
   return (
-    <section className="display-app">
-      <IdleVideo muted={videoMuted} onPlayableChange={setVideoPlayable} />
+    <section
+      className="display-app"
+      // A touch on the background used to wake the previous app straight away.
+      // Now it waits for the finger to lift: a swipe changes the clip and
+      // anything else still wakes. Widgets stop their own presses, so a swipe
+      // that starts on one never reaches here.
+      onPointerDown={(event) => {
+        event.stopPropagation();
+        onActivity();
+        if (event.isPrimary) press.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, at: event.timeStamp };
+      }}
+      onPointerUp={(event) => {
+        const start = press.current;
+        if (!start || start.pointerId !== event.pointerId) return;
+        press.current = null;
+        const swipe = classifySwipe(event.clientX - start.x, event.clientY - start.y, event.timeStamp - start.at);
+        if (swipe) video.current?.step(SWIPE_STEP[swipe]);
+        else onWake();
+      }}
+      onPointerCancel={() => { press.current = null; }}
+    >
+      <IdleVideo ref={video} muted={videoMuted} onPlayableChange={setVideoPlayable} />
       <div className="display-content">
         <IdleClock />
         <FilmingBanner />

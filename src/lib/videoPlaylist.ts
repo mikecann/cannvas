@@ -53,3 +53,8 @@ export function keepPlayingFirst(videos: readonly string[], playing: string | un
   if (!playing || !videos.includes(playing)) return [...videos];
   return [playing, ...videos.filter((video) => video !== playing)];
 }
+
+/** The playlist slot for an ever-changing index, which goes negative after swiping back. */
+export function playlistSlot(index: number, length: number) {
+  return ((index % length) + length) % length;
+}
