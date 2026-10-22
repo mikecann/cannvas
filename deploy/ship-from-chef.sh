@@ -7,7 +7,9 @@
 # this runs:
 #
 #   1. fetch GitHub's main and Chef's main
-#   2. fast-forward this checkout's main to Chef's (never a merge or a force)
+#   2. fast-forward this checkout's main to Chef's (never a merge or a force).
+#      It refuses if GitHub's main or this checkout has commits Chef's main
+#      doesn't, so it only ever pushes and deploys exactly Chef's main
 #   3. push main to GitHub
 #   4. pnpm install, then deploy/deploy.sh (pnpm build:mirror, upload, switch)
 #
@@ -46,8 +48,16 @@ if ! git merge-base --is-ancestor "$github_main" "$chef_main"; then
 then run this again."
 fi
 
+# This checkout's main must not have anything Chef's main doesn't either,
+# or the push and deploy below would ship it too.
+if ! git merge-base --is-ancestor HEAD "$chef_main"; then
+  die "this checkout's main has commits Chef's main doesn't ($(git rev-list --count "$chef_main"..HEAD) of them).
+Push them to GitHub and Chef first (git push $github_remote main && npx chef sync), or drop them, then run this again."
+fi
+
 git merge --ff-only "$chef_main"
-git push "$github_remote" main
+[ "$(git rev-parse HEAD)" = "$chef_main" ] || die "main isn't at Chef's main ($chef_main) after the merge; stopping"
+git push "$github_remote" "$chef_main:refs/heads/main"
 pnpm install --frozen-lockfile
 deploy/deploy.sh
 echo "ship-from-chef: the wall is on $(git rev-parse --short HEAD), Chef's main."
