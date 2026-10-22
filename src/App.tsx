@@ -240,7 +240,7 @@ export function App() {
               {activeApp === "sammy-cam" && <SammyCamApp />}
               {activeApp === "admin" && <AdminApp />}
               {activeApp === "inventory" && <KioskInventoryApp />}
-              {activeApp === "display" && <DisplayApp displaySession={displaySession} onActivity={resetIdleTimer} onOpenCalendar={() => openApp("calendar")} onOpenWeather={() => openApp("weather")} onOpenSolar={() => openApp("solar")} />}
+              {activeApp === "display" && <DisplayApp displaySession={displaySession} onActivity={resetIdleTimer} onWake={wake} onOpenCalendar={() => openApp("calendar")} onOpenWeather={() => openApp("weather")} onOpenSolar={() => openApp("solar")} />}
             </Suspense>
           </AppErrorBoundary>
         )}

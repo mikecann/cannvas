@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { keepPlayingFirst, parseVideoListing, shuffledVideos, videoRetryDelayMs } from "../src/lib/videoPlaylist.ts";
+import { keepPlayingFirst, parseVideoListing, playlistSlot, shuffledVideos, videoRetryDelayMs } from "../src/lib/videoPlaylist.ts";
 
 test("shuffles a playlist without changing the source list", () => {
   const source = ["one", "two", "three", "four"];
@@ -42,4 +42,8 @@ test("keeps the clip on screen at the front of a fresh list", () => {
   assert.deepEqual(keepPlayingFirst(["a", "b", "c"], "c"), ["c", "a", "b"]);
   assert.deepEqual(keepPlayingFirst(["a", "b"], "gone"), ["a", "b"]);
   assert.deepEqual(keepPlayingFirst(["a", "b"], undefined), ["a", "b"]);
+});
+
+test("wraps the playlist both ways, so swiping back past the start works", () => {
+  assert.deepEqual([-4, -3, -1, 0, 2, 3, 7].map((index) => playlistSlot(index, 3)), [2, 0, 2, 0, 2, 0, 1]);
 });

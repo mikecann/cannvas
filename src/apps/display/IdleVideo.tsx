@@ -1,9 +1,9 @@
 import { CloudOff, Film, LoaderCircle } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type Ref, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { useBoards } from "../../data/DataProvider";
 import type { Stroke } from "../../data/types";
 import { dateKey } from "../../lib/dates";
-import { keepPlayingFirst, shuffledVideos, VIDEO_OFFLINE_AFTER_ERRORS, videoRetryDelayMs } from "../../lib/videoPlaylist";
+import { keepPlayingFirst, playlistSlot, shuffledVideos, VIDEO_OFFLINE_AFTER_ERRORS, videoRetryDelayMs } from "../../lib/videoPlaylist";
 import { useVideoLibrary } from "./useVideoLibrary";
 import { WhiteboardSlide } from "./WhiteboardSlide";
 
@@ -17,7 +17,11 @@ const CLIP_START_TIMEOUT_MS = 30_000;
 
 type Slide = { strokes: Stroke[]; thenNextClip: boolean };
 
+/** Lets the home screen move through the clips by hand. */
+export type IdleVideoHandle = { step: (direction: 1 | -1) => void };
+
 type IdleVideoProps = {
+  ref?: Ref<IdleVideoHandle>;
   muted: boolean;
   /** Tells the home screen whether there is a clip to unmute. */
   onPlayableChange: (playable: boolean) => void;
@@ -28,7 +32,7 @@ type Notice = { kind: "loading" | "offline" | "empty"; title: string; detail?: s
 // Plays Bruce's family videos behind the home screen. The gradient always
 // sits underneath, so a gap between clips or a missing server never shows a
 // grey or black screen.
-export function IdleVideo({ muted, onPlayableChange }: IdleVideoProps) {
+export function IdleVideo({ ref, muted, onPlayableChange }: IdleVideoProps) {
   const { videos: library, reachable, checkedAt } = useVideoLibrary();
   const { getBoard } = useBoards();
   const todayStrokes = getBoard(dateKey(new Date()));
@@ -50,9 +54,9 @@ export function IdleVideo({ muted, onPlayableChange }: IdleVideoProps) {
   const seenLibrary = useRef(library);
 
   const keyFor = (url: string) => `${url}#${retries[url] ?? 0}`;
-  const current = playlist.length > 0 ? playlist[index % playlist.length] : undefined;
+  const current = playlist.length > 0 ? playlist[playlistSlot(index, playlist.length)] : undefined;
   // Load the next clip quietly underneath so the switch has no black gap.
-  const next = playlist.length > 1 ? playlist[(index + 1) % playlist.length] : undefined;
+  const next = playlist.length > 1 ? playlist[playlistSlot(index + 1, playlist.length)] : undefined;
   const currentKey = current ? keyFor(current) : null;
   const currentRef = useRef(current);
   currentRef.current = current;
@@ -111,6 +115,16 @@ export function IdleVideo({ muted, onPlayableChange }: IdleVideoProps) {
     }
   }, [current, currentKey, failed, index, retrying, slide]);
 
+  // Swiping back leaves the clip that was playing as the hidden next one.
+  // Stop it, so it doesn't play on unseen and starts from the top next time.
+  useEffect(() => {
+    for (const [key, element] of elements.current) {
+      if (key === currentKey || element.paused) continue;
+      element.pause();
+      element.currentTime = 0;
+    }
+  }, [currentKey]);
+
   // A load that stalls without an error counts as a failure after a while,
   // so "Loading the family videos…" can't stay up forever.
   useEffect(() => {
@@ -143,6 +157,24 @@ export function IdleVideo({ muted, onPlayableChange }: IdleVideoProps) {
   const offline = consecutiveErrors >= VIDEO_OFFLINE_AFTER_ERRORS || (reachable === false && playlist.length === 0);
   const playable = Boolean(current) && !offline;
   useEffect(() => onPlayableChange(playable), [onPlayableChange, playable]);
+
+  // A swipe skips the slide too. Going back from a slide replays the clip
+  // that just finished, since that's the one before it. Swipes don't count
+  // towards the next slide, only clips watched to the end do.
+  useImperativeHandle(ref, () => ({
+    step(direction) {
+      if (playlist.length < 2 || offline) return;
+      if (retrying) {
+        // Skip the backoff, but still give the broken clip a fresh element
+        // for when it comes round again, as the retry timer would have.
+        setRetries((counts) => ({ ...counts, [retrying]: (counts[retrying] ?? 0) + 1 }));
+        setRetrying(null);
+      }
+      const replay = slide?.thenNextClip && direction < 0;
+      setSlide(null);
+      if (!replay) setIndex((value) => value + direction);
+    },
+  }), [offline, playlist.length, retrying, slide]);
 
   const latestStrokes = useRef(todayStrokes);
   latestStrokes.current = todayStrokes;
