@@ -6,7 +6,7 @@ the command into text, everyday commands are matched straight away, and Piper
 speaks the reply through the TV, all on the Pi. Anything else goes to GPT-6 Luna
 through OpenRouter, or to a small local model in llama-server
 (cannvas-llm.service) when there's no OpenRouter key or no internet. Audio only
-lives in memory, from the wake word until the command has been transcribed, and
+lives in a short memory buffer until the utterance has been checked, and
 never leaves the Pi. Only the text of a request the everyday matcher misses does.
 
 It runs as a user service beside the kiosk because it needs the desktop's
@@ -64,6 +64,12 @@ def select_speech_model() -> Path:
 
 
 SPEECH_MODEL = select_speech_model()
+# A low wake score gets one local speech check after the utterance ends. Only
+# Parakeet has been evaluated for this; old Moonshine installs stay as before.
+# Set to 0 to disable, or to the lower edge of the band below WAKE_THRESHOLD.
+SECOND_CHANCE = float(os.environ.get(
+    "CANNVAS_WAKE_SECOND_CHANCE", "0.05" if (SPEECH_MODEL / "joiner.int8.onnx").is_file() else "0",
+))
 PIPER_VOICE = os.environ.get("CANNVAS_PIPER_VOICE", str(HOME / "models/en_GB-alba-medium.onnx"))
 # Extra pw-record arguments, such as "--target <node>" to choose a microphone.
 MIC_ARGS = shlex.split(os.environ.get("CANNVAS_MIC_ARGS", ""))
@@ -731,6 +737,17 @@ def load_speech_model(path: Path) -> Any:
     return speech
 
 
+def wake_command(heard: str) -> str | None:
+    """The words after a leading wake phrase, empty for just a wake, or None.
+
+    Parakeet sometimes drops "hey" or spells the name "Cannvas". Match whole
+    words at the start only: "a canvas" and "hey can you" aren't addressing us.
+    "Canvas" on its own is allowed only after the low wake-score gate.
+    """
+    match = re.match(r"^\W*(?:hey\W+)?(?:canvas|cannvas)\b\W*", heard, flags=re.I)
+    return heard[match.end():].strip() if match else None
+
+
 class Voice:
     """Microphone in, speaker out, and the listening state machine between them."""
 
@@ -747,6 +764,9 @@ class Voice:
         self.wake = WakeModel(wakeword_models=[WAKE_WORD], inference_framework="onnx")
         self.vad = VAD()
         self.speech = load_speech_model(SPEECH_MODEL)
+        # Training saves can still be finishing when normal listening resumes.
+        # Share the resident recognizer rather than decoding concurrently.
+        self.speech_lock = threading.Lock()
         self.piper = PiperVoice.load(PIPER_VOICE)
         self.start_chime = chime(np)
         self.end_chime = chime(np, rising=False)
@@ -758,6 +778,7 @@ class Voice:
         # Who is recording wake word samples, or None when voice works normally.
         self.training: dict[str, Any] | None = None
         self.utterances = Utterances()
+        self.idle_utterances = Utterances()
         # Set when recording stops. The listening thread then starts afresh.
         self.resume_listening = False
 
@@ -849,9 +870,13 @@ class Voice:
                     self.listen_requested.clear()
                     log(f"listening ({'button' if manual else f'wake word {score:.2f}'})")
                     command, speech, silence, started = [], [], 0.0, time.monotonic()
+                    # This utterance now belongs entirely to the normal path.
+                    self.idle_utterances = Utterances()
                     self.vad.reset_states()
                     self.events.phase("listening")
                     play(self.start_chime, SAMPLE_RATE)
+                elif SECOND_CHANCE > 0:
+                    self.check_idle_frame(frame, score)
                 continue
             command.append(frame)
             probability = float(self.vad.predict(frame, frame_size=640))
@@ -882,6 +907,53 @@ class Voice:
                 play(self.end_chime, SAMPLE_RATE)
                 threading.Thread(target=self.respond, args=(audio,), daemon=True).start()
 
+    def check_idle_frame(self, frame: Any, score: float) -> None:
+        """Keep one bounded utterance, then check its low-band wake score."""
+        if (not 0 < SECOND_CHANCE < WAKE_THRESHOLD or self.busy or self.training
+                or self.resume_listening or time.monotonic() < self.deaf_until):
+            self.idle_utterances = Utterances()
+            return
+        probability = float(self.vad.predict(frame, frame_size=640))
+        finished = self.idle_utterances.feed(frame, score, probability)
+        if finished is None:
+            return
+        frames, best = finished
+        if not SECOND_CHANCE <= best < WAKE_THRESHOLD:
+            return
+        self.idle_utterances = Utterances()
+        # Drain the microphone while decoding, just as for a normal request.
+        # No second model, queued room speech or concurrent response is needed.
+        self.busy = True
+        audio = self.np.concatenate(frames)
+        threading.Thread(target=self.check_second_chance, args=(audio, best), daemon=True).start()
+
+    def check_second_chance(self, audio: Any, score: float) -> None:
+        answering = False
+        try:
+            heard = self.transcribe(audio)
+            # Training may have started (and even stopped) during decoding.
+            if self.training or self.resume_listening or time.monotonic() < self.deaf_until:
+                return
+            command = wake_command(heard)
+            if command is None:
+                log(f"wake second chance rejected {score:.2f}")
+                return
+            log(f"wake second chance accepted {score:.2f}: {heard!r}")
+            if not command:
+                # The listening thread owns the normal chime and command VAD.
+                self.listen_requested.set()
+                return
+            # No transcription follows here, so a quick reply could talk over the chime.
+            play(self.end_chime, SAMPLE_RATE).wait()
+            answering = True
+            self.respond(audio, heard=command)
+        except Exception:  # Rejected room speech must never reach logs or SSE.
+            log(f"wake second chance failed {score:.2f}")
+        finally:
+            if not answering:
+                self.rest()
+                self.busy = False
+
     def record_sample(self, heard: Any, frame: Any, training: dict[str, Any]) -> None:
         """Score the wake word as usual but act on nothing, and keep each utterance."""
         score = max(self.wake.predict(frame).values(), default=0)
@@ -909,16 +981,19 @@ class Voice:
     def rest(self) -> None:
         # Ignore the wake word briefly so the chime or reply can't retrigger it.
         self.wake.reset()
+        self.vad.reset_states()
+        self.idle_utterances = Utterances()
         self.deaf_until = time.monotonic() + 1.0
 
     def transcribe(self, audio: Any) -> str:
         np = self.np
         samples = audio.astype(np.float32) / 32768
         peak = float(np.max(np.abs(samples))) or 1.0
-        stream = self.speech.create_stream()
-        stream.accept_waveform(SAMPLE_RATE, samples * (0.7 / peak))
-        self.speech.decode_stream(stream)
-        return stream.result.text.strip()
+        with self.speech_lock:
+            stream = self.speech.create_stream()
+            stream.accept_waveform(SAMPLE_RATE, samples * (0.7 / peak))
+            self.speech.decode_stream(stream)
+            return stream.result.text.strip()
 
     def speak(self, text: str) -> None:
         np = self.np
@@ -930,11 +1005,11 @@ class Voice:
             self.player = play(pcm, chunks[0].sample_rate)
         self.player.wait()
 
-    def respond(self, audio: Any) -> None:
+    def respond(self, audio: Any, *, heard: str | None = None) -> None:
         try:
             started = time.monotonic()
             self.events.phase("thinking")
-            heard = self.transcribe(audio)
+            heard = self.transcribe(audio) if heard is None else heard
             transcribed = time.monotonic()
             if re.sub(r"[^a-z ]", "", heard.lower()).strip() in PHANTOM_PHRASES:
                 log("nothing intelligible")

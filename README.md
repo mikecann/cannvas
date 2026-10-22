@@ -436,9 +436,23 @@ Pi:
 4. [Piper](https://github.com/OHF-Voice/piper1-gpl) speaks the reply through
    the TV, and the screen shows what it heard and what it said.
 
-Audio stays in memory from the wake word until the command is transcribed, and
-never leaves the Pi. Only the text of a request that isn't an everyday command
-goes to OpenRouter.
+Quiet wake phrases get a second chance. With Parakeet installed, an utterance
+whose best wake score is between 0.05 and the normal 0.5 threshold is checked
+by the same speech model. If its transcript starts with "Hey Canvas" or
+"Canvas" (also "Cannvas"), the remaining words become the request and the end
+chime acknowledges it. Just the wake phrase plays the usual start chime and
+listens for the command. A normal wake still chimes straight away.
+Set `CANNVAS_WAKE_SECOND_CHANCE=0` in the voice service's environment to turn
+this off, or set it to a different lower threshold. Older Moonshine installs
+leave it off by default. Our nine recorded tries improved from 5 to 7 wakes;
+two far-side tries still weren't recognised. Two hours of far-field speech
+guards added no false wakes and needed about 3.5 speech checks per hour.
+
+Audio stays in a short memory buffer while the Pi checks an utterance, then is
+discarded. It never leaves the Pi. Rejected second-chance checks log only the
+wake score, with no transcript or screen event. Only accepted requests reach
+the command handler; the text of one that isn't an everyday command goes to
+OpenRouter.
 
 Voice can switch every Home Assistant light. Other switches need a spoken name
 in `/var/lib/cannvas/voice.json`, for example
