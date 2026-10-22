@@ -274,9 +274,11 @@ ship it.
   and good for 7 days. The GET only shows what it would do. Pressing the
   page's button POSTs, and that acts, as `mike`, through the feedback
   component ([`convex/chefLinks.ts`](convex/chefLinks.ts)). Gmail and link
-  scanners only ever GET. A request's links ran out? `npx convex run
-  chefMail:sendRequestEmail '{"itemId":"<id>"}'` (`--prod`) emails it again
-  while it's still waiting.
+  scanners only ever GET. A request's links ran out, or the email never
+  came? `npx convex run chefMail:sendRequestEmail '{"itemId":"<id>"}'`
+  (`--prod`) sends a new email, with new links, while it's still waiting.
+  Links from earlier emails keep working until any one of that request's
+  links is used, which retires the rest.
 - **No admin panel:** nobody signs in to Chef as `mike`, so Chef's own admin
   panel (watching builds, Try again, the run log) isn't anywhere. The emails
   are the admin surface, and `npx chef status` and `npx convex run chef:...`
@@ -295,8 +297,20 @@ ship it.
   publishes the same token-less frontend to that deployment's static hosting
   (not the wall), and moves main in Chef's repo. The wall only changes when
   you run `deploy/ship-from-chef.sh`: it fast-forwards main to Chef's, pushes
-  it to GitHub and runs `deploy/deploy.sh`. Until then the wall runs the old
-  frontend against the new backend.
+  it to GitHub and runs `deploy/deploy.sh`. It refuses if GitHub's main or
+  your checkout has commits Chef's main doesn't, so it only ever deploys what
+  Chef shipped. Until it runs, the wall runs the old frontend against the new
+  backend.
+- **Chef follows GitHub:** after every production deploy, the workflow runs
+  `deploy/chef-follow-github.sh`, which fast-forwards Chef's main to the
+  commit it deployed (`chef sync --prod`, never forced), so builds start from
+  what's live. It does nothing while Chef isn't set up on prod. If main moves
+  while a build waits for Ship it, Chef doesn't ship the stale base: it
+  merges the new main into the build, re-runs its checks, and ships the
+  merge on the same approval when the change is the same. A merge that
+  needs a person (a conflict it resolved or couldn't) waits for an approval
+  in Chef's admin panel, which Cannvas doesn't have yet (see below).
+  Dev's Chef main doesn't follow anything: `npx chef sync` by hand.
 - **Deploy guard:** `pnpm convex:dev`, `pnpm convex:deploy` and the production
   workflow run `chef guard` first, which refuses to deploy a checkout that
   lacks what Chef shipped. `git pull chef main` (or `deploy/ship-from-chef.sh`)

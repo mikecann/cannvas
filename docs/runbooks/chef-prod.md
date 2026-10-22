@@ -7,7 +7,7 @@ Tested on dev on 22 Oct 2026: the setup below (without `--prod`), three requests
 ## 0. Before you start
 
 - Merge the branch into `main` **with a merge commit or a fast-forward, not a squash**. Dev's Chef repo has these commits as its `main`, and `pnpm convex:dev` runs `chef guard` first, which refuses a checkout without them. If it was squashed anyway, `git pull chef-dev main` (after step 3) or `CHEF_SKIP_DEPLOY_GUARD=1` for dev.
-- **The merge deploys to prod.** The "Deploy production" workflow runs `convex deploy` on every push to `main`. This one installs the `feedback`, `chefCloud` and `staticHosting` components, the `chefLinks` table, `chef:*`, `chefWall:token`, `/chef/link`, `/chef-agent/*`, and static hosting's catch-all under every other route. No change to Cannvas's own tables. It now runs `pnpm exec chef guard --prod` first (with `fetch-depth: 0`); before step 3 that passes with "Chef's cloud builds aren't set up on this deployment yet". Check the run is green. If the guard step fails with a CLI error rather than "chef's main is at ...", it's the guard misreading CI, not a rollback: fix it, or set `CHEF_SKIP_DEPLOY_GUARD=1` on that step for one run.
+- **The merge deploys to prod.** The "Deploy production" workflow runs `convex deploy` on every push to `main`. This one installs the `feedback`, `chefCloud` and `staticHosting` components, the `chefLinks` table, `chef:*`, `chefWall:token`, `/chef/link`, `/chef-agent/*`, and static hosting's catch-all under every other route. No change to Cannvas's own tables. It now runs `pnpm exec chef guard --prod` first (with `fetch-depth: 0`); before step 3 that passes with "Chef's cloud builds aren't set up on this deployment yet". It also ends with a new step, "Move Chef's main to the deployed commit" (`deploy/chef-follow-github.sh`), which before step 4 passes with "Chef has no repo on this deployment yet". Check the run is green. If the guard step fails with a CLI error rather than "chef's main is at ...", it's the guard misreading CI, not a rollback: fix it, or set `CHEF_SKIP_DEPLOY_GUARD=1` on that step for one run.
 - Back up: Dashboard > prod > Backups > Backup now.
 
 ## 1. The sending domain (Mike, once, for the whole team)
@@ -64,7 +64,7 @@ This is a production deploy (`npx convex deploy`), of the same code the merge de
 - names `mike` the admin (the email links act as `mike`; nobody can sign in as it);
 - creates a deploy key for prod and records it (`CHEF_DEPLOY_KEY`), for "Ship it".
 
-Expect it to end with "Cloud builds are off". Then check, names only:
+Expect it to end with "Cloud builds are off". From now on, every push to GitHub `main` deploys prod and then moves prod's Chef `main` to that commit (the workflow's last step), so Chef builds from what's live. Check the next workflow run's last step says "Chef's main is <sha>". If it fails with "git push failed" or "Syncing now would be refused", someone shipped between the guard and the sync: run `deploy/ship-from-chef.sh`. Then check, names only:
 
 ```sh
 npx chef status --prod
@@ -102,9 +102,11 @@ npx chef status --prod      # cloud builds  on
 deploy/ship-from-chef.sh
 ```
 
-It fast-forwards `main` to Chef's, pushes it to GitHub (whose workflow deploys the same backend again, and the public site) and deploys the Pi. Run it soon after a ship: until then the wall's old frontend talks to the new backend. Cannvas keeps working on its local data if a call fails ("Backup paused"), but a build that renames or removes a function the wall calls, or makes a field required, can break that feature on the wall until it's deployed. The Ship card flags schema changes.
+It fast-forwards `main` to Chef's, pushes it to GitHub (whose workflow deploys the same backend again, and the public site) and deploys the Pi. It refuses, before pushing or deploying anything, if GitHub's `main` or your checkout has commits Chef's `main` doesn't, so it only ever deploys exactly what Chef shipped. Run it soon after a ship: until then the wall's old frontend talks to the new backend. Cannvas keeps working on its local data if a call fails ("Backup paused"), but a build that renames or removes a function the wall calls, or makes a field required, can break that feature on the wall until it's deployed. The Ship card flags schema changes.
 
 Don't push to GitHub `main` between a ship and `ship-from-chef.sh`: the workflow's guard refuses to deploy a `main` without Chef's, and says `git pull chef main`.
+
+**When GitHub moves while a build waits.** A build starts from Chef's `main`. If a push to GitHub moves it (through the workflow's last step) before or during Ship it, Chef doesn't deploy the old base: the ship's first step sees `main` moved and queues a release merge (Chef's `followMain`; `docs/chef-pipeline.md`, "When main moves under Ship it"). That merges the new `main` into the build, runs every check again (one more build's cost), and ships on the same approval if the change is the same. If the merge needed resolving, or main moved three times, it waits for an approval in Chef's admin panel, which Cannvas doesn't mount: until it does, approve it with `npx convex run` as `mike`, or Ship a newer build that covers the same requests.
 
 ## Turning it off
 
