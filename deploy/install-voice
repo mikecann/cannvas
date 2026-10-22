@@ -7,7 +7,7 @@
 # Everything lives in /opt/cannvas-voice, owned by root:
 #   llama.cpp/   llama-server, built from a pinned release
 #   venv/        Python packages from deploy/voice-requirements.txt
-#   models/      the language model, Moonshine, a Piper voice and the wake word
+#   models/      the language model, Parakeet, Moonshine, a Piper voice and the wake word
 # It installs cannvas-llm.service (system) and cannvas-voice.service (pi's user
 # session, beside the kiosk), plus the kiosk's audio setup, which keeps the TV's
 # HDMI sink awake so replies aren't clipped. The cannvas-voice script itself
@@ -89,6 +89,16 @@ if [ ! -f "$models/moonshine-base-en/tokens.txt" ] || [ "$models/moonshine-base-
   rm -rf "$models/moonshine-base-en"
   mkdir "$models/moonshine-base-en"
   tar -xjf "$models/moonshine-base-en.tar.bz2" -C "$models/moonshine-base-en" --strip-components=1
+fi
+
+# Parakeet Unified EN 0.6B, non-streaming int8. Keep Moonshine above for rollback.
+parakeet=sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-non-streaming
+fetch "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/$parakeet.tar.bz2" \
+  "$models/$parakeet.tar.bz2" 99f63605b3a85a54c250c0869670a687b7d6598a47bf2421515e1f839a76e150
+if [ ! -f "$models/$parakeet/tokens.txt" ] || [ "$models/$parakeet.tar.bz2" -nt "$models/$parakeet/tokens.txt" ]; then
+  rm -rf "$models/$parakeet"
+  mkdir "$models/$parakeet"
+  tar -xjf "$models/$parakeet.tar.bz2" -C "$models/$parakeet" --strip-components=1
 fi
 
 piper=https://huggingface.co/rhasspy/piper-voices/resolve/c10ece1aade47bb51c153c893d14e5bf8e5b7117/en/en_GB/alba/medium
