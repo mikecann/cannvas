@@ -754,8 +754,13 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 /* Today's drawing between videos. It covers the clock and widgets briefly. */
 .whiteboard-slide { position: absolute; z-index: 6; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: var(--cream); animation: whiteboard-slide-in .6s ease both; }
 .whiteboard-slide .eyebrow { margin: 0; font-size: 1.1rem; }
-.whiteboard-slide canvas { width: min(calc(100vw - 96px), calc((100vh - 170px) * 1024 / 1676)); height: auto; border-radius: 28px; background: var(--paper); box-shadow: var(--shadow); }
+.whiteboard-slide-board { position: relative; width: min(calc(100vw - 96px), calc((100vh - 170px) * 1024 / 1676)); border-radius: 28px; background: var(--paper); box-shadow: var(--shadow); overflow: hidden; }
+.whiteboard-slide canvas { display: block; width: 100%; height: 100%; }
+.whiteboard-slide-sticker { position: absolute; font-family: system-ui, sans-serif; line-height: 1; transform: translate(-50%, -50%); pointer-events: none; }
 @keyframes whiteboard-slide-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .whiteboard-slide { animation: none; }
+}
 .display-gradient { display: grid; place-items: center; background: radial-gradient(circle at 70% 25%, #f9a55c, transparent 25%), radial-gradient(circle at 30% 65%, #527fc4, transparent 30%), linear-gradient(135deg, #27294a, #131620); }
 .display-gradient span { font: 700 38vw "Fraunces", serif; opacity: .06; }
 .display-content { position: absolute; z-index: 2; left: 56px; top: 50px; text-shadow: 0 3px 18px rgba(0,0,0,.4); }
