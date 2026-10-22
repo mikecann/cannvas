@@ -49,7 +49,7 @@ export const sendRequestEmail = internalAction({
       approveUrl: linkUrl(siteUrl(), links.approveToken),
       rejectUrl: linkUrl(siteUrl(), links.rejectToken),
     });
-    const { id } = await send(ctx, { to: CHEF_OWNER_EMAIL, ...email, idempotencyKey: `cannvas-request-${itemId}` });
+    const { id } = await send(ctx, { to: CHEF_OWNER_EMAIL, ...email, idempotencyKey: `cannvas-request-${itemId}-${links.snapshotId}` });
     console.log(`Chef: emailed request ${itemId} to the owner (${id})`);
     return null;
   },

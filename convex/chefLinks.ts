@@ -76,7 +76,7 @@ export const createRequestLinks = internalMutation({
   args: { itemId: v.string() },
   returns: v.union(
     v.null(),
-    v.object({ approveToken: v.string(), rejectToken: v.string(), request: vRequest }),
+    v.object({ snapshotId: v.string(), approveToken: v.string(), rejectToken: v.string(), request: vRequest }),
   ),
   handler: async (ctx, { itemId }) => {
     const item = await feedback.items.get(ctx, { itemId: asItemId(itemId) }).catch(() => null);
@@ -86,7 +86,7 @@ export const createRequestLinks = internalMutation({
     if (!request) return null;
     const approveToken = await insertLink(ctx, { action: "approve", itemId, snapshotId, contentHash });
     const rejectToken = await insertLink(ctx, { action: "reject", itemId });
-    return { approveToken, rejectToken, request };
+    return { snapshotId, approveToken, rejectToken, request };
   },
 });
 
@@ -105,7 +105,7 @@ async function shipView(ctx: QueryCtx, runId: string): Promise<LinkShip> {
   let blocked: string | null = null;
   if (!run) blocked = "Chef has no build with this id.";
   else if (run.status !== "built") blocked = `This build isn't ready to ship (it's ${run.status}).`;
-  else if (!isCandidate) blocked = "A newer build has replaced this one. Use the newest email's Ship it, or the Chef panel.";
+  else if (!isCandidate) blocked = "A newer build has replaced this one. Use the Ship it in the newest email.";
   else if (candidate!.blocked) blocked = candidate!.blocked;
   else if (!diff) blocked = "Chef hasn't worked out this build's changes yet. Try again in a minute.";
   return {

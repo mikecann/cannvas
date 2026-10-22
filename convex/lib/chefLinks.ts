@@ -137,7 +137,7 @@ function viewPage(view: LinkView, token: string): LinkResponse {
   if (view.state === "expired") {
     return {
       status: 410,
-      html: messagePage("Link expired", "<p>Links in Chef's emails last 7 days. Open the Chef panel on the wall, or ask Chef to email you again.</p>"),
+      html: messagePage("Link expired", "<p>Links in Chef's emails last 7 days. The README's Chef section says how to get a new one.</p>"),
     };
   }
   const words = ACTION_WORDS[view.action];
