@@ -35,17 +35,21 @@ fi
 
 # The repo's remote URL, only when Chef's repo exists (npx chef init --cloud
 # --prod makes it) and the URL is a plain https one with no credentials.
-url=$(node -e '
+# Output that isn't Chef's status fails the job rather than skipping it.
+if ! url=$(node -e '
   let s = "";
   process.stdin.on("data", (d) => (s += d)).on("end", () => {
     let status;
-    try { status = JSON.parse(s); } catch { status = null; }
-    const raw = status && status.repo && status.remoteUrl;
+    try { status = JSON.parse(s.slice(s.search(/^\{/m))); } catch { process.exit(1); }
+    if (!status || typeof status !== "object") process.exit(1);
     let url;
-    try { url = new URL(raw); } catch { return; }
+    try { url = new URL(status.repo ? status.remoteUrl : ""); } catch { return; }
     if (url.protocol === "https:" && !url.username && !url.password) process.stdout.write(url.toString());
   });
-' <<<"$status")
+' <<<"$status"); then
+  echo "chef-follow-github: couldn't read Chef's status from convex run" >&2
+  exit 1
+fi
 if [ -z "$url" ]; then
   log "Chef has no repo on this deployment yet; nothing to sync"
   exit 0

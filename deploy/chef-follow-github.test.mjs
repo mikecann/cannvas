@@ -70,6 +70,14 @@ test("fails on any other error reading Chef's status", async (context) => {
   assert.equal((await pnpmCalls()).length, 1);
 });
 
+test("fails when convex run's output isn't Chef's status", async (context) => {
+  const { git, run } = await setup(context);
+  const result = run({ STATUS: "something else" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /couldn't read Chef's status/);
+  assert.equal(git("remote"), "");
+});
+
 test("adds Chef's remote and its credential helper, then chef sync --prod", async (context) => {
   const { git, work, run, pnpmCalls } = await setup(context);
   const result = run({ STATUS: JSON.stringify({ repo: "cannvas", remoteUrl: REPO_URL }) });
