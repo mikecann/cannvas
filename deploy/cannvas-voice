@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Listen for the wake word and carry out spoken commands.
 
-openWakeWord listens for the wake word, Moonshine (through sherpa-onnx) turns
+openWakeWord listens for the wake word, Parakeet (through sherpa-onnx) turns
 the command into text, everyday commands are matched straight away, and Piper
 speaks the reply through the TV, all on the Pi. Anything else goes to GPT-6 Luna
 through OpenRouter, or to a small local model in llama-server
@@ -52,9 +52,18 @@ WAKE_WORD = os.environ.get("CANNVAS_WAKE_WORD", str(HOME / "models/hey_canvas.on
 WAKE_THRESHOLD = float(os.environ.get("CANNVAS_WAKE_THRESHOLD", "0.5"))
 # Scores from here up to the threshold are logged, to tune the wake word with.
 NEAR_MISS = 0.15
-# Moonshine reads a two-second command in about 0.2 s on the Pi, where Whisper
-# takes 1.5 to 3 s because it always works on a 30 second window.
-SPEECH_MODEL = Path(os.environ.get("CANNVAS_SPEECH_MODEL", str(HOME / "models/moonshine-base-en")))
+# Prefer Parakeet for far-field speech, but keep older Pi installs working.
+PARAKEET_MODEL = "sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-non-streaming"
+
+
+def select_speech_model() -> Path:
+    if path := os.environ.get("CANNVAS_SPEECH_MODEL"):
+        return Path(path)
+    parakeet = HOME / "models" / PARAKEET_MODEL
+    return parakeet if parakeet.is_dir() else HOME / "models/moonshine-base-en"
+
+
+SPEECH_MODEL = select_speech_model()
 PIPER_VOICE = os.environ.get("CANNVAS_PIPER_VOICE", str(HOME / "models/en_GB-alba-medium.onnx"))
 # Extra pw-record arguments, such as "--target <node>" to choose a microphone.
 MIC_ARGS = shlex.split(os.environ.get("CANNVAS_MIC_ARGS", ""))
@@ -684,6 +693,44 @@ def play(pcm: bytes, rate: int) -> subprocess.Popen[bytes]:
     return player
 
 
+def load_speech_model(path: Path) -> Any:
+    import sherpa_onnx
+
+    # Detect the exported files, so CANNVAS_SPEECH_MODEL can also select a
+    # Moonshine rollback or a model stored outside the install directory.
+    if all((path / name).is_file() for name in (
+        "encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt",
+    )):
+        # Same three-thread, default greedy decoder as stt-bakeoff/run_model.py's
+        # parakeet-unified run. Hotwords added about 0.7 s for little gain.
+        speech = sherpa_onnx.OfflineRecognizer.from_transducer(
+            encoder=str(path / "encoder.int8.onnx"),
+            decoder=str(path / "decoder.int8.onnx"),
+            joiner=str(path / "joiner.int8.onnx"),
+            tokens=str(path / "tokens.txt"),
+            model_type="nemo_transducer",
+            num_threads=3,
+        )
+        engine = "Parakeet Unified"
+    elif all((path / name).is_file() for name in (
+        "preprocess.onnx", "encode.int8.onnx", "uncached_decode.int8.onnx",
+        "cached_decode.int8.onnx", "tokens.txt",
+    )):
+        speech = sherpa_onnx.OfflineRecognizer.from_moonshine(
+            preprocessor=str(path / "preprocess.onnx"),
+            encoder=str(path / "encode.int8.onnx"),
+            uncached_decoder=str(path / "uncached_decode.int8.onnx"),
+            cached_decoder=str(path / "cached_decode.int8.onnx"),
+            tokens=str(path / "tokens.txt"),
+            num_threads=3,
+        )
+        engine = "Moonshine"
+    else:
+        raise ValueError(f"No complete Parakeet or Moonshine speech model in {path}")
+    log(f"loaded {engine} speech model from {path}")
+    return speech
+
+
 class Voice:
     """Microphone in, speaker out, and the listening state machine between them."""
 
@@ -692,7 +739,6 @@ class Voice:
         from openwakeword.model import Model as WakeModel
         from openwakeword.vad import VAD
         from piper import PiperVoice
-        import sherpa_onnx
 
         self.np = np
         self.agent = agent
@@ -700,14 +746,7 @@ class Voice:
         self.samples = samples
         self.wake = WakeModel(wakeword_models=[WAKE_WORD], inference_framework="onnx")
         self.vad = VAD()
-        self.speech = sherpa_onnx.OfflineRecognizer.from_moonshine(
-            preprocessor=str(SPEECH_MODEL / "preprocess.onnx"),
-            encoder=str(SPEECH_MODEL / "encode.int8.onnx"),
-            uncached_decoder=str(SPEECH_MODEL / "uncached_decode.int8.onnx"),
-            cached_decoder=str(SPEECH_MODEL / "cached_decode.int8.onnx"),
-            tokens=str(SPEECH_MODEL / "tokens.txt"),
-            num_threads=3,
-        )
+        self.speech = load_speech_model(SPEECH_MODEL)
         self.piper = PiperVoice.load(PIPER_VOICE)
         self.start_chime = chime(np)
         self.end_chime = chime(np, rising=False)

@@ -420,9 +420,13 @@ Pi:
    [openWakeWord](https://github.com/dscripka/openWakeWord) and plays a chime.
    The model was trained for this project (see `deploy/wake-word/`).
 2. It records until you stop talking (Silero VAD), then turns that into text
-   with [Moonshine](https://github.com/moonshine-ai/moonshine) through
-   [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx). That takes about 0.2
-   seconds on the Pi, where Whisper takes 1.5 to 3.
+   with NVIDIA's Parakeet Unified EN 0.6B (int8) through
+   [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx). In our recordings it
+   handled speech across the room better than Moonshine, taking about 0.56
+   seconds on the Pi. Older installs use Moonshine until the Parakeet model
+   is installed with `deploy/install-voice`. To switch back, set
+   `CANNVAS_SPEECH_MODEL=/opt/cannvas-voice/models/moonshine-base-en` in the
+   voice service's environment and restart it.
 3. Everyday commands ("lights off", "turn on the TV lamp", "set the top lamp
    to 30 percent", "open the calendar") are matched straight away. Anything
    else goes to OpenAI's GPT-6 Luna through [OpenRouter](https://openrouter.ai),

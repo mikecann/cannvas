@@ -11,7 +11,9 @@ Restart=always
 RestartSec=5
 # Listening must not make the touchscreen stutter.
 Nice=5
-MemoryMax=1500M
+# Parakeet alone peaked at 859 MiB in the Pi bake-off. Budget another 600 MiB
+# for openWakeWord, Silero, Piper and audio, plus headroom for inference peaks.
+MemoryMax=2G
 
 [Install]
 WantedBy=default.target

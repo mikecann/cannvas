@@ -19,6 +19,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest.mock import Mock, patch
 
 HERE = Path(__file__).resolve().parent
 # No voice.json, so only lights are voice devices unless a test names others.
@@ -100,6 +101,95 @@ def serve(handler: type[BaseHTTPRequestHandler]) -> ThreadingHTTPServer:
 
 def tool_call(name: str, arguments: dict) -> dict:
     return {"content": "", "tool_calls": [{"type": "function", "function": {"name": name, "arguments": json.dumps(arguments)}}]}
+
+
+class SpeechModelTest(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.home = Path(temporary.name)
+        self.sherpa = Mock()
+        for context in (
+            patch.object(voice, "HOME", self.home),
+            patch.dict(os.environ, {"CANNVAS_SPEECH_MODEL": ""}),
+            patch.dict(sys.modules, {"sherpa_onnx": self.sherpa}),
+        ):
+            context.start()
+            self.addCleanup(context.stop)
+
+    def model(self, path: Path, engine: str) -> Path:
+        path.mkdir(parents=True)
+        files = {
+            "parakeet": ("encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"),
+            "moonshine": ("preprocess.onnx", "encode.int8.onnx", "uncached_decode.int8.onnx",
+                          "cached_decode.int8.onnx", "tokens.txt"),
+        }
+        for name in files[engine]:
+            (path / name).touch()
+        return path
+
+    def test_old_install_defaults_to_moonshine(self) -> None:
+        path = self.model(self.home / "models/moonshine-base-en", "moonshine")
+        self.assertEqual(voice.select_speech_model(), path)
+        self.assertIs(voice.load_speech_model(path), self.sherpa.OfflineRecognizer.from_moonshine.return_value)
+        self.sherpa.OfflineRecognizer.from_transducer.assert_not_called()
+
+    def test_parakeet_directory_becomes_the_default(self) -> None:
+        self.model(self.home / "models/moonshine-base-en", "moonshine")
+        path = self.model(self.home / "models" / voice.PARAKEET_MODEL, "parakeet")
+        self.assertEqual(voice.select_speech_model(), path)
+
+    def test_a_file_at_the_parakeet_path_is_not_an_install(self) -> None:
+        path = self.home / "models" / voice.PARAKEET_MODEL
+        path.parent.mkdir()
+        path.touch()
+        self.assertEqual(voice.select_speech_model(), self.home / "models/moonshine-base-en")
+
+    def test_explicit_paths_override_default_and_detect_files(self) -> None:
+        self.model(self.home / "models" / voice.PARAKEET_MODEL, "parakeet")
+        for engine, factory in (("moonshine", "from_moonshine"), ("parakeet", "from_transducer")):
+            with self.subTest(engine=engine):
+                path = self.model(self.home / f"custom-{engine}", engine)
+                with patch.dict(os.environ, {"CANNVAS_SPEECH_MODEL": str(path)}):
+                    self.assertEqual(voice.select_speech_model(), path)
+                    self.assertIs(voice.load_speech_model(path), getattr(self.sherpa.OfflineRecognizer, factory).return_value)
+
+    def test_parakeet_uses_the_bakeoff_factory_without_hotwords(self) -> None:
+        path = self.model(self.home / "speech", "parakeet")
+        with patch.object(voice, "log") as log:
+            voice.load_speech_model(path)
+        self.sherpa.OfflineRecognizer.from_transducer.assert_called_once_with(
+            encoder=str(path / "encoder.int8.onnx"),
+            decoder=str(path / "decoder.int8.onnx"),
+            joiner=str(path / "joiner.int8.onnx"),
+            tokens=str(path / "tokens.txt"),
+            model_type="nemo_transducer", num_threads=3,
+        )
+        self.sherpa.OfflineRecognizer.from_moonshine.assert_not_called()
+        log.assert_called_once_with(f"loaded Parakeet Unified speech model from {path}")
+
+    def test_moonshine_keeps_its_original_factory(self) -> None:
+        path = self.model(self.home / "speech", "moonshine")
+        with patch.object(voice, "log") as log:
+            voice.load_speech_model(path)
+        self.sherpa.OfflineRecognizer.from_moonshine.assert_called_once_with(
+            preprocessor=str(path / "preprocess.onnx"),
+            encoder=str(path / "encode.int8.onnx"),
+            uncached_decoder=str(path / "uncached_decode.int8.onnx"),
+            cached_decoder=str(path / "cached_decode.int8.onnx"),
+            tokens=str(path / "tokens.txt"), num_threads=3,
+        )
+        log.assert_called_once_with(f"loaded Moonshine speech model from {path}")
+
+    def test_missing_or_incomplete_model_fails_clearly(self) -> None:
+        missing = self.home / "missing"
+        incomplete = self.model(self.home / "incomplete", "parakeet")
+        (incomplete / "joiner.int8.onnx").unlink()
+        for path in (missing, incomplete):
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, "No complete Parakeet or Moonshine"):
+                voice.load_speech_model(path)
+        self.sherpa.OfflineRecognizer.from_transducer.assert_not_called()
+        self.sherpa.OfflineRecognizer.from_moonshine.assert_not_called()
 
 
 class DeviceTest(unittest.TestCase):
