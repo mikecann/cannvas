@@ -62,6 +62,14 @@ export type LinkRequest = {
   audioUrl: string | null;
 };
 
+// Chef's submitRequest appends a context footer to what it stores
+// (`\n\n_screen: / · ref: abc_`, read back by Chef's batching.ts
+// splitContext). It's for Chef's build planner, not for Mike.
+export function withoutChefContext(description: string): string {
+  const footer = /\n*_((?:screen|ref): [^\n]*)_\s*$/.exec(description);
+  return (footer ? description.slice(0, footer.index) : description).trim();
+}
+
 export type LinkShip = {
   runId: string;
   seq: number | null;

@@ -11,6 +11,7 @@ import {
   newLinkToken,
   requestEmail,
   requestEmailKey,
+  withoutChefContext,
   withShipButton,
 } from "../convex/lib/chefLinks.ts";
 
@@ -160,3 +161,10 @@ test("each request email gets its own idempotency key", () => {
   assert.notEqual(requestEmailKey("item1", "delivery1"), requestEmailKey("item1", "delivery2"));
 });
 
+test("Mike doesn't see Chef's screen and ref footer", () => {
+  assert.equal(withoutChefContext("A bigger clock\n\n_screen: /_"), "A bigger clock");
+  assert.equal(withoutChefContext("A bigger clock\n\n_screen: /?kiosk_launch=1 · ref: abc_\n"), "A bigger clock");
+  assert.equal(withoutChefContext("_screen: /_"), "");
+  assert.equal(withoutChefContext("Use _italics_ here\nplease"), "Use _italics_ here\nplease");
+  assert.equal(withoutChefContext("Say _screen: off_ in the middle\nthen more"), "Say _screen: off_ in the middle\nthen more");
+});

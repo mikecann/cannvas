@@ -18,6 +18,7 @@ import {
   type LinkResult,
   type LinkShip,
   type LinkView,
+  withoutChefContext,
 } from "./lib/chefLinks";
 import { CHEF_ADMIN_ID } from "./lib/chefWall";
 
@@ -61,7 +62,7 @@ async function snapshotRequest(ctx: QueryCtx, snapshotId: string): Promise<LinkR
   return {
     number: typeof item?.number === "number" ? item.number : null,
     title: snapshot.title,
-    description: snapshot.description,
+    description: withoutChefContext(snapshot.description),
     transcript: snapshot.transcript ?? null,
     screenshots: urls.filter((a) => a.kind === "screenshot" && a.url).map((a) => a.url!),
     audioUrl: urls.find((a) => a.kind === "audio" && a.url)?.url ?? null,
@@ -153,7 +154,7 @@ async function itemRequest(ctx: QueryCtx, itemId: string): Promise<LinkRequest |
   return {
     number: typeof item.number === "number" ? item.number : null,
     title: String(item.title ?? ""),
-    description: String(item.description ?? ""),
+    description: withoutChefContext(String(item.description ?? "")),
     transcript: typeof item.transcript === "string" ? item.transcript : null,
     screenshots: attachments.filter((a) => a.kind === "screenshot" && a.url).map((a) => a.url!),
     audioUrl: attachments.find((a) => a.kind === "audio" && a.url)?.url ?? null,
