@@ -68,7 +68,7 @@ SPEECH_MODEL = select_speech_model()
 # Parakeet has been evaluated for this; old Moonshine installs stay as before.
 # Set to 0 to disable, or to the lower edge of the band below WAKE_THRESHOLD.
 SECOND_CHANCE = float(os.environ.get(
-    "CANNVAS_WAKE_SECOND_CHANCE", "0.05" if (SPEECH_MODEL / "joiner.int8.onnx").is_file() else "0",
+    "CANNVAS_WAKE_SECOND_CHANCE", "0.01" if (SPEECH_MODEL / "joiner.int8.onnx").is_file() else "0",
 ))
 PIPER_VOICE = os.environ.get("CANNVAS_PIPER_VOICE", str(HOME / "models/en_GB-alba-medium.onnx"))
 # Extra pw-record arguments, such as "--target <node>" to choose a microphone.
@@ -738,13 +738,18 @@ def load_speech_model(path: Path) -> Any:
 
 
 def wake_command(heard: str) -> str | None:
-    """The words after a leading wake phrase, empty for just a wake, or None.
+    """The words after the last wake phrase, empty for just a wake, or None.
 
-    Parakeet sometimes drops "hey" or spells the name "Cannvas". Match whole
-    words at the start only: "a canvas" and "hey can you" aren't addressing us.
-    "Canvas" on its own is allowed only after the low wake-score gate.
+    Room speech can run into a request in the same VAD buffer. Require "hey"
+    for an embedded name, allowing only the two mishearings seen in coach3.
+    Bare "canvas"/"cannvas" stay start-only. This cannot distinguish a TV
+    quoting the wake phrase; the wake-score gate still applies to every check.
     """
-    match = re.match(r"^\W*(?:hey\W+)?(?:canvas|cannvas)\b\W*", heard, flags=re.I)
+    match = None
+    for occurrence in re.finditer(r"\bhey\W+(?:canvas|cannvas|camus|cambas)\b\W*", heard, flags=re.I):
+        match = occurrence
+    if match is None:
+        match = re.match(r"^\W*(?:canvas|cannvas)\b\W*", heard, flags=re.I)
     return heard[match.end():].strip() if match else None
 
 
@@ -938,7 +943,9 @@ class Voice:
             if command is None:
                 log(f"wake second chance rejected {score:.2f}")
                 return
-            log(f"wake second chance accepted {score:.2f}: {heard!r}")
+            # Earlier room speech may share this buffer. Only the request
+            # after the wake phrase belongs in accepted-request logs.
+            log(f"wake second chance accepted {score:.2f}: {command!r}")
             if not command:
                 # The listening thread owns the normal chime and command VAD.
                 self.listen_requested.set()
