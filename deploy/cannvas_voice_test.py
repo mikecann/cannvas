@@ -441,7 +441,7 @@ class SecondChanceTest(unittest.TestCase):
         self.listener.deaf_until = 0.0
         self.listener.start_chime = b"start"
         self.listener.end_chime = b"end"
-        for context in (patch.object(voice, "SECOND_CHANCE", 0.05),
+        for context in (patch.object(voice, "SECOND_CHANCE", 0.01),
                         patch.object(voice.time, "monotonic", return_value=100.0),
                         patch.object(voice, "play"), patch.object(voice, "log")):
             context.start()
@@ -456,21 +456,51 @@ class SecondChanceTest(unittest.TestCase):
         for text in ("Hey Canvas.", "Canvas", "hey, cannvas!"):
             self.assertEqual(voice.wake_command(text), "")
 
-    def test_rejects_embedded_names_and_lookalikes(self) -> None:
+    def test_embedded_wake_uses_the_command_after_the_last_occurrence(self) -> None:
+        for text in (
+            "Wake word, then turn the lamp on. Hey Canvas, turn the lights on.",
+            "Some room speech. HEY, CANNVAS! turn the lights on.",
+            "Hey Canvas, wrong command. Hey Canvas, turn the lights on.",
+            "Canvas, wrong command. Hey Camus, turn the lights on.",
+            "Hey Cambas, wrong command. Hey Canvas, turn the lights on.",
+            "Hey Canvas, wrong command. Hey Cambas, turn the lights on.",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(voice.wake_command(text), "turn the lights on.")
+        self.assertEqual(voice.wake_command("Room speech. Hey Canvas!"), "")
+
+    def test_only_observed_mishearings_after_hey_are_allowed(self) -> None:
+        for name in ("Camus", "Cambas"):
+            for prefix in ("", "Wake word, then show me Sammy Cam. "):
+                with self.subTest(name=name, prefix=prefix):
+                    self.assertEqual(voice.wake_command(f"{prefix}Hey {name}, show me Sammy Cam."),
+                                     "show me Sammy Cam.")
+
+    def test_rejects_bare_embedded_names_and_lookalikes(self) -> None:
         for text in ("", "We should get a new canvas for the painting.", "The canvas is ready.",
                      "Hey, can you pass me the remote?", "Hey, can I ask us?", "Hey Kansas!",
-                     "Hey canvasback", "Canvas123", "Say hey canvas", "Hey camera"):
+                     "Hey canvasback", "Canvas123", "Hey camera", "Camus, lights off",
+                     "Cambas, lights off", "Hey canvass, lights off", "Hey Can", "Hey Cameron",
+                     "HeyCanvas, lights off", "Hey canvas_foo", "Someone said canvas, lights off.",
+                     "Room speech. Hey can you turn on the lamp?", "Room speech. Hey Kansas!",
+                     "Room speech. Hey camera, turn on the lamp."):
             with self.subTest(text=text):
                 self.assertIsNone(voice.wake_command(text))
 
+    def test_a_tv_quoting_the_exact_wake_is_indistinguishable(self) -> None:
+        # Record this limitation explicitly; the guard recordings don't contain
+        # a TV quote of the wake phrase, so zero FAs there cannot cover it.
+        self.assertEqual(voice.wake_command("The actor says hey canvas, turn the lamp on."),
+                         "turn the lamp on.")
+
     def test_only_a_finished_low_band_utterance_starts_a_check(self) -> None:
-        for score in (0.049, 0.05, 0.49, 0.5, 0.9):
+        for score in (0, 0.009, 0.01, 0.03, 0.05, 0.49, 0.5, 0.9):
             with self.subTest(score=score), patch.object(voice.threading, "Thread") as worker:
                 self.listener.busy = False
                 self.listener.idle_utterances = Mock()
                 self.listener.idle_utterances.feed.return_value = (["a", "b"], score)
                 self.listener.check_idle_frame("frame", 0.01)
-                if 0.05 <= score < 0.5:
+                if 0.01 <= score < 0.5:
                     worker.assert_called_once_with(target=self.listener.check_second_chance,
                                                    args=(("a", "b"), score), daemon=True)
                     worker.return_value.start.assert_called_once()
@@ -535,6 +565,15 @@ class SecondChanceTest(unittest.TestCase):
         self.assertEqual(self.listener.deaf_until, 101.0)
         self.listener.wake.reset.assert_called_once()
         self.listener.vad.reset_states.assert_called_once()
+
+    def test_embedded_accept_keeps_earlier_room_speech_out_of_logs_and_request(self) -> None:
+        self.listener.transcribe.return_value = "Private room speech. Hey Camus, turn the lights on."
+        self.listener.busy = True
+        self.listener.check_second_chance("audio", 0.014)
+        voice.log.assert_any_call("wake second chance accepted 0.01: 'turn the lights on.'")
+        self.assertTrue(all("Private room speech" not in call.args[0] for call in voice.log.call_args_list))
+        self.listener.agent.handle.assert_called_once_with("turn the lights on.")
+        self.listener.transcribe.assert_called_once_with("audio")
 
     def test_rejected_room_speech_never_reaches_logs_events_or_agent(self) -> None:
         private = "We should get a new canvas for the painting."

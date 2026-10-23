@@ -524,16 +524,25 @@ Pi:
    the TV, and the screen shows what it heard and what it said.
 
 Quiet wake phrases get a second chance. With Parakeet installed, an utterance
-whose best wake score is between 0.05 and the normal 0.5 threshold is checked
-by the same speech model. If its transcript starts with "Hey Canvas" or
-"Canvas" (also "Cannvas"), the remaining words become the request and the end
-chime acknowledges it. Just the wake phrase plays the usual start chime and
-listens for the command. A normal wake still chimes straight away.
+whose best wake score is at least 0.01 and below the normal 0.5 threshold is
+checked by the same speech model. "Hey Canvas" (also "Hey Cannvas") can follow
+earlier room speech in the same buffer. The words after its last occurrence
+become the request and the end chime acknowledges it. The two observed
+Parakeet mishearings "Hey Camus" and "Hey Cambas" also work; bare "Canvas" or
+"Cannvas" must start the transcript. Just the wake phrase plays the usual
+start chime and listens for the command. A normal wake still chimes straight away.
 Set `CANNVAS_WAKE_SECOND_CHANCE=0` in the voice service's environment to turn
 this off, or set it to a different lower threshold. Older Moonshine installs
-leave it off by default. Our nine recorded tries improved from 5 to 7 wakes;
-two far-side tries still weren't recognised. Two hours of far-field speech
-guards added no false wakes and needed about 3.5 speech checks per hour.
+leave it off by default. On two recorded sessions, offline utterance replay
+improved from 12/41 with the normal detector to 32/41 with this check. A replay
+through the actual listener, including estimated Pi decode pauses and its
+normal rest periods, got 31/41. The newer session improved from 7/32 to 24/32
+in that listener replay, including 2/8 far-side tries. Two hours of far-field speech
+guards added no false wakes and needed about 29 speech checks per hour, with
+7.6-second buffers on average. Estimated extra decoding costs about 3–4% of
+one Pi core on that speech, alongside the existing idle VAD cost. The guard
+recordings don't include a TV quoting "Hey Canvas" mid-sentence: that can
+trigger this matcher too, so these counts don't establish a household false-wake rate.
 
 Audio stays in a short memory buffer while the Pi checks an utterance, then is
 discarded. It never leaves the Pi. Rejected second-chance checks log only the
