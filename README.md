@@ -550,6 +550,13 @@ wake score, with no transcript or screen event. Only accepted requests reach
 the command handler; the text of one that isn't an everyday command goes to
 OpenRouter.
 
+While tuning the wake word, set `CANNVAS_WAKE_DEBUG_DIR` (for example to
+`/var/lib/cannvas/wake-debug`) to keep the audio and transcript of each
+second-chance check that scored at least 0.15. Those are nearly always someone
+trying "Hey Canvas", and they make a failed try something you can listen to and
+replay. Only the newest 200 are kept, they stay on the Pi, and the journal still
+gets just the score. Leave it unset the rest of the time.
+
 Voice can switch every Home Assistant light. Other switches need a spoken name
 in `/var/lib/cannvas/voice.json`, for example
 `{"devices": {"switch.athom_outside_lights_smart_plug_v2": "Outside Lights"}}`.
