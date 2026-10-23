@@ -16,6 +16,7 @@ import {
   SlidersHorizontal,
   CloudSun,
   CloudOff,
+  Droplets,
   LoaderCircle,
   Sun,
 } from "lucide-react";
@@ -24,6 +25,7 @@ import { CalendarApp } from "./apps/CalendarApp";
 import { ChoresApp } from "./apps/ChoresApp";
 import { DisplayApp } from "./apps/DisplayApp";
 import { KioskInventoryApp } from "./apps/KioskInventoryApp";
+import { ReticApp } from "./apps/ReticApp";
 import { SammyCamApp } from "./apps/SammyCamApp";
 import { SammyTabletTickerApp } from "./apps/SammyTabletTickerApp";
 import { SolarApp } from "./apps/SolarApp";
@@ -57,6 +59,7 @@ type AppId =
   | "calendar"
   | "weather"
   | "solar"
+  | "retic"
   | "home-automation"
   | "sammy-tablets"
   | "sammy-cam"
@@ -76,6 +79,7 @@ const primaryApps = [
 // Things used less often. The home screen's solar readout still opens Solar.
 const moreApps = [
   { id: "solar" as const, label: "Solar", description: "Power right now and today", icon: Sun },
+  { id: "retic" as const, label: "Retic", description: "Water the garden", icon: Droplets },
   { id: "sammy-tablets" as const, label: "Sammy", description: "Tablet schedule", icon: Dog },
   { id: "sammy-cam" as const, label: "Sammy Cam", description: "Live view and last night", icon: Cctv },
   { id: "inventory" as const, label: "Inventory", description: "Find household items", icon: PackageSearch },
@@ -235,6 +239,7 @@ export function App() {
               {activeApp === "calendar" && <CalendarApp />}
               {activeApp === "weather" && <WeatherApp />}
               {activeApp === "solar" && <SolarApp />}
+              {activeApp === "retic" && <ReticApp />}
               {activeApp === "home-automation" && <HomeAutomationApp />}
               {activeApp === "sammy-tablets" && <SammyTabletTickerApp />}
               {activeApp === "sammy-cam" && <SammyCamApp />}
