@@ -70,6 +70,12 @@ SPEECH_MODEL = select_speech_model()
 SECOND_CHANCE = float(os.environ.get(
     "CANNVAS_WAKE_SECOND_CHANCE", "0.01" if (SPEECH_MODEL / "joiner.int8.onnx").is_file() else "0",
 ))
+# For tuning the wake word only, and off unless set. Each second-chance check
+# that scored at least a near miss keeps its audio and transcript here, so a
+# failed try can be heard and replayed. Those are nearly always someone trying
+# the wake word, and the journal still only gets the score.
+WAKE_DEBUG_DIR = os.environ.get("CANNVAS_WAKE_DEBUG_DIR", "")
+WAKE_DEBUG_KEEP = 200
 PIPER_VOICE = os.environ.get("CANNVAS_PIPER_VOICE", str(HOME / "models/en_GB-alba-medium.onnx"))
 # Extra pw-record arguments, such as "--target <node>" to choose a microphone.
 MIC_ARGS = shlex.split(os.environ.get("CANNVAS_MIC_ARGS", ""))
@@ -936,10 +942,12 @@ class Voice:
         answering = False
         try:
             heard = self.transcribe(audio)
+            command = wake_command(heard)
+            if WAKE_DEBUG_DIR and score >= NEAR_MISS:
+                self.keep_wake_clip(audio, score, heard, command)
             # Training may have started (and even stopped) during decoding.
             if self.training or self.resume_listening or time.monotonic() < self.deaf_until:
                 return
-            command = wake_command(heard)
             if command is None:
                 log(f"wake second chance rejected {score:.2f}")
                 return
@@ -960,6 +968,23 @@ class Voice:
             if not answering:
                 self.rest()
                 self.busy = False
+
+    def keep_wake_clip(self, audio: Any, score: float, heard: str, command: str | None) -> None:
+        root = Path(WAKE_DEBUG_DIR)
+        try:
+            SampleStore(root).save(audio.tobytes(), {
+                "speaker": "debug",
+                "at": datetime.now(ZONE).isoformat(timespec="seconds"),
+                "score": round(float(score), 3),
+                "heard": heard,
+                "accepted": command is not None,
+                "seconds": round(len(audio) / SAMPLE_RATE, 1),
+            })
+            for old in sorted(root.glob("*.json"))[:-WAKE_DEBUG_KEEP]:
+                old.unlink(missing_ok=True)
+                old.with_suffix(".wav").unlink(missing_ok=True)
+        except Exception as error:  # The message could quote the transcript.
+            log(f"could not keep a wake clip: {type(error).__name__}")
 
     def record_sample(self, heard: Any, frame: Any, training: dict[str, Any]) -> None:
         """Score the wake word as usual but act on nothing, and keep each utterance."""
