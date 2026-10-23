@@ -672,7 +672,7 @@ class CannvasServerTest(unittest.TestCase):
         self.assertEqual(response.status, 202)
         self.assertEqual(FakeUpstream.posts, [
             # A run by hand replaces any scheduled watering.
-            ("/api/services/script/turn_off", {"entity_id": "script.retic_run_schedule"}),
+            ("/api/services/script/turn_off", {"entity_id": ["script.retic_run_schedule", "script.retic_close_all"]}),
             ("/api/services/script/turn_on", {"entity_id": "script.retic_run_zone", "variables": {"zone": "valve.retic_back_grass_left", "minutes": 10}}),
         ])
 
@@ -752,17 +752,18 @@ class CannvasServerTest(unittest.TestCase):
             self.assertEqual(response.status, 400, body)
         self.assertEqual(FakeUpstream.posts, [])
 
-    def test_retic_stop_cancels_the_timer_then_closes(self) -> None:
+    def test_retic_stop_cancels_the_timer_then_closes_with_retries(self) -> None:
         self.connect_home_assistant()
         response, _ = self.post_json("/api/retic/stop", {"entityId": "valve.retic_front_grass"})
         self.assertEqual(response.status, 200)
         self.assertEqual(FakeUpstream.posts, [
             ("/api/services/script/turn_off", {"entity_id": ["script.retic_run_schedule", "script.retic_run_zone"]}),
             ("/api/services/valve/close_valve", {"entity_id": "valve.retic_front_grass"}),
+            ("/api/services/script/turn_on", {"entity_id": "script.retic_close_all"}),
         ])
         response, _ = self.post_json("/api/retic/stop", {"entityId": "valve.somewhere_else"})
         self.assertEqual(response.status, 400)
-        self.assertEqual(len(FakeUpstream.posts), 2)
+        self.assertEqual(len(FakeUpstream.posts), 3)
 
     def test_generic_actions_cannot_reach_retic(self) -> None:
         self.connect_home_assistant()

@@ -605,6 +605,9 @@ RETIC_ZONE_IDS = {entity for _, entity, _ in RETIC_ZONES}
 RETIC_RUN_MINUTES = (5, 10, 15)
 RETIC_SCRIPT = "script.retic_run_zone"
 RETIC_SCHEDULE_SCRIPT = "script.retic_run_schedule"
+# Closes every zone and retries until they all report closed, because the WX8
+# ignores a close that arrives a second or two after a zone opens.
+RETIC_CLOSE_ALL = "script.retic_close_all"
 RETIC_RUN_ENDS = "input_datetime.retic_run_ends"
 # The master switch. The Home Assistant package closes every zone when it's off.
 RETIC_ENABLED = "input_boolean.retic_enabled"
@@ -1013,8 +1016,9 @@ class CannvasHandler(SimpleHTTPRequestHandler):
             if not isinstance(enabled, dict) or enabled.get("state") != "on":
                 self.send_json(409, {"error": "The retic is switched off"})
                 return
-            # A run by hand replaces any scheduled watering in progress.
-            home_assistant_request(config, "/api/services/script/turn_off", {"entity_id": RETIC_SCHEDULE_SCRIPT})
+            # A run by hand replaces any scheduled watering in progress, and
+            # cancels a Stop's close retries so they can't close this run.
+            home_assistant_request(config, "/api/services/script/turn_off", {"entity_id": [RETIC_SCHEDULE_SCRIPT, RETIC_CLOSE_ALL]})
             home_assistant_request(config, "/api/services/script/turn_on", {
                 "entity_id": RETIC_SCRIPT,
                 "variables": {"zone": entity_id, "minutes": minutes},
@@ -1035,6 +1039,9 @@ class CannvasHandler(SimpleHTTPRequestHandler):
             # Stop the timer first so it can't reopen or later close a new run.
             home_assistant_request(config, "/api/services/script/turn_off", {"entity_id": [RETIC_SCHEDULE_SCRIPT, RETIC_SCRIPT]})
             home_assistant_request(config, "/api/services/valve/close_valve", {"entity_id": entity_id})
+            # The close above can be ignored if the zone has only just opened,
+            # so keep retrying in Home Assistant until it reports closed.
+            home_assistant_request(config, "/api/services/script/turn_on", {"entity_id": RETIC_CLOSE_ALL})
             self.send_json(200, {"ok": True})
         except ValueError as error:
             self.send_json(400, {"error": str(error)})
