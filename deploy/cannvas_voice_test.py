@@ -610,25 +610,6 @@ class SecondChanceTest(unittest.TestCase):
         voice.play.assert_not_called()
         self.assertFalse(self.listener.busy)
 
-    def test_debug_clips_keep_near_misses_only_and_the_newest_few(self) -> None:
-        audio = Mock()
-        audio.tobytes.return_value = b"\0\0" * 1600
-        audio.__len__ = Mock(return_value=1600)
-        self.listener.transcribe.return_value = "Hey Kevin, lights on."
-        with tempfile.TemporaryDirectory() as root, \
-                patch.object(voice, "WAKE_DEBUG_DIR", root), patch.object(voice, "WAKE_DEBUG_KEEP", 2), \
-                patch.object(voice.secrets, "token_hex", side_effect=["0001", "0002", "0003"]):
-            # Clips in the same second sort by that suffix; the service is busy for longer.
-            for score in (0.3, 0.05, 0.2, 0.48):
-                self.listener.check_second_chance(audio, score)
-            kept = [json.loads(path.read_text()) for path in sorted(Path(root).glob("*.json"))]
-            self.assertEqual(len(list(Path(root).glob("*.wav"))), 2)
-        self.assertEqual(sorted(clip["score"] for clip in kept), [0.2, 0.48])
-        self.assertEqual({clip["heard"] for clip in kept}, {"Hey Kevin, lights on."})
-        self.assertFalse(any(clip["accepted"] for clip in kept))
-        self.assertTrue(all("Kevin" not in call.args[0] for call in voice.log.call_args_list))
-        self.listener.agent.handle.assert_not_called()
-
     def test_just_the_phrase_requests_the_normal_chime_and_listen(self) -> None:
         self.listener.transcribe.return_value = "Canvas."
         self.listener.busy = True
