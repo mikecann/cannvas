@@ -4,9 +4,12 @@
 <dict>
   <key>Label</key>
   <string>com.mikerosoft.cannvas-media-sync</string>
+  <!-- macOS ties CannMedia access to this exact Node path. After upgrading
+       nvm's Node on Bruce, give the new binary Full Disk Access on Bruce's
+       screen, or this hangs reading the drive and Cannvas shows no videos. -->
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/bruce/.nvm/versions/node/v24.14.1/bin/node</string>
+    <string>/Users/bruce/.nvm/versions/node/v24.22.1/bin/node</string>
     <string>/Users/bruce/Library/Application Support/cannvas-media/sync.mjs</string>
   </array>
   <key>RunAtLoad</key>
