@@ -190,7 +190,9 @@ case "$command" in
     name="$(date +%Y%m%d-%H%M%S)-$sha"
 
     if [ "${CANNVAS_SKIP_BUILD:-0}" != 1 ]; then
-      $build
+      # Only builds made here report errors to Sentry (src/sentry.ts), so a
+      # plain `pnpm build:mirror` on a Mac never does.
+      VITE_SENTRY_RELEASE="cannvas@$sha" $build
     fi
     [ -f "$dist/index.html" ] || { echo "$dist/index.html is missing; set CANNVAS_DIST" >&2; exit 1; }
 
