@@ -25,8 +25,10 @@ if (sentryEnabled) {
     environment: "production",
     release: RELEASE,
     initialScope: { tags: { component: "web" } },
-    // Errors only: no tracing, replay or profiling on the free plan.
+    // Errors only: no tracing, replay or profiling on the free plan, and no
+    // release-health session ping on every page load.
     tracesSampleRate: 0,
+    integrations: (defaults) => defaults.filter((integration) => integration.name !== "BrowserSession"),
     // SDK 11's replacement for sendDefaultPii: false. Send no user, cookie,
     // header, body or query data.
     dataCollection: { userInfo: false, cookies: false, httpHeaders: false, httpBodies: [], urlQueryParams: false },
