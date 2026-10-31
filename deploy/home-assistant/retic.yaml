@@ -27,12 +27,15 @@ input_text:
 
 # Rain from Open-Meteo, which needs no key and returns yesterday's modelled rain
 # with the forecast in one call. Each hourly value is the rain in the hour
-# before that time. The location comes from Home Assistant's home zone, rounded
-# to two decimal places (about 1 km). That is plenty for rainfall and keeps
-# coordinates out of this file.
+# before that time. The URL, with the home location rounded to two decimal
+# places (about 1 km), is in secrets.yaml. It used to be built from zone.home,
+# but REST sensors set up before zone.home exists at startup, so the template
+# failed and both sensors sat unavailable from 25 Oct 2026 until 1 Nov. In
+# secrets.yaml, with your own rounded coordinates:
+#
+#   retic_open_meteo_url: "https://api.open-meteo.com/v1/forecast?latitude=-31.95&longitude=115.86&hourly=precipitation&past_days=1&forecast_days=2&timezone=Australia%2FPerth"
 rest:
-  - resource_template: >-
-      https://api.open-meteo.com/v1/forecast?latitude={{ state_attr('zone.home', 'latitude') | round(2) }}&longitude={{ state_attr('zone.home', 'longitude') | round(2) }}&hourly=precipitation&past_days=1&forecast_days=2&timezone=Australia%2FPerth
+  - resource: !secret retic_open_meteo_url
     scan_interval: 1800
     timeout: 20
     sensor:
@@ -241,6 +244,9 @@ automation:
             {% if is_state('input_boolean.retic_enabled', 'off') %}the retic is switched off
             {% elif states.valve | selectattr('entity_id', 'match', 'valve\.retic_') | selectattr('state', 'in', ['unknown', 'unavailable']) | list %}Home Assistant can't read every zone
             {% elif is_state('binary_sensor.retic_rain_sensor', 'on') %}the rain sensor is wet
+            {# Fail closed: a missed watering is cheap, watering after heavy rain isn't,
+               and the skip reason shows in Cannvas so a dead feed gets noticed. #}
+            {% elif past is none or ahead is none %}there's no rain data
             {% elif past is not none and past >= past_limit %}{{ past }} mm of rain in the last 24 hours
             {% elif ahead is not none and ahead >= ahead_limit %}{{ ahead }} mm of rain forecast in the next 12 hours
             {% endif %}
