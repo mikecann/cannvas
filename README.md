@@ -549,14 +549,16 @@ calculation for Busselton when Home Assistant can't be reached.
 
 ### Voice commands
 
-A USB microphone on the Pi lets the family talk to Cannvas: "Hey Canvas,
+A USB microphone on the Pi lets the family talk to Cannvas: "Hey Jarvis,
 lights off", "Hey Canvas, open the calendar", or just a question. Listening,
 speech recognition, everyday commands and the spoken replies all run on the
 Pi:
 
-1. `cannvas-voice` listens for "Hey Canvas" with
+1. `cannvas-voice` listens for "Hey Canvas" and "Hey Jarvis" with
    [openWakeWord](https://github.com/dscripka/openWakeWord) and plays a chime.
-   The model was trained for this project (see `deploy/wake-word/`).
+   The "Hey Canvas" model was trained for this project (see `deploy/wake-word/`),
+   and "Hey Jarvis" is openWakeWord's stock model, which does far better in the
+   lounge. `CANNVAS_WAKE_WORD` lists the models, separated by commas.
 2. It records until you stop talking (Silero VAD), then turns that into text
    with NVIDIA's Parakeet Unified EN 0.6B (int8) through
    [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx). In our recordings it
@@ -576,7 +578,8 @@ Pi:
 
 Quiet wake phrases get a second chance. With Parakeet installed, an utterance
 whose best wake score is at least 0.01 and below the normal 0.5 threshold is
-checked by the same speech model. "Hey Canvas" (also "Hey Cannvas") can follow
+checked by the same speech model. "Hey Canvas" (also "Hey Cannvas") or "Hey
+Jarvis" can follow
 earlier room speech in the same buffer. The words after its last occurrence
 become the request and the end chime acknowledges it. The two observed
 Parakeet mishearings "Hey Camus" and "Hey Cambas" also work; bare "Canvas" or

@@ -568,6 +568,20 @@ class SecondChanceTest(unittest.TestCase):
         self.listener.vad.predict.assert_called_once()
         worker.assert_not_called()
 
+    def test_either_wake_word_wakes_it_and_the_log_names_which(self) -> None:
+        self.listener.wake.predict.return_value = {"hey_canvas": 0.02, "hey_jarvis": 0.9}
+        recorder = SimpleNamespace(stdout=io.BytesIO(b"x" * voice.FRAME * 2))
+        with patch.object(voice, "log") as log:
+            self.listener.listen(recorder)
+        voice.play.assert_called_once_with(b"start", voice.SAMPLE_RATE)
+        log.assert_called_once_with("listening (wake word 0.90 hey_jarvis)")
+
+    def test_hey_jarvis_gets_a_second_chance_too(self) -> None:
+        self.assertEqual(voice.wake_command("Hey Jarvis, turn the lights on."), "turn the lights on.")
+        self.assertEqual(voice.wake_command("Room speech. Hey, Jarvis!"), "")
+        # Only "hey" makes it a wake phrase: the name alone comes up in conversation.
+        self.assertIsNone(voice.wake_command("Jarvis, turn the lights on."))
+
     def test_training_owns_the_listener(self) -> None:
         self.listener.training = {"until": 200.0}
         self.listener.record_sample = Mock()
