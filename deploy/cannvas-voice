@@ -20,6 +20,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
+from difflib import SequenceMatcher
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -73,6 +74,19 @@ SPEECH_MODEL = select_speech_model()
 SECOND_CHANCE = float(os.environ.get(
     "CANNVAS_WAKE_SECOND_CHANCE", "0.01" if (SPEECH_MODEL / "joiner.int8.onnx").is_file() else "0",
 ))
+# The stock "Hey Jarvis" woke about twice an hour on family chat on its first day,
+# at scores up to 0.99, while real tries scored from 0.85, so no threshold separates
+# them. So the speech model has to hear the phrase too before a wake counts.
+# Set to 0 to wake on the score alone. Only Parakeet has been checked for this.
+WAKE_CONFIRM = os.environ.get(
+    "CANNVAS_WAKE_CONFIRM", "1" if (SPEECH_MODEL / "joiner.int8.onnx").is_file() else "0",
+) == "1"
+# What the check hears, in 80 ms frames: the phrase itself, then a little more
+# because the score can pass the threshold before the phrase has finished. Three
+# was enough for every synthetic wake replayed on the Pi, and waiting for more
+# only delays the chime and lets the command start to muddy the check.
+WAKE_CHECK_BEFORE = 30
+WAKE_CHECK_AFTER = 3
 PIPER_VOICE = os.environ.get("CANNVAS_PIPER_VOICE", str(HOME / "models/en_GB-alba-medium.onnx"))
 # Extra pw-record arguments, such as "--target <node>" to choose a microphone.
 MIC_ARGS = shlex.split(os.environ.get("CANNVAS_MIC_ARGS", ""))
@@ -762,6 +776,28 @@ def wake_command(heard: str) -> str | None:
     return heard[match.end():].strip() if match else None
 
 
+def close_to_wake_name(word: str) -> bool:
+    # Under five letters, "can" and "jar" would count as close to the names.
+    return len(word) >= 5 and any(SequenceMatcher(None, word, name).ratio() >= 0.6 for name in ("jarvis", "canvas"))
+
+
+def wake_phrase_heard(heard: str) -> bool:
+    """Whether a transcript could be the wake phrase, for a wake the model already scored high.
+
+    This is looser than wake_command, because speech recognition garbles the name from
+    across the room ("Hey Jonas", "Hey John West", "Hey Candace") and the model has already
+    agreed. Chat almost never has a name-like word as well as a high score.
+    """
+    if wake_command(heard) is not None:
+        return True
+    words = re.findall(r"[a-z]+", heard.lower())
+    # "Hey Josh" is a real thing to shout in this house, and "hey just" is ordinary chat.
+    if any(first in {"hey", "hay"} and second.startswith("j") and second not in {"josh", "joshua", "just"}
+           for first, second in zip(words, words[1:])):
+        return True
+    return any(close_to_wake_name(word) for word in words)
+
+
 class Voice:
     """Microphone in, speaker out, and the listening state machine between them."""
 
@@ -793,6 +829,7 @@ class Voice:
         self.training: dict[str, Any] | None = None
         self.utterances = Utterances()
         self.idle_utterances = Utterances()
+        self.recent: deque[Any] = deque(maxlen=WAKE_CHECK_BEFORE)
         # Set when recording stops. The listening thread then starts afresh.
         self.resume_listening = False
 
@@ -875,6 +912,7 @@ class Voice:
                 self.resume_listening = False
                 self.rest()
             if command is None:
+                self.recent.append(frame)
                 # Named in the log, to compare the wake words on real use.
                 word, score = max(self.wake.predict(frame).items(), key=lambda item: item[1], default=("", 0))
                 if NEAR_MISS <= score < WAKE_THRESHOLD and time.monotonic() - last_near_miss > 1.5:
@@ -883,8 +921,14 @@ class Voice:
                 manual = self.listen_requested.is_set()
                 if manual or (score >= WAKE_THRESHOLD and time.monotonic() >= self.deaf_until):
                     self.listen_requested.clear()
+                    after: list[Any] | None = []
+                    if WAKE_CONFIRM and not manual:
+                        after = self.confirm_wake(recorder, score, word)
+                        if after is None:
+                            continue
                     log(f"listening ({'button' if manual else f'wake word {score:.2f} {word}'})")
-                    command, speech, silence, started = [], [], 0.0, time.monotonic()
+                    # Someone who didn't wait for the chime may already be talking.
+                    command, speech, silence, started = after, [], 0.0, time.monotonic()
                     # This utterance now belongs entirely to the normal path.
                     self.idle_utterances = Utterances()
                     self.vad.reset_states()
@@ -921,6 +965,31 @@ class Voice:
                 self.busy = True
                 play(self.end_chime, SAMPLE_RATE)
                 threading.Thread(target=self.respond, args=(audio,), daemon=True).start()
+
+    def confirm_wake(self, recorder: subprocess.Popen[bytes], score: float, word: str) -> list[Any] | None:
+        """The frames since the wake if the speech model heard the phrase too, otherwise None.
+
+        This blocks the listening loop for under a second, which is fine: the
+        pipe from pw-record holds a couple of seconds, so no audio is lost.
+        """
+        assert recorder.stdout
+        after = []
+        for _ in range(WAKE_CHECK_AFTER):
+            raw = recorder.stdout.read(FRAME * 2)
+            if len(raw) < FRAME * 2:
+                break
+            after.append(self.boosted(self.np.frombuffer(raw, dtype=self.np.int16)))
+        try:
+            confirmed = wake_phrase_heard(self.transcribe(self.np.concatenate([*self.recent, *after])))
+        except Exception as error:  # A failed check must never stop the listener.
+            log(f"wake check failed: {error!r}")
+            confirmed = False
+        if confirmed:
+            return after
+        # Only the score: this was probably someone's conversation, so it stays out of the log.
+        log(f"wake word {score:.2f} {word} rejected: the speech check didn't hear it")
+        self.rest()
+        return None
 
     def check_idle_frame(self, frame: Any, score: float) -> None:
         """Keep one bounded utterance, then check its low-band wake score."""
@@ -1000,6 +1069,7 @@ class Voice:
         self.wake.reset()
         self.vad.reset_states()
         self.idle_utterances = Utterances()
+        self.recent.clear()
         self.deaf_until = time.monotonic() + 1.0
 
     def transcribe(self, audio: Any) -> str:

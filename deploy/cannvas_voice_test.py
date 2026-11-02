@@ -459,6 +459,7 @@ class SecondChanceTest(unittest.TestCase):
         self.listener.transcribe = Mock(return_value="Hey Canvas, turn the lights on.")
         self.listener.listen_requested = threading.Event()
         self.listener.idle_utterances = voice.Utterances()
+        self.listener.recent = voice.deque(maxlen=voice.WAKE_CHECK_BEFORE)
         self.listener.training = None
         self.listener.resume_listening = False
         self.listener.busy = False
@@ -581,6 +582,66 @@ class SecondChanceTest(unittest.TestCase):
         self.assertEqual(voice.wake_command("Room speech. Hey, Jarvis!"), "")
         # Only "hey" makes it a wake phrase: the name alone comes up in conversation.
         self.assertIsNone(voice.wake_command("Jarvis, turn the lights on."))
+
+    def test_the_speech_check_accepts_the_phrase_and_its_garbled_forms(self) -> None:
+        # The garbled ones are what Parakeet made of the phrase from across a room.
+        for heard in ("Hey Jarvis.", "Hey, Jarvis, turn the lights off.", "Room speech. Hey Jarvis",
+                      "Jarvis", "Hey Jarmis", "Hey Jonas.", "Hey, John, this", "Hey John West.", "Page artist",
+                      "Hey Canvas", "Hey Candace", "hey candles", "Hey pandas", "Hey Camus"):
+            with self.subTest(heard=heard):
+                self.assertTrue(voice.wake_phrase_heard(heard))
+
+    def test_the_speech_check_rejects_family_chat(self) -> None:
+        # The first five are what it actually heard after false wakes on 2 Nov.
+        for heard in ("", "the", "saying", "We've got a chicken",
+                      "It happens when some like I should have been thinking about it.",
+                      "Hey Josh, come here", "Hey Joshua", "Hey, just a sec", "Hey, can you pass the remote?",
+                      "Is it a memory or is it just something he's contacted?"):
+            with self.subTest(heard=heard):
+                self.assertFalse(voice.wake_phrase_heard(heard))
+
+    def listen_with_check(self, heard: str, frames: int = 1 + voice.WAKE_CHECK_AFTER) -> None:
+        self.listener.wake.predict.return_value = {"hey_jarvis": 0.97}
+        self.listener.transcribe.return_value = heard
+        recorder = SimpleNamespace(stdout=io.BytesIO(b"x" * voice.FRAME * 2 * frames))
+        with patch.object(voice, "WAKE_CONFIRM", True):
+            self.listener.listen(recorder)
+
+    def test_a_high_score_without_the_phrase_stays_silent(self) -> None:
+        with patch.object(voice, "log") as log:
+            self.listen_with_check("We've got a chicken")
+        voice.play.assert_not_called()
+        self.listener.events.phase.assert_not_called()
+        logged = " ".join(call.args[0] for call in log.call_args_list)
+        self.assertIn("0.97 hey_jarvis rejected", logged)
+        # It was someone's conversation, so none of it reaches the log.
+        self.assertNotIn("chicken", logged)
+        # Rests, so the same phrase can't fire again as it leaves the model's window.
+        self.listener.wake.reset.assert_called_once()
+        self.assertEqual(self.listener.deaf_until, 101.0)
+
+    def test_a_high_score_with_the_phrase_wakes_after_the_check(self) -> None:
+        self.listen_with_check("Hey Jarvis")
+        voice.play.assert_called_once_with(b"start", voice.SAMPLE_RATE)
+        self.listener.events.phase.assert_called_once_with("listening")
+        # It hears the frames from before the wake as well as the ones after.
+        self.assertEqual(len(self.listener.transcribe.call_args.args[0]), 1 + voice.WAKE_CHECK_AFTER)
+
+    def test_a_failed_check_rejects_and_keeps_listening(self) -> None:
+        self.listener.wake.predict.return_value = {"hey_jarvis": 0.97}
+        self.listener.transcribe.side_effect = RuntimeError("no")
+        recorder = SimpleNamespace(stdout=io.BytesIO(b"x" * voice.FRAME * 2))
+        with patch.object(voice, "WAKE_CONFIRM", True):
+            self.listener.listen(recorder)
+        voice.play.assert_not_called()
+
+    def test_the_button_skips_the_check(self) -> None:
+        self.listener.listen_requested.set()
+        recorder = SimpleNamespace(stdout=io.BytesIO(b"x" * voice.FRAME * 2))
+        with patch.object(voice, "WAKE_CONFIRM", True):
+            self.listener.listen(recorder)
+        self.listener.transcribe.assert_not_called()
+        voice.play.assert_called_once_with(b"start", voice.SAMPLE_RATE)
 
     def test_training_owns_the_listener(self) -> None:
         self.listener.training = {"until": 200.0}

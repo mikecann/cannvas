@@ -559,6 +559,11 @@ Pi:
    The "Hey Canvas" model was trained for this project (see `deploy/wake-word/`),
    and "Hey Jarvis" is openWakeWord's stock model, which does far better in the
    lounge. `CANNVAS_WAKE_WORD` lists the models, separated by commas.
+   A high score isn't enough on its own: the stock model fires on family chat
+   at scores as high as real tries, so Parakeet checks the last few seconds for
+   the phrase first. This lets through garbled forms such as "Hey Jonas", and
+   adds about half a second before the chime. A rejected wake logs only its
+   score. Set `CANNVAS_WAKE_CONFIRM=0` to wake on the score alone.
 2. It records until you stop talking (Silero VAD), then turns that into text
    with NVIDIA's Parakeet Unified EN 0.6B (int8) through
    [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx). In our recordings it
@@ -584,7 +589,7 @@ earlier room speech in the same buffer. The words after its last occurrence
 become the request and the end chime acknowledges it. The two observed
 Parakeet mishearings "Hey Camus" and "Hey Cambas" also work; bare "Canvas" or
 "Cannvas" must start the transcript. Just the wake phrase plays the usual
-start chime and listens for the command. A normal wake still chimes straight away.
+start chime and listens for the command.
 Set `CANNVAS_WAKE_SECOND_CHANCE=0` in the voice service's environment to turn
 this off, or set it to a different lower threshold. Older Moonshine installs
 leave it off by default. On two recorded sessions, offline utterance replay
