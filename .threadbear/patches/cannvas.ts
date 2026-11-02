@@ -59,9 +59,9 @@ const isOpen = (r: Request) => r.state !== "completed" && r.state !== "rejected"
 export default {
   icon: "rectangle.on.rectangle",
   actions: [
-    { title: "Website", icon: "safari", run: "open https://cannvas.mikecann.app/" },
-    { title: "Inventory", icon: "shippingbox", run: "open https://inventory.mikecann.app/" },
-    { title: "Sentry", icon: "exclamationmark.triangle", run: "open 'https://mikec.sentry.io/issues/?project=4512336957014016'" },
+    { title: "Website", icon: "safari", url: "https://cannvas.mikecann.app/" },
+    { title: "Inventory", icon: "shippingbox", url: "https://inventory.mikecann.app/" },
+    { title: "Sentry", icon: "exclamationmark.triangle", url: "https://mikec.sentry.io/issues/?project=4512336957014016" },
     {
       title: "Build the next request",
       icon: "hammer",
