@@ -47,8 +47,11 @@ LLM_URL = os.environ.get("CANNVAS_LLM_URL", "http://127.0.0.1:8091").rstrip("/")
 OPENROUTER_CONFIG_PATH = Path(os.environ.get("CANNVAS_OPENROUTER_CONFIG", "/var/lib/cannvas/openrouter.json"))
 OPENROUTER_URL = os.environ.get("CANNVAS_OPENROUTER_URL", "https://openrouter.ai/api").rstrip("/")
 CLOUD_MODEL = os.environ.get("CANNVAS_CLOUD_MODEL", "openai/gpt-6-luna")
-# A path to an openWakeWord model, or the name of one of its stock models.
-WAKE_WORD = os.environ.get("CANNVAS_WAKE_WORD", str(HOME / "models/hey_canvas.onnx"))
+# Comma-separated paths to openWakeWord models, or names of its stock models. Any
+# of them wakes it. Three days of real use in Oct 2026 woke the trained "Hey Canvas"
+# twice, while the stock "Hey Jarvis" scored 0.85 to 1.00 around the room, so both
+# listen until the family has settled on one.
+WAKE_WORDS = os.environ.get("CANNVAS_WAKE_WORD", f"{HOME / 'models/hey_canvas.onnx'},hey_jarvis").split(",")
 WAKE_THRESHOLD = float(os.environ.get("CANNVAS_WAKE_THRESHOLD", "0.5"))
 # Scores from here up to the threshold are logged, to tune the wake word with.
 NEAR_MISS = 0.15
@@ -752,7 +755,7 @@ def wake_command(heard: str) -> str | None:
     quoting the wake phrase; the wake-score gate still applies to every check.
     """
     match = None
-    for occurrence in re.finditer(r"\bhey\W+(?:canvas|cannvas|camus|cambas)\b\W*", heard, flags=re.I):
+    for occurrence in re.finditer(r"\bhey\W+(?:canvas|cannvas|camus|cambas|jarvis)\b\W*", heard, flags=re.I):
         match = occurrence
     if match is None:
         match = re.match(r"^\W*(?:canvas|cannvas)\b\W*", heard, flags=re.I)
@@ -772,7 +775,7 @@ class Voice:
         self.agent = agent
         self.events = events
         self.samples = samples
-        self.wake = WakeModel(wakeword_models=[WAKE_WORD], inference_framework="onnx")
+        self.wake = WakeModel(wakeword_models=WAKE_WORDS, inference_framework="onnx")
         self.vad = VAD()
         self.speech = load_speech_model(SPEECH_MODEL)
         # Training saves can still be finishing when normal listening resumes.
@@ -872,14 +875,15 @@ class Voice:
                 self.resume_listening = False
                 self.rest()
             if command is None:
-                score = max(self.wake.predict(frame).values(), default=0)
+                # Named in the log, to compare the wake words on real use.
+                word, score = max(self.wake.predict(frame).items(), key=lambda item: item[1], default=("", 0))
                 if NEAR_MISS <= score < WAKE_THRESHOLD and time.monotonic() - last_near_miss > 1.5:
                     last_near_miss = time.monotonic()
-                    log(f"wake word near miss {score:.2f}")
+                    log(f"wake word near miss {score:.2f} {word}")
                 manual = self.listen_requested.is_set()
                 if manual or (score >= WAKE_THRESHOLD and time.monotonic() >= self.deaf_until):
                     self.listen_requested.clear()
-                    log(f"listening ({'button' if manual else f'wake word {score:.2f}'})")
+                    log(f"listening ({'button' if manual else f'wake word {score:.2f} {word}'})")
                     command, speech, silence, started = [], [], 0.0, time.monotonic()
                     # This utterance now belongs entirely to the normal path.
                     self.idle_utterances = Utterances()
@@ -1165,7 +1169,7 @@ def main() -> None:
     threading.Thread(target=agent.warm, daemon=True).start()
     voice = Voice(agent, events, samples)
     VoiceHandler.voice = voice
-    log(f"ready, listening for {Path(WAKE_WORD).stem}")
+    log(f"ready, listening for {', '.join(Path(word).stem for word in WAKE_WORDS)}")
     voice.run()
 
 
