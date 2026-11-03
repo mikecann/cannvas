@@ -36,7 +36,7 @@
     "@sentry/react": "11.9.0",
     "@vitejs/plugin-react": "6.0.5",
     "ai": "6.0.76",
-    "convex": "1.46.0",
+    "convex": "1.49.0",
     "convex-helpers": "0.1.127",
     "fluent-convex": "^0.13.0",
     "leaflet": "^1.9.4",
