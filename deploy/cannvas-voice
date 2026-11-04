@@ -72,7 +72,9 @@ SPEECH_MODEL = select_speech_model()
 # Parakeet has been evaluated for this; old Moonshine installs stay as before.
 # Set to 0 to disable, or to the lower edge of the band below WAKE_THRESHOLD.
 SECOND_CHANCE = float(os.environ.get(
-    "CANNVAS_WAKE_SECOND_CHANCE", "0.01" if (SPEECH_MODEL / "joiner.int8.onnx").is_file() else "0",
+    # Mike's clearest real "Hey Canvas" tries through the XVF3800 scored about 0.01
+    # (live recording, Oct 2026), so the band reaches almost to zero.
+    "CANNVAS_WAKE_SECOND_CHANCE", "0.001" if (SPEECH_MODEL / "joiner.int8.onnx").is_file() else "0",
 ))
 # The stock "Hey Jarvis" woke about twice an hour on family chat on its first day,
 # at scores up to 0.99, while real tries scored from 0.85, so no threshold separates
@@ -284,7 +286,7 @@ def resolve_targets(targets: list[str], devices: list[Device]) -> list[Device]:
 # commands people say most are matched here and answered straight away.
 # Anything this doesn't recognise goes to the model.
 
-FILLER = re.compile(r"^(?:(?:hey|ok|okay|or|and|um|uh|so|oh) )*(?:canvas |cannvas )?(?:can you |could you |would you |please )*|(?: for me)?(?: please)?$")
+FILLER = re.compile(r"^(?:(?:hey|ok|okay|or|and|um|uh|so|oh) )*(?:canvas |cannvas )?(?:can you |could you |would you |can we |please |just |let's |lets )*|(?: for me)?(?: please)?$")
 NUMBERS = {"ten": 10, "twenty": 20, "twenty five": 25, "thirty": 30, "forty": 40, "fifty": 50, "half": 50,
            "sixty": 60, "seventy": 70, "seventy five": 75, "eighty": 80, "ninety": 90, "a hundred": 100, "one hundred": 100, "full": 100}
 APP_ALIASES = {
@@ -304,6 +306,9 @@ def quick_command(heard: str, devices: list[Device]) -> dict[str, Any] | None:
     """A tool call for an everyday command, or None to ask the model."""
     text = re.sub(r"[^a-z0-9%' ]", " ", heard.lower().replace("-", " "))
     text = FILLER.sub("", " ".join(text.split())).strip()
+    # "Turn your lights on" and "get the lights on" are how people really say it.
+    text = re.sub(r"\b(?:your|my)\b", "the", text)
+    text = re.sub(r"^get ", "turn ", text)
     if match := re.fullmatch(r"(?:set|dim|turn|put) (?:the )?(.+?) (?:to|at) (\d{1,3}|[a-z ]+?)(?: ?%| percent)?(?: brightness)?", text):
         target, amount = match.groups()
         brightness = int(amount) if amount.isdigit() else NUMBERS.get(amount)
@@ -805,6 +810,24 @@ def wake_phrase_heard(heard: str) -> bool:
     return any(close_to_wake_name(word) for word in words)
 
 
+def named_command(heard: str, devices: list[Device]) -> str | None:
+    """The everyday command in "hey <any name>, <command>", or None.
+
+    From across the room the speech model rarely gets the name right: Mike's real
+    "Hey Canvas" tries came out as "Hey Candace, just turn your lights on" and "Hey
+    can, let's turn the lights on". So any one or two words after "hey" will do, as
+    long as what follows is a light or screen command. Saying that to someone else
+    in the room would switch the lights too, which is a fair trade.
+    """
+    for match in reversed(list(re.finditer(r"\b(?:hey|okay|ok)\b", heard, flags=re.I))):
+        words = heard[match.end():].split()
+        for skip in (1, 2):
+            rest = " ".join(words[skip:])
+            if rest and quick_command(rest, devices):
+                return rest
+    return None
+
+
 class Voice:
     """Microphone in, speaker out, and the listening state machine between them."""
 
@@ -1026,6 +1049,8 @@ class Voice:
             if self.training or self.resume_listening or time.monotonic() < self.deaf_until:
                 return
             command = wake_command(heard)
+            if command is None:
+                command = named_command(heard, self.agent.devices)
             if command is None:
                 log(f"wake second chance rejected {score:.2f}")
                 return

@@ -582,7 +582,7 @@ Pi:
    the TV, and the screen shows what it heard and what it said.
 
 Quiet wake phrases get a second chance. With Parakeet installed, an utterance
-whose best wake score is at least 0.01 and below the normal 0.5 threshold is
+whose best wake score is at least 0.001 and below the normal 0.5 threshold is
 checked by the same speech model. "Hey Canvas" (also "Hey Cannvas") or "Hey
 Jarvis" can follow
 earlier room speech in the same buffer. The words after its last occurrence
@@ -590,6 +590,9 @@ become the request and the end chime acknowledges it. The two observed
 Parakeet mishearings "Hey Camus" and "Hey Cambas" also work; bare "Canvas" or
 "Cannvas" must start the transcript. Just the wake phrase plays the usual
 start chime and listens for the command.
+From across the room Parakeet rarely gets the name right ("Hey Candace, just
+turn your lights on"), so "hey" plus any one or two words also counts, as long as
+a light or screen command follows.
 Set `CANNVAS_WAKE_SECOND_CHANCE=0` in the voice service's environment to turn
 this off, or set it to a different lower threshold. Older Moonshine installs
 leave it off by default. On two recorded sessions, offline utterance replay

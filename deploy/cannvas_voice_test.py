@@ -751,6 +751,27 @@ class PlaybackTest(unittest.TestCase):
         popen.return_value.stdin.close.assert_called_once()
 
 
+class NamedCommandTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.devices = voice.voice_devices(STATES, {})
+
+    def test_real_tries_with_a_garbled_name_still_count(self) -> None:
+        # How Parakeet heard Mike's real "Hey Canvas" tries in the lounge, Oct 2026.
+        for heard, command in (("Hey Candace, just turn your lights on", "just turn your lights on"),
+                               ("Turn the light on. Hey can, let's turn the lights on.", "let's turn the lights on."),
+                               ("Hey canvas. Let's get the lights on", "Let's get the lights on"),
+                               ("Hey Kenneth Kennedy, lights off", "lights off")):
+            with self.subTest(heard=heard):
+                self.assertEqual(voice.named_command(heard, self.devices), command)
+                self.assertIsNotNone(voice.quick_command(command, self.devices))
+
+    def test_chat_without_a_command_does_not_count(self) -> None:
+        for heard in ("Hey Kenneth Kennedy", "Hey Tandas, turn on the bike.", "Lights off, lights on no, I've just turned them on",
+                      "Hey, what's for dinner?", "hey you, come here", "Turn the lights on", ""):
+            with self.subTest(heard=heard):
+                self.assertIsNone(voice.named_command(heard, self.devices))
+
+
 class EventsTest(unittest.TestCase):
     def setUp(self) -> None:
         self.events = voice.Events()
