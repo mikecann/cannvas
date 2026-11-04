@@ -107,6 +107,9 @@ SPEECH_END = 0.1
 END_SILENCE = 0.8
 NO_SPEECH_TIMEOUT = 5.0
 MAX_COMMAND = 10.0
+# While someone talks, the words heard so far go on screen this often, so they
+# can see it's working instead of saying the command again (Mike, 4 Nov 2026).
+PARTIAL_EVERY = 0.6
 CONVERSATION_SECONDS = 120
 HISTORY_TURNS = 3
 
@@ -772,6 +775,11 @@ def load_speech_model(path: Path) -> Any:
     return speech
 
 
+def without_wake_name(heard: str) -> str:
+    """A request with any wake phrase it starts with taken off: "Jarvis." is no request."""
+    return re.sub(r"^\W*(?:(?:hey|hay|okay|ok)\W+)?(?:jarvis|canvas|cannvas)\b\W*", "", heard, flags=re.I)
+
+
 def wake_command(heard: str) -> str | None:
     """The words after the last wake phrase, empty for just a wake, or None.
 
@@ -860,6 +868,10 @@ class Voice:
         self.utterances = Utterances()
         self.idle_utterances = Utterances()
         self.recent: deque[Any] = deque(maxlen=WAKE_CHECK_BEFORE)
+        # Which request the on-screen words belong to, None between requests.
+        self.partial_lock = threading.Lock()
+        self.request_id: int | None = None
+        self.partial_running = False
         # Set when recording stops. The listening thread then starts afresh.
         self.resume_listening = False
 
@@ -920,6 +932,8 @@ class Voice:
         started = 0.0
         last_level = 0.0
         last_near_miss = 0.0
+        last_partial = 0.0
+        requests = 0
         while True:
             raw = recorder.stdout.read(FRAME * 2)
             if len(raw) < FRAME * 2:
@@ -959,6 +973,9 @@ class Voice:
                     log(f"listening ({'button' if manual else f'wake word {score:.2f} {word}'})")
                     # Someone who didn't wait for the chime may already be talking.
                     command, speech, silence, started = after, [], 0.0, time.monotonic()
+                    requests += 1
+                    with self.partial_lock:
+                        self.request_id = requests
                     # This utterance now belongs entirely to the normal path.
                     self.idle_utterances = Utterances()
                     self.vad.reset_states()
@@ -980,6 +997,16 @@ class Voice:
                 silence += FRAME / SAMPLE_RATE
             elapsed = time.monotonic() - started
             done = (speech and silence >= END_SILENCE) or elapsed >= MAX_COMMAND
+            if (speech and not done and not self.partial_running
+                    and time.monotonic() - last_partial >= PARTIAL_EVERY):
+                last_partial = time.monotonic()
+                self.partial_running = True
+                audio = np.concatenate(command[max(0, speech[0] - 8):])
+                threading.Thread(target=self.show_partial, args=(audio, self.request_id), daemon=True).start()
+            if done or (not speech and elapsed >= NO_SPEECH_TIMEOUT):
+                # Words still being decoded mustn't land on screen after this.
+                with self.partial_lock:
+                    self.request_id = None
             if not speech and elapsed >= NO_SPEECH_TIMEOUT:
                 log("heard nothing after the wake word")
                 command = None
@@ -1020,6 +1047,18 @@ class Voice:
         log(f"wake word {score:.2f} {word} rejected: the speech check didn't hear it")
         self.rest()
         return None
+
+    def show_partial(self, audio: Any, request_id: int | None) -> None:
+        """Put the words heard so far on screen, if that request is still being listened to."""
+        try:
+            heard = without_wake_name(self.transcribe(audio))
+            with self.partial_lock:
+                if heard and request_id is not None and request_id == self.request_id:
+                    self.events.phase("listening", heard)
+        except Exception as error:  # Only a preview: the full request is decoded again.
+            log(f"could not show the words so far: {error!r}")
+        finally:
+            self.partial_running = False
 
     def check_idle_frame(self, frame: Any, score: float) -> None:
         """Keep one bounded utterance, then check its low-band wake score."""
@@ -1132,7 +1171,8 @@ class Voice:
             transcribed = time.monotonic()
             # Someone who missed the chime says the wake phrase again, and that
             # shouldn't count as a request. Listen again with a fresh chime instead.
-            if wake_command(heard) == "":
+            heard = without_wake_name(heard)
+            if not heard.strip(" .,!?"):
                 log("heard only the wake phrase, listening again")
                 self.events.phase("idle")
                 self.listen_requested.set()

@@ -50,7 +50,8 @@ export function VoiceOverlay(handlers: VoiceHandlers) {
       </span>
       <span className="voice-text">
         <small>{LABELS[phase]}</small>
-        {phase === "listening" && <strong className="voice-hint">Go ahead, I'm listening</strong>}
+        {phase === "listening" &&
+          (heard ? <strong>“{heard}”</strong> : <strong className="voice-hint">Go ahead, I'm listening</strong>)}
         {phase === "thinking" && <strong>{heard ? `“${heard}”` : "…"}</strong>}
         {done && heard && <em>“{heard}”</em>}
         {done && reply && <strong>{reply}</strong>}
