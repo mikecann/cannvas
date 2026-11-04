@@ -711,7 +711,14 @@ def chime(np: Any, rising: bool = True) -> bytes:
     return (np.concatenate(parts) * 32767).astype(np.int16).tobytes()
 
 
+# A new pw-play stream on the idle HDMI sink often loses its first moments: the
+# 0.18 s chime reached the TV 5 times in 8 on its own, and 8 in 8 behind this
+# much silence (measured on the sink's monitor, 4 Nov 2026).
+PLAYBACK_LEAD = 0.3
+
+
 def play(pcm: bytes, rate: int) -> subprocess.Popen[bytes]:
+    pcm = bytes(2 * int(rate * PLAYBACK_LEAD)) + pcm
     player = subprocess.Popen(
         ["pw-play", "--rate", str(rate), "--channels", "1", "--format", "s16", "-"],
         stdin=subprocess.PIPE,
@@ -1098,6 +1105,13 @@ class Voice:
             self.events.phase("thinking")
             heard = self.transcribe(audio) if heard is None else heard
             transcribed = time.monotonic()
+            # Someone who missed the chime says the wake phrase again, and that
+            # shouldn't count as a request. Listen again with a fresh chime instead.
+            if wake_command(heard) == "":
+                log("heard only the wake phrase, listening again")
+                self.events.phase("idle")
+                self.listen_requested.set()
+                return
             if re.sub(r"[^a-z ]", "", heard.lower()).strip() in PHANTOM_PHRASES:
                 log("nothing intelligible")
                 self.events.phase("idle")

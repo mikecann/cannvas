@@ -643,6 +643,19 @@ class SecondChanceTest(unittest.TestCase):
         self.listener.transcribe.assert_not_called()
         voice.play.assert_called_once_with(b"start", voice.SAMPLE_RATE)
 
+    def test_hearing_only_the_wake_phrase_listens_again(self) -> None:
+        for heard in ("Hey Jarvis", "Hey Jarvis.", "hey canvas"):
+            with self.subTest(heard=heard):
+                self.listener.listen_requested.clear()
+                self.listener.agent.handle.reset_mock()
+                self.listener.respond(b"audio", heard=heard)
+                self.listener.agent.handle.assert_not_called()
+                self.assertTrue(self.listener.listen_requested.is_set())
+        self.listener.listen_requested.clear()
+        self.listener.respond(b"audio", heard="Hey Jarvis, lights off")
+        self.listener.agent.handle.assert_called_once_with("Hey Jarvis, lights off")
+        self.assertFalse(self.listener.listen_requested.is_set())
+
     def test_training_owns_the_listener(self) -> None:
         self.listener.training = {"until": 200.0}
         self.listener.record_sample = Mock()
@@ -726,6 +739,16 @@ class SecondChanceTest(unittest.TestCase):
         self.listener.respond("audio")
         self.listener.transcribe.assert_called_once_with("audio")
         self.listener.agent.handle.assert_called_once_with("Hey Canvas, turn the lights on.")
+
+
+class PlaybackTest(unittest.TestCase):
+    def test_sounds_start_after_a_little_silence(self) -> None:
+        with patch.object(voice.subprocess, "Popen") as popen:
+            voice.play(b"\x01\x02", 16_000)
+        written = popen.return_value.stdin.write.call_args.args[0]
+        lead = 2 * int(16_000 * voice.PLAYBACK_LEAD)
+        self.assertEqual(written, bytes(lead) + b"\x01\x02")
+        popen.return_value.stdin.close.assert_called_once()
 
 
 class EventsTest(unittest.TestCase):
