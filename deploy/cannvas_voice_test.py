@@ -460,6 +460,9 @@ class SecondChanceTest(unittest.TestCase):
         self.listener.listen_requested = threading.Event()
         self.listener.idle_utterances = voice.Utterances()
         self.listener.recent = voice.deque(maxlen=voice.WAKE_CHECK_BEFORE)
+        self.listener.partial_lock = threading.Lock()
+        self.listener.request_id = None
+        self.listener.partial_running = False
         self.listener.training = None
         self.listener.resume_listening = False
         self.listener.busy = False
@@ -644,7 +647,7 @@ class SecondChanceTest(unittest.TestCase):
         voice.play.assert_called_once_with(b"start", voice.SAMPLE_RATE)
 
     def test_hearing_only_the_wake_phrase_listens_again(self) -> None:
-        for heard in ("Hey Jarvis", "Hey Jarvis.", "hey canvas"):
+        for heard in ("Hey Jarvis", "Hey Jarvis.", "hey canvas", "Jarvis.", "Canvas!"):
             with self.subTest(heard=heard):
                 self.listener.listen_requested.clear()
                 self.listener.agent.handle.reset_mock()
@@ -653,8 +656,21 @@ class SecondChanceTest(unittest.TestCase):
                 self.assertTrue(self.listener.listen_requested.is_set())
         self.listener.listen_requested.clear()
         self.listener.respond(b"audio", heard="Hey Jarvis, lights off")
-        self.listener.agent.handle.assert_called_once_with("Hey Jarvis, lights off")
+        self.listener.agent.handle.assert_called_once_with("lights off")
         self.assertFalse(self.listener.listen_requested.is_set())
+
+    def test_words_so_far_show_only_for_the_current_request(self) -> None:
+        self.listener.transcribe.return_value = "Hey Jarvis, turn the"
+        self.listener.request_id = 3
+        self.listener.show_partial(b"audio", 3)
+        self.listener.events.phase.assert_called_once_with("listening", "turn the")
+        self.assertFalse(self.listener.partial_running)
+        # A request that has finished, or a newer one, never gets old words.
+        self.listener.events.reset_mock()
+        for current in (None, 4):
+            self.listener.request_id = current
+            self.listener.show_partial(b"audio", 3)
+        self.listener.events.phase.assert_not_called()
 
     def test_training_owns_the_listener(self) -> None:
         self.listener.training = {"until": 200.0}
@@ -738,7 +754,7 @@ class SecondChanceTest(unittest.TestCase):
     def test_normal_response_still_transcribes_its_audio(self) -> None:
         self.listener.respond("audio")
         self.listener.transcribe.assert_called_once_with("audio")
-        self.listener.agent.handle.assert_called_once_with("Hey Canvas, turn the lights on.")
+        self.listener.agent.handle.assert_called_once_with("turn the lights on.")
 
 
 class PlaybackTest(unittest.TestCase):
