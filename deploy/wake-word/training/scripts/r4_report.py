@@ -36,20 +36,20 @@ for sess in ('coach1', 'coach3'):
     groups = {}
     for r in tries:
         for m, v in r['max'].items():
-            key = 'round 3 recipe (round3b_day / f0+f1)' if m.startswith('round3b') else 'round 4 fine-tune (r4_f0+f1)' if m in ('r4_f0', 'r4_f1') else m
+            key = 'round 3 recipe (round3b_day / f0+f1)' if m.startswith('round3b') else 'r4 fine-tune of r4_syn (r4_f0+f1)' if m in ('r4_f0', 'r4_f1') else 'r4b fine-tune of round 3 (r4b_f0+f1)' if m in ('r4b_f0', 'r4b_f1') else m
             groups.setdefault(key, []).append(v)
     for k, vals in groups.items():
         print(f'| {sess} | {k} | {len(vals)} | {cnt(vals, .5)} | {cnt(vals, .1)} |')
 for sess in ('coach3',):
     print(f'\n{sess} by distance, >= 0.5 (>= 0.1):\n')
-    print('| spot | round 3 recipe | r4_syn | r4 fine-tune |')
-    print('|---|---|---|---|')
+    print('| spot | round 3 recipe | r4_syn | r4 fine-tune | r4b fine-tune |')
+    print('|---|---|---|---|---|')
     for spot in ('1m', '2m', '3m', 'far'):
         tries = [r for r in d['coach'].values() if r['session'] == sess and r['kind'] == 'wake' and r['valid'] and r['spot'] == spot]
         def col(pick):
             vals = [v for r in tries for m, v in r['max'].items() if pick(m)]
             return f'{cnt(vals, .5)}/{len(vals)} ({cnt(vals, .1)})'
-        print(f"| {spot} | {col(lambda m: m.startswith('round3b'))} | {col(lambda m: m == 'r4_syn')} | {col(lambda m: m in ('r4_f0', 'r4_f1'))} |")
+        print(f"| {spot} | {col(lambda m: m.startswith('round3b'))} | {col(lambda m: m == 'r4_syn')} | {col(lambda m: m in ('r4_f0', 'r4_f1'))} | {col(lambda m: m in ('r4b_f0', 'r4b_f1'))} |")
 
 print('\n## False-wake guards (README tables), threshold 0.5\n')
 neg = [r for r in d['coach'].values() if r['kind'] != 'wake']

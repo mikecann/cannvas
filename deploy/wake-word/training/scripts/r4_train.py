@@ -13,7 +13,10 @@ Every export is calibrated with calib_matched.py: the smallest raw threshold tha
 <= 3 hot windows on openWakeWord's 10.7 h validation features, mapped to the Pi's 0.5.
 Selection never reads Mike's tries.
 
-Usage: r4_train.py syn | heads | calibrate
+r4b_*     the same fine-tunes started from round 3's models instead of r4_syn (r4b_f0/f1 start
+          from round3b_f0/f1, which never saw that half of coach3).
+
+Usage: r4_train.py syn | heads | heads_r3 | calibrate
 """
 import hashlib
 import json
@@ -73,13 +76,20 @@ def train(name, cfg):
     print('TRAINED', name, flush=True)
 
 
-def heads():
+# Round 3's shipped/fold models and the raw thresholds their calibration mapped to 0.5 (REPORT-round3b.md),
+# so init_bias_shift = logit(t) undoes that calibration before fine-tuning.
+R3_INIT = {'r4b_live': ('eval/models/round3.onnx', 0.145138),
+           'r4b_f0': ('eval/models/round3b_f0.onnx', 0.125127),
+           'r4b_f1': ('eval/models/round3b_f1.onnx', 0.169133)}
+
+
+def heads(prefix='r4', init=None):
     labels = json.loads((W / 'meta/r4_labels.json').read_text())
     tries = [r for r in labels if r['kind'] == 'wake' and r.get('usable')]
     sets = {
-        'r4_live': [r for r in tries if r['session'] in ('coach1', 'coach3')],
-        'r4_f0': [r for r in tries if r['session'] in ('coach1', 'live') or (r['session'] == 'coach3' and r['fold'] != 0)],
-        'r4_f1': [r for r in tries if r['session'] in ('coach1', 'live') or (r['session'] == 'coach3' and r['fold'] != 1)],
+        f'{prefix}_live': [r for r in tries if r['session'] in ('coach1', 'coach3')],
+        f'{prefix}_f0': [r for r in tries if r['session'] in ('coach1', 'live') or (r['session'] == 'coach3' and r['fold'] != 0)],
+        f'{prefix}_f1': [r for r in tries if r['session'] in ('coach1', 'live') or (r['session'] == 'coach3' and r['fold'] != 1)],
     }
     for name, rows in sets.items():
         run = W / 'runs' / name
@@ -89,19 +99,21 @@ def heads():
             assert f.ndim == 3 and f.shape[1:] == (16, 96) and np.isfinite(f).all(), r['id']
         x = np.concatenate(feats)
         np.save(run / 'positive_real.npy', x[np.random.default_rng(42).permutation(len(x))])
-        manifest = dict(positive_real=[r['id'] for r in rows], init='r4_syn raw', negative_owner='coach3 room tone',
+        init_path, t = (W / init[name][0], init[name][1]) if init else (W / 'runs/r4_syn/hey_canvas.onnx', None)
+        manifest = dict(positive_real=[r['id'] for r in rows], init=str(init_path), init_threshold=t, negative_owner='coach3 room tone',
                         sources={r['id']: hashlib.sha256((REAL / (r['id'] + '.npy')).read_bytes()).hexdigest() for r in rows})
         (run / 'data_manifest.json').write_text(json.dumps(manifest, indent=1))
         cfg = base_cfg(name)
         cfg['feature_data_files'].update(positive_real=str(run / 'positive_real.npy'), negative_owner=str(REAL / 'room.npy'))
         cfg['batch_n_per_class'].update(positive_real=48, negative_owner=16)
-        cfg.update(steps=10000, init_onnx=str(W / 'runs/r4_syn/hey_canvas.onnx'), init_bias_shift=0.0, base_lr=2e-5)
+        shift = float(np.log(t / (1 - t))) if t else 0.0
+        cfg.update(steps=10000, init_onnx=str(init_path), init_bias_shift=shift, base_lr=2e-5)
         train(name, cfg)
 
 
 def calibrate():
     (W / 'final').mkdir(exist_ok=True)
-    for name in ['r4_syn', 'r4_live', 'r4_f0', 'r4_f1']:
+    for name in ['r4_syn', 'r4_live', 'r4_f0', 'r4_f1', 'r4b_live', 'r4b_f0', 'r4b_f1']:
         raw = W / 'runs' / name / 'hey_canvas.onnx'
         out = W / 'final' / f'{name}.onnx'
         if raw.exists() and not out.exists():
@@ -114,5 +126,8 @@ if __name__ == '__main__':
         train('r4_syn', base_cfg('r4_syn'))
     elif step == 'heads':
         heads()
+    elif step == 'heads_r3':
+        # r4b: round 3 (and its held-out fold models) fine-tuned on the round 4 data instead of r4_syn.
+        heads('r4b', R3_INIT)
     elif step == 'calibrate':
         calibrate()

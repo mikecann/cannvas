@@ -2,9 +2,9 @@
 """Round 4 evaluation (CPU, light; run on tinker-desk, not the M5).
 
 Real tries are only ever scored by a model that never trained on them:
-  live (6 tries, 27-29 Oct lounge recording): round 3, r4_syn, r4_live (none trained on live)
+  live (6 tries, 27-29 Oct lounge recording): round 3, r4_syn, r4_near, r4_live, r4b_live (none trained on live)
   coach1 (9 tries, 22 Oct): round 3b_day (trained on coach3 only), r4_syn
-  coach3 (31 tries, 23 Oct): round 3b_f0/f1 and r4_f0/f1 (other half of coach3), r4_syn
+  coach3 (31 tries, 23 Oct): round 3b_f0/f1, r4_f0/f1, r4b_f0/f1 (other half of coach3), r4_syn
 Live clips are streamed through openWakeWord exactly like the Pi (80 ms frames, no gain),
 on FR (the channel the service uses) and FL. A try counts if any frame from the start of
 "Hey" to 1 s after "Canvas" reaches the threshold.
@@ -32,7 +32,7 @@ M = {
     'round3': R / 'final/hey_canvas_round3b.onnx',
     'round3b_day': R / 'final/round3b_day.onnx', 'round3b_f0': R / 'final/round3b_f0.onnx', 'round3b_f1': R / 'final/round3b_f1.onnx',
 }
-for p in sorted((R / 'models').glob('r4_*.onnx')):
+for p in sorted((R / 'models').glob('r4*.onnx')):
     M[p.stem] = p
 TH = [.05, .1, .2, .3, .4, .5, .6, .7, .8]
 SR = 16000
@@ -58,7 +58,7 @@ def main():
     out = dict(models={k: str(v.name) for k, v in M.items()}, live={}, live_nontry={}, coach={}, guards={}, validation={})
     tries = json.loads((R / 'live_tries.json').read_text())
     S = {k: session(str(v), threads=2) for k, v in M.items()}
-    live_models = [k for k in M if k in ('round2', 'round3') or k.startswith('r4_syn') or k.startswith('r4_live')]
+    live_models = [k for k in M if k in ('round2', 'round3') or k in ('r4_syn', 'r4_near') or k.endswith('_live')]
     for clip in sorted({t['clip'] for t in tries} | {p.stem for p in (R / 'live').glob('*.flac')}):
         x, sr = sf.read(R / 'live' / f'{clip}.flac', dtype='int16', always_2d=True)
         ct = [t for t in tries if t['clip'] == clip]
@@ -91,7 +91,7 @@ def main():
         row = dict(session=r['session'], spot=r['spot'], kind=r['kind'], fold=r.get('fold'),
                    valid=r['kind'] != 'wake' or (r.get('valid_positive', True) and (r['session'] == 'coach1' or r.get('usable', True))))
         if r['kind'] == 'wake':
-            held = ['r4_syn'] + (['round3b_day'] if r['session'] == 'coach1' else [f"round3b_f{r['fold']}", f"r4_f{r['fold']}"])
+            held = ['r4_syn'] + (['round3b_day'] if r['session'] == 'coach1' else [f"round3b_f{r['fold']}", f"r4_f{r['fold']}", f"r4b_f{r['fold']}"])
         else:
             held = list(M)  # no model trained on any of these as negatives
         row['max'] = {k: round(float(pr[k][mask].max()), 4) for k in held if k in pr}
