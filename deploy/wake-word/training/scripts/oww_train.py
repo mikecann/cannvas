@@ -17,6 +17,7 @@
 #      and "torch_threads" to cap torch's CPU threads (several trainings run side by side).
 #   8. validation data passed as one pre-built batch rather than a DataLoader over single rows (speed only).
 #   9. optional config "init_onnx" (+ "init_bias_shift") to initialise the DNN from an exported model.
+#  10. optional config "seed" makes grouped round3 training reproducible.
 import torch
 from torch import optim, nn
 import torchinfo
@@ -664,6 +665,12 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     config = yaml.load(open(args.training_config, 'r').read(), yaml.Loader)
+    # Keep grouped round3 folds reproducible, including mmap feature ordering.
+    if 'seed' in config:
+        import random
+        random.seed(config['seed'])
+        np.random.seed(config['seed'])
+        torch.manual_seed(config['seed'])
 
     # imports Piper for synthetic sample generation
     sys.path.insert(0, os.path.abspath(config["piper_sample_generator_path"]))
@@ -906,11 +913,11 @@ if __name__ == '__main__':
             n_cpus = 1
         else:
             n_cpus = n_cpus//2
-        if sys.platform == "darwin":  # LOCAL PATCH 4
+        if sys.platform == "darwin" or config.get("training_workers") == 0:  # LOCAL PATCH 4 / pod
             X_train = torch.utils.data.DataLoader(IterDataset(batch_generator), batch_size=None, num_workers=0)
         else:
             X_train = torch.utils.data.DataLoader(IterDataset(batch_generator),
-                                                  batch_size=None, num_workers=n_cpus, prefetch_factor=16)
+                                                  batch_size=None, num_workers=int(config.get("training_workers", n_cpus)), prefetch_factor=16)
 
         X_val_fp = np.load(config["false_positive_validation_data_path"])
         X_val_fp = np.array([X_val_fp[i:i+input_shape[0]] for i in range(0, X_val_fp.shape[0]-input_shape[0], 1)])  # reshape to match model

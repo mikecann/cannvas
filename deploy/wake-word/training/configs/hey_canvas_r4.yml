@@ -1,0 +1,93 @@
+## Round 4 text config (r4_texts.py reads target_phrase, custom_negative_phrases, n_samples, n_samples_val).
+## Round 3's near-miss list plus the ones asked for in round 4: "can you", "Kansas", "camera", "Candace",
+## "the canvas". Not added on purpose: the words Parakeet wrote for Mike's real tries ("hey candles",
+## "hey pandas", "hey Kanga", "okay Cam"). Those are how "Hey Canvas" really sounds from the sofa, so
+## training them as negatives would push the model away from his real tries.
+model_name: hey_canvas
+target_phrase:
+- hey canvas
+custom_negative_phrases:
+- hey cameras
+- hey camera
+- hey can you
+- hey can I
+- hey can we
+- hey can
+- hey Kansas
+- Kansas
+- hey Kansas City
+- hey Alexa
+- Alexa
+- hey Jarvis
+- hey Siri
+- hey Google
+- okay Google
+- hey Mycroft
+- the canvas
+- a canvas
+- canvas bag
+- the canvas bag
+- a canvas tote
+- canvas shoes
+- oil on canvas
+- painting on canvas
+- canvassing
+- campus
+- hey campus
+- hey Cass
+- hey Cassie
+- hey Gavin
+- hey Kevin
+- hey Calvin
+- hey Cameron
+- hey Camden
+- hey Cam
+- hey Kenny
+- hey Ken
+- hey candice
+- hey candy
+- hey Vanessa
+- hey cannabis
+- hey Canada
+- hey cancel
+- hey caravan
+- hey canteen
+- hey cabbage
+- heavens
+- heavens above
+- for heaven's sake
+- Ken has
+- can of
+- can of beans
+- can I have
+- hey canvassers
+- hey there
+- hey guys
+- hey man
+- hey everyone
+- can you
+- can you turn the lights on
+- can you turn it on
+- camera
+- the camera
+- cameras
+- Candace
+- hey Candace
+- Kansas City
+- in Kansas
+- the canvas is
+- on the canvas
+- paint the canvas
+- hey can you hear me
+- hey can I have
+- can I have a biscuit
+- hey Canberra
+- Canberra
+- hey cabbage patch
+- hey Jarvis turn the lights on
+- hey Kevin can you
+- hey cameraman
+- hey Camilla
+- hey Casper
+n_samples: 100000
+n_samples_val: 3000

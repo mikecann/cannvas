@@ -108,6 +108,18 @@ def main():
                     help="random amount of the following word kept after the cut")
     args = ap.parse_args()
 
+    # Independent clip sets can share MPS, but cumulative --n targets in one
+    # folder must serialize so two recipe drivers cannot duplicate an addition.
+    import fcntl
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    generation_lock = open(out_dir / '.generation.lock', 'w')
+    fcntl.flock(generation_lock, fcntl.LOCK_EX)
+    have = len(list(out_dir.glob('*.wav')))
+    if have >= args.n:
+        print(f'{have} clips already satisfy target {args.n}', flush=True)
+        return
+
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -145,6 +157,8 @@ def main():
         if bad:
             print(f"dropping {len(bad)} texts whose phonemes don't start with the prefix: {bad[:5]}")
             texts = [t for t in texts if t not in bad]
+        if not texts:
+            raise ValueError(f'No contextual pronunciations match prefix {args.cut_after!r}; check stress or insert a clause boundary.')
 
     text_iter = it.cycle(texts)
     out_dir = Path(args.out_dir)

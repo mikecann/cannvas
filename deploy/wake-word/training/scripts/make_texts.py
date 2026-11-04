@@ -25,6 +25,20 @@ import pronouncing
 import yaml
 from openwakeword.data import generate_adversarial_texts
 
+# Upstream converts a potentially huge Python word list into a numpy array on
+# every np.random.choice call. Cache that conversion once, without changing
+# candidate words, their weights, the RNG or the homophone filtering below.
+import inspect
+import openwakeword.data as _oww_data
+_source = inspect.getsource(generate_adversarial_texts)
+_source = _source.replace(
+    '    adversarial_texts = []',
+    '    adversarial_phrases = [np.asarray(x) for x in adversarial_phrases]\n    adversarial_texts = []',
+)
+_scope = dict(vars(_oww_data))
+exec(_source, _scope)
+generate_adversarial_texts = _scope['generate_adversarial_texts']
+
 
 def contains_target(text, target_variants):
     """True if any CMUdict pronunciation of text contains a target pronunciation (stress ignored)."""

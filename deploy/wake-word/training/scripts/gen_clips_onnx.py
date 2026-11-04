@@ -78,6 +78,8 @@ def worker(job):
     prefix = ids_for(a["cut_after"])[:-1] if a["cut_after"] else None
     if prefix:
         texts = [t for t in texts if ids_for(t)[:len(prefix)] == prefix]
+        if not texts:
+            raise ValueError(f'No contextual pronunciations match prefix {a["cut_after"]!r}')
     out_dir = Path(a["out_dir"])
     lines = []
     done = 0
@@ -129,6 +131,18 @@ def main():
     a["psg"] = str(Path(a["psg"]).resolve())
     texts = [t.strip() for t in open(a["texts"], encoding="utf-8") if t.strip()]
     os.makedirs(a["out_dir"], exist_ok=True)
+    # The CPU queue can overlap MPS generation. Serialize matching additions
+    # and skip a completed identical invocation if the main driver catches up.
+    import fcntl
+    import hashlib
+    import json
+    lock = open(Path(a['out_dir']) / '.generation.lock', 'w')
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    fingerprint = hashlib.sha256(json.dumps(a, sort_keys=True).encode()).hexdigest()[:16]
+    marker = Path(a['out_dir']) / ('.generated_' + fingerprint + '.done')
+    if marker.exists():
+        print('identical generation already complete', flush=True)
+        return
     per = [a["n"] // a["workers"] + (1 if i < a["n"] % a["workers"] else 0) for i in range(a["workers"])]
     with mp.get_context("spawn").Pool(a["workers"]) as pool:
         results = pool.map(worker, [(i, per[i], texts, a) for i in range(a["workers"])])
@@ -137,6 +151,7 @@ def main():
         for lines in results:
             f.writelines(lines)
     print("done", sum(len(r) for r in results), flush=True)
+    marker.touch()
 
 
 if __name__ == "__main__":
