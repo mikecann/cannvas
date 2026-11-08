@@ -114,6 +114,36 @@ template:
           skip_past_mm: "{{ skip_past_mm }}"
           skip_forecast_mm: "{{ skip_forecast_mm }}"
 
+  # A log of the last 40 scheduled runs for the Cannvas history graph. The
+  # recorder only keeps about 10 days, but a trigger-based template sensor
+  # restores its attributes across restarts, so this outlives the recorder.
+  # Each retic_schedule_result event adds an entry, or updates the last one
+  # when it's the same run (started, then watered or stopped early).
+  - triggers:
+      - trigger: event
+        event_type: retic_schedule_result
+    sensor:
+      - name: Retic history
+        unique_id: retic_history
+        icon: mdi:history
+        state: "{{ trigger.event.data.at }}"
+        attributes:
+          log: >
+            {% set old = this.attributes.log if this.attributes.log is defined and this.attributes.log is not string else [] %}
+            {% set data = trigger.event.data %}
+            {% set entry = {
+              'at': data.at,
+              'result': data.result,
+              'reason': data.reason | default(none),
+              'minutes': data.minutes | default(none),
+              'rainBefore': data.rain_before | default(none),
+              'rainAfter': data.rain_after | default(none),
+            } %}
+            {% if old and old[-1].at == entry.at %}
+              {% set old = old[:-1] %}
+            {% endif %}
+            {{ (old + [entry])[-40:] }}
+
 script:
   retic_run_zone:
     alias: Retic run zone
@@ -236,6 +266,7 @@ automation:
     actions:
       - variables:
           when: "{{ now().strftime('%a %-d %b, %-I:%M %p') }}"
+          started: "{{ now().isoformat() }}"
           past: "{{ states('sensor.retic_rain_last_24h') | float(none) }}"
           ahead: "{{ states('sensor.retic_rain_next_12h') | float(none) }}"
           past_limit: "{{ state_attr('sensor.retic_next_run', 'skip_past_mm') | float(3) }}"
@@ -259,19 +290,42 @@ automation:
               entity_id: input_text.retic_last_result
             data:
               value: "Skipped {{ when }}: {{ reason | trim }}"
+          - event: retic_schedule_result
+            event_data:
+              at: "{{ started }}"
+              result: skipped
+              reason: "{{ reason | trim }}"
+              rain_before: "{{ past }}"
+              rain_after: "{{ ahead }}"
           - stop: Skipped
       - action: input_text.set_value
         target:
           entity_id: input_text.retic_last_result
         data:
           value: "Watering since {{ when }}"
+      # Logged as watering first, so a run cut short by a restart still shows.
+      - event: retic_schedule_result
+        event_data:
+          at: "{{ started }}"
+          result: watering
+          rain_before: "{{ past }}"
+          rain_after: "{{ ahead }}"
       - action: script.retic_run_schedule
+      - variables:
+          watered: "{{ is_state('input_boolean.retic_enabled', 'on') }}"
       - action: input_text.set_value
         target:
           entity_id: input_text.retic_last_result
         data:
           value: >-
-            {{ ('Watered ' if is_state('input_boolean.retic_enabled', 'on') else 'Stopped early ') ~ when }}
+            {{ ('Watered ' if watered else 'Stopped early ') ~ when }}
+      - event: retic_schedule_result
+        event_data:
+          at: "{{ started }}"
+          result: "{{ 'watered' if watered else 'stopped' }}"
+          minutes: "{{ ((now() - as_datetime(started)).total_seconds() / 60) | round(0) | int }}"
+          rain_before: "{{ past }}"
+          rain_after: "{{ ahead }}"
 
   # The WX8 ignores a close that arrives within a second or two of a zone
   # opening, then reports it open again, so both of these keep closing until
@@ -285,11 +339,32 @@ automation:
         entity_id: input_boolean.retic_enabled
         to: "off"
     actions:
+      - variables:
+          last: "{{ (state_attr('sensor.retic_history', 'log') or [none])[-1] }}"
+          was_watering: "{{ is_state('script.retic_run_schedule', 'on') and last is mapping and last.result == 'watering' }}"
       - action: script.turn_off
         target:
           entity_id:
             - script.retic_run_schedule
             - script.retic_run_zone
+      # Turning the schedule off also ends the watering automation waiting on
+      # it, so it never gets to record how the run ended. Record it here.
+      - if:
+          - condition: template
+            value_template: "{{ was_watering }}"
+        then:
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.retic_last_result
+            data:
+              value: "Stopped early {{ as_timestamp(last.at) | timestamp_custom('%a %-d %b, %-I:%M %p') }}"
+          - event: retic_schedule_result
+            event_data:
+              at: "{{ last.at }}"
+              result: stopped
+              minutes: "{{ ((now() - as_datetime(last.at)).total_seconds() / 60) | round(0) | int }}"
+              rain_before: "{{ last.rainBefore }}"
+              rain_after: "{{ last.rainAfter }}"
       - action: script.retic_close_all
 
   - id: retic_switched_on

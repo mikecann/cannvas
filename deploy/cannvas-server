@@ -42,6 +42,7 @@ WEB_ROOT = Path(os.environ.get("CANNVAS_WEB_ROOT") or Path(__file__).resolve().p
 HEARTBEAT_PATH = Path(os.environ.get("CANNVAS_HEARTBEAT_PATH", "/run/cannvas/heartbeat"))
 LISTEN_HOST = "127.0.0.1"
 LISTEN_PORT = int(os.environ.get("CANNVAS_PORT", "4173"))
+OPEN_METEO_URL = os.environ.get("CANNVAS_OPEN_METEO_URL", "https://api.open-meteo.com/v1/forecast")
 DEFAULT_URL = "http://homeassistant.local:8123"
 ENTITY_ID = re.compile(r"^[a-z_]+\.[a-z0-9_]+$")
 ALLOWED_ACTIONS = {
@@ -80,6 +81,7 @@ _INVENTORY_OPENER = build_opener(HTTPSHandler(), RejectRedirects())
 _HOME_ASSISTANT_OPENER = build_opener(RejectRedirects())
 _VIDEO_OPENER = build_opener()
 _VOICE_OPENER = build_opener(RejectRedirects())
+_OPEN_METEO_OPENER = build_opener(HTTPSHandler(), RejectRedirects())
 # How long the page waits before reconnecting to a voice service that is down.
 VOICE_RETRY_MS = 10_000
 
@@ -614,6 +616,10 @@ RETIC_ENABLED = "input_boolean.retic_enabled"
 # The schedule and its rain limits live on this sensor's attributes.
 RETIC_NEXT_RUN = "sensor.retic_next_run"
 RETIC_LAST_RESULT = "input_text.retic_last_result"
+# The last 40 scheduled runs, kept by the Home Assistant package on this
+# sensor's `log` attribute, for the history graph.
+RETIC_HISTORY = "sensor.retic_history"
+RETIC_RESULTS = {"watering", "watered", "stopped", "skipped"}
 RETIC_SENSORS = {
     "rain": "binary_sensor.retic_rain_sensor",
     "batteryLow": "binary_sensor.retic_battery_voltage",
@@ -639,6 +645,26 @@ def known_state(state: dict[str, Any]) -> str | None:
 def on_off(state: dict[str, Any]) -> bool | None:
     value = known_state(state)
     return None if value is None else value == "on"
+
+
+def retic_history(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """The scheduled run log, keeping only well-formed entries."""
+    attributes = state.get("attributes") if isinstance(state.get("attributes"), dict) else {}
+    log = attributes.get("log")
+    entries = []
+    for entry in log if isinstance(log, list) else []:
+        if not isinstance(entry, dict) or entry.get("result") not in RETIC_RESULTS or not isinstance(entry.get("at"), str):
+            continue
+        reason = entry.get("reason")
+        entries.append({
+            "at": entry["at"],
+            "result": entry["result"],
+            "reason": reason if isinstance(reason, str) and reason else None,
+            "minutes": number(entry.get("minutes")),
+            "rainBefore": number(entry.get("rainBefore")),
+            "rainAfter": number(entry.get("rainAfter")),
+        })
+    return entries
 
 
 def retic_status(config: dict[str, str]) -> dict[str, Any]:
@@ -689,7 +715,55 @@ def retic_status(config: dict[str, str]) -> dict[str, Any]:
             "rainLast24h": number(known_state(sensors["rainLast24h"])),
             "rainNext12h": number(known_state(sensors["rainNext12h"])),
         },
+        "history": retic_history(by_id.get(RETIC_HISTORY) or {}),
     }
+
+
+# Hourly rain for the retic page's history graph and next-run outlook. It's
+# fetched here rather than in the browser so it uses the same place as Home
+# Assistant's rain sensors: the home location rounded to two decimals (about
+# 1 km, matching the retic_open_meteo_url secret). The weather page's town
+# centre is 4-5 km away, enough to disagree about a shower.
+RETIC_RAIN_PAST_DAYS = 21
+RETIC_RAIN_FORECAST_DAYS = 5
+RETIC_RAIN_REFRESH_SECONDS = 15 * 60
+_RETIC_RAIN_LOCK = Lock()
+_RETIC_RAIN_CACHE: dict[str, Any] = {"body": None, "fetched_at": 0.0}
+
+
+def retic_rain(config: dict[str, str]) -> dict[str, Any]:
+    with _RETIC_RAIN_LOCK:
+        cached = _RETIC_RAIN_CACHE["body"]
+        if cached is not None and time.monotonic() - _RETIC_RAIN_CACHE["fetched_at"] < RETIC_RAIN_REFRESH_SECONDS:
+            return cached
+    core = home_assistant_request(config, "/api/config", timeout=SOLAR_STATES_TIMEOUT)
+    latitude = number(core.get("latitude")) if isinstance(core, dict) else None
+    longitude = number(core.get("longitude")) if isinstance(core, dict) else None
+    if latitude is None or longitude is None:
+        raise ValueError("Home Assistant has no home location")
+    query = urlencode({
+        "latitude": f"{latitude:.2f}",
+        "longitude": f"{longitude:.2f}",
+        "hourly": "precipitation",
+        "past_days": RETIC_RAIN_PAST_DAYS,
+        "forecast_days": RETIC_RAIN_FORECAST_DAYS,
+        "timezone": "Australia/Perth",
+    })
+    request = Request(f"{OPEN_METEO_URL}?{query}", headers={"User-Agent": "Cannvas"})
+    with _OPEN_METEO_OPENER.open(request, timeout=10) as response:
+        data = json.loads(response.read(512 * 1024))
+    hourly = data.get("hourly") if isinstance(data, dict) else None
+    times = hourly.get("time") if isinstance(hourly, dict) else None
+    rain = hourly.get("precipitation") if isinstance(hourly, dict) else None
+    if not isinstance(times, list) or not isinstance(rain, list) or len(times) != len(rain):
+        raise ValueError("Open-Meteo sent an unexpected forecast")
+    body = {
+        "time": [str(value) for value in times],
+        "precipitation": [number(value) for value in rain],
+    }
+    with _RETIC_RAIN_LOCK:
+        _RETIC_RAIN_CACHE.update(body=body, fetched_at=time.monotonic())
+    return body
 
 
 def retic_zone(body: dict[str, Any]) -> str:
@@ -1001,6 +1075,16 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         except Exception as error:  # The response deliberately avoids leaking network or token details.
             self.home_assistant_error(error)
 
+    def get_retic_rain(self, query: str) -> None:
+        config = load_config()
+        if not config:
+            self.send_json(200, {"configured": False})
+            return
+        try:
+            self.send_json(200, {"configured": True, **retic_rain(config)})
+        except Exception as error:  # The response deliberately avoids leaking network or token details.
+            self.home_assistant_error(error)
+
     def post_retic_run(self) -> None:
         config = load_config()
         if not config:
@@ -1269,6 +1353,7 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         "/api/unifi/status": get_unifi_status,
         "/api/solar": get_solar,
         "/api/retic": get_retic,
+        "/api/retic/rain": get_retic_rain,
         "/api/sun": get_sun,
         "/api/home-assistant/status": get_home_assistant_status,
         "/api/home-assistant/entity": get_home_assistant_entity,
