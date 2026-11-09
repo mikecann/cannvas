@@ -281,10 +281,21 @@ Home Assistant won't load its configuration.
   rain sensor is wet, 3 mm or more fell in the last 24 hours, or 5 mm or more
   is forecast for the next 12. It writes what happened to
   `input_text.retic_last_result`.
+- **History.** Each scheduled run (watered, skipped with the reason, or stopped
+  early) fires a `retic_schedule_result` event, and `sensor.retic_history`
+  keeps the last 40 in its `log` attribute. It's a trigger-based template
+  sensor, so the log survives restarts and outlives the recorder's ~10 days.
 - **Rain.** Two REST sensors read Open-Meteo, which needs no key and returns
   yesterday's modelled rain along with the forecast. They use the location of
-  Home Assistant's home zone, rounded to two decimal places, so the package
-  holds no coordinates.
+  Home Assistant's home zone, rounded to two decimal places, kept in the
+  `retic_open_meteo_url` secret so the package holds no coordinates.
+
+The app opens with one line saying whether the retic will water next and
+when, or why it will skip. Under it, a graph shows daily rain for the last
+three weeks and the next three days, with each scheduled run marked.
+`/api/retic/rain` fetches that rain hourly from Open-Meteo for the same rounded
+home location (from Home Assistant's `/api/config`, cached for 15 minutes), so
+the page's "will skip" uses the same numbers the 6am check will.
 
 The WX8 ignores a close that arrives within a second or two of a zone opening,
 then reports the zone open again. `script.retic_close_all` retries until every
