@@ -124,20 +124,22 @@ function dayLabel(time: number, now: number): string {
 const capitalise = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 /**
- * Why the next scheduled run looks set to skip, from the rain Home Assistant
- * will weigh up then, or null if it should water. `runRain` is null when the
- * forecast doesn't reach that far yet.
+ * Why the next scheduled run looks set to skip, or null if it should water.
+ * Matches the Home Assistant checks that can be known ahead: rain data it
+ * can't read (it fails closed), and rain before or after the run. `runRain`
+ * is null when the forecast doesn't reach that far yet. The rain sensor isn't
+ * here: it dries out, so it only counts if it's still wet at the start time.
  */
 export function predictedSkip(
-  status: Pick<ReticStatus, "rainDetected" | "schedule">,
+  status: Pick<ReticStatus, "schedule">,
   runRain: { before: number; after: number } | null,
 ): string | null {
-  const pastLimit = status.schedule?.skipPastMm ?? 3;
-  const forecastLimit = status.schedule?.skipForecastMm ?? 5;
+  const schedule = status.schedule;
+  if (schedule && (schedule.rainLast24h == null || schedule.rainNext12h == null)) return "Home Assistant has no rain data";
+  const pastLimit = schedule?.skipPastMm ?? 3;
+  const forecastLimit = schedule?.skipForecastMm ?? 5;
   if (runRain && runRain.before >= pastLimit) return `${formatMm(runRain.before)} of rain by then`;
   if (runRain && runRain.after >= forecastLimit) return `${formatMm(runRain.after)} of rain forecast that morning`;
-  // The sensor dries out, so it only decides if it's still wet at 6 am.
-  if (status.rainDetected) return "the rain sensor is wet";
   return null;
 }
 
@@ -147,11 +149,16 @@ export type ReticOutlook = {
   tone: "water" | "skip" | "watering" | "off" | "warn";
 };
 
-/** The page's one-line answer to "will it water, and when?". */
+/**
+ * The page's one-line answer to "will it water, and when?". `forecastLoaded`
+ * is false while the Pi has no recent rain forecast, as opposed to a run
+ * that's beyond the forecast.
+ */
 export function reticOutlook(
   status: ReticStatus,
   runRain: { before: number; after: number } | null,
   now = Date.now(),
+  forecastLoaded = true,
 ): ReticOutlook {
   const schedule = status.schedule;
   if (status.enabled === false) return { headline: "Retic is off", detail: "Nothing will water, not even the schedule", tone: "off" };
@@ -178,17 +185,28 @@ export function reticOutlook(
   if (dialBlocksWatering(status.dial)) {
     return { headline: "Won't water", detail: `The controller's dial is on ${status.dial}. Turn it to RUN.`, tone: "warn" };
   }
+  // Home Assistant won't start a schedule while any zone might be open.
+  if ((status.zones ?? []).some(({ state }) => state == null)) {
+    return { headline: "Won't water", detail: "Home Assistant can't read every zone", tone: "warn" };
+  }
 
   const at = schedule?.nextRun ? Date.parse(schedule.nextRun) : Number.NaN;
   if (!Number.isFinite(at)) return { headline: "No watering scheduled", detail: "The schedule is off June to August", tone: "off" };
   const day = dayLabel(at, now);
-  const skip = predictedSkip(status, runRain);
-  if (skip) {
-    // Skips are only predicted within the forecast, so the day is always a word.
-    return { headline: `${capitalise(day)}'s watering will skip`, detail: capitalise(skip), tone: "skip" };
+
+  // Home Assistant keeps the start time for 5 minutes after a run, so a run
+  // it has just skipped still looks due. Say what happened instead.
+  const last = status.history?.at(-1);
+  if (last?.result === "skipped" && Math.abs(Date.parse(last.at) - at) < 10 * 60_000) {
+    return { headline: `${capitalise(day)}'s watering skipped`, detail: capitalise(last.reason ?? "it was too wet"), tone: "skip" };
   }
+
+  const skip = predictedSkip(status, runRain);
+  if (skip) return { headline: `${capitalise(day)}'s watering will skip`, detail: capitalise(skip), tone: "skip" };
   const due = runRain ? runRain.before + runRain.after : null;
-  const detail = due == null ? "Too far ahead to forecast rain"
+  const detail = status.rainDetected ? "Unless the rain sensor's still wet then"
+    : !forecastLoaded ? "No rain forecast right now"
+    : due == null ? "Too far ahead to forecast rain"
     : due < 0.5 ? "No rain due"
     : `${formatMm(due)} of rain due, not enough to skip`;
   return { headline: `Next watering ${day}, ${clockLabel(at)}`, detail, tone: "water" };
@@ -199,13 +217,16 @@ export type RunMark = "watered" | "stopped" | "skipped" | "next" | "next-skip" |
 /** One mark per local date for the history graph: what each scheduled run did, and the next one. */
 export function runMarks(status: ReticStatus, willSkip: boolean): Map<string, RunMark> {
   const marks = new Map<string, RunMark>();
-  for (const run of status.history ?? []) {
+  const history = status.history ?? [];
+  history.forEach((run, index) => {
     const at = Date.parse(run.at);
-    if (!Number.isFinite(at)) continue;
-    // A run still marked watering after the schedule stopped was cut short by a restart.
-    const result = run.result === "watering" ? (status.schedule?.running ? "running" : "stopped") : run.result;
+    if (!Number.isFinite(at)) return;
+    // Only the newest run can be the one watering now. Any other entry still
+    // marked watering was cut short by a restart before it could be closed off.
+    const current = index === history.length - 1 && status.schedule?.running === true;
+    const result = run.result === "watering" ? (current ? "running" : "stopped") : run.result;
     marks.set(perthDate(at), result);
-  }
+  });
   const next = status.schedule?.nextRun ? Date.parse(status.schedule.nextRun) : Number.NaN;
   if (Number.isFinite(next) && status.enabled === true && !marks.has(perthDate(next))) {
     marks.set(perthDate(next), willSkip ? "next-skip" : "next");

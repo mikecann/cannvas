@@ -632,7 +632,7 @@ class CannvasServerTest(unittest.TestCase):
     def test_retic_rain_uses_the_rounded_home_location_and_caches(self) -> None:
         self.connect_home_assistant()
         self.module.OPEN_METEO_URL = f"{self.upstream_url}/forecast"
-        self.module._RETIC_RAIN_CACHE.update(body=None, fetched_at=0.0)
+        self.module._RETIC_RAIN_CACHE.update(key=None, body=None, fetched_at=0.0)
         response, body = self.request("GET", "/api/retic/rain")
         self.assertEqual(response.status, 200)
         self.assertEqual(json.loads(body), {"configured": True, "time": ["2026-11-09T05:00", "2026-11-09T06:00"], "precipitation": [0.4, None]})
@@ -642,6 +642,10 @@ class CannvasServerTest(unittest.TestCase):
         self.assertIn("latitude=-33.65&longitude=115.35", forecast[0])
         self.request("GET", "/api/retic/rain")
         self.assertEqual(len([path for path, _ in FakeUpstream.requests if path.startswith("/forecast?")]), 1)
+        # Another Home Assistant means another home, so the cached rain doesn't carry over.
+        (self.temp / "home-assistant.json").write_text(json.dumps({"url": self.upstream_url.replace("127.0.0.1", "localhost"), "token": "t" * 40}))
+        self.request("GET", "/api/retic/rain")
+        self.assertEqual(len([path for path, _ in FakeUpstream.requests if path.startswith("/forecast?")]), 2)
 
     def override_states(self, *states: dict[str, object]) -> None:
         FakeUpstream.state_overrides = {str(state["entity_id"]): state for state in states}

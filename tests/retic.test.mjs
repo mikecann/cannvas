@@ -82,7 +82,33 @@ test("predicts a skip from rain before or after the run, using the schedule's li
   assert.deepEqual(reticOutlook(ready(), { before: 7.2, after: 0 }, monday), { headline: "Wednesday's watering will skip", detail: "7.2 mm of rain by then", tone: "skip" });
   assert.equal(predictedSkip(ready(), { before: 0, after: 5 }), "5.0 mm of rain forecast that morning");
   assert.equal(predictedSkip(ready(), { before: 2.9, after: 4.9 }), null);
-  assert.equal(predictedSkip(ready({ rainDetected: true }), { before: 0, after: 0 }), "the rain sensor is wet");
+});
+
+test("a wet rain sensor only skips if it's still wet at the start time", () => {
+  assert.equal(predictedSkip(ready({ rainDetected: true }), { before: 0, after: 0 }), null);
+  assert.deepEqual(reticOutlook(ready({ rainDetected: true }), { before: 0, after: 0 }, monday), { headline: "Next watering Wednesday, 6 am", detail: "Unless the rain sensor's still wet then", tone: "water" });
+});
+
+test("predicts a skip when Home Assistant has no rain data, as it fails closed", () => {
+  const status = ready();
+  status.schedule.rainLast24h = null;
+  assert.equal(reticOutlook(status, { before: 0, after: 0 }, monday).detail, "Home Assistant has no rain data");
+});
+
+test("won't promise watering while a zone can't be read", () => {
+  const status = ready({ zones: [...zones.slice(0, 2), { ...zones[2], state: null }] });
+  assert.deepEqual(reticOutlook(status, { before: 0, after: 0 }, monday), { headline: "Won't water", detail: "Home Assistant can't read every zone", tone: "warn" });
+});
+
+test("tells a missing forecast apart from a run beyond it", () => {
+  assert.equal(reticOutlook(ready(), null, monday, false).detail, "No rain forecast right now");
+  assert.equal(reticOutlook(ready(), null, monday, true).detail, "Too far ahead to forecast rain");
+});
+
+test("a run Home Assistant has just skipped isn't still shown as due", () => {
+  const justAfter = Date.parse("2026-11-11T06:02:00+08:00");
+  const status = ready({ history: [{ at: "2026-11-11T06:00:01+08:00", result: "skipped", reason: "4.1 mm of rain in the last 24 hours", minutes: null, rainBefore: 4.1, rainAfter: 0 }] });
+  assert.deepEqual(reticOutlook(status, { before: 0, after: 0 }, justAfter), { headline: "Today's watering skipped", detail: "4.1 mm of rain in the last 24 hours", tone: "skip" });
 });
 
 test("calls tomorrow's run tomorrow", () => {
@@ -134,6 +160,12 @@ test("marks each scheduled run on its local date, plus the next one", () => {
     ["2026-11-11", "next"],
   ]);
   assert.equal(runMarks(status, true).get("2026-11-11"), "next-skip");
+  // While Wednesday's run waters, only it is running. Sunday's stays stopped.
+  const wednesday = { ...status, history: [...status.history, { at: "2026-11-11T06:00:00+08:00", result: "watering", reason: null, minutes: null, rainBefore: 0, rainAfter: 0 }] };
+  wednesday.schedule = { ...status.schedule, running: true };
+  const marks = runMarks(wednesday, false);
+  assert.equal(marks.get("2026-11-08"), "stopped");
+  assert.equal(marks.get("2026-11-11"), "running");
   assert.equal(runMarks(ready({ enabled: false }), false).size, 0);
 });
 

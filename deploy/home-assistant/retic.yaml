@@ -207,10 +207,24 @@ script:
 
   retic_run_schedule:
     alias: Retic run schedule
-    description: Runs each zone in the schedule in turn.
+    description: >-
+      Runs each zone in the schedule in turn, then records how it went. A run
+      cut short (switched off, Stop pressed, another zone started) never gets
+      to the end, and the Retic schedule stopped automation records it instead.
     icon: mdi:sprinkler-variant
     mode: single
+    fields:
+      started:
+        description: When the run started, as an ISO time. It identifies the run in the history log.
+      when:
+        description: The start time as shown in the last result, like "Wed 11 Nov, 6:00 AM".
+      past:
+        description: Rain in the 24 hours before, in mm.
+      ahead:
+        description: Rain forecast for the 12 hours after, in mm.
     sequence:
+      - variables:
+          planned: "{{ (state_attr('sensor.retic_next_run', 'zones') or []) | map(attribute='minutes') | map('int', 0) | sum }}"
       - repeat:
           for_each: "{{ state_attr('sensor.retic_next_run', 'zones') or [] }}"
           sequence:
@@ -224,6 +238,27 @@ script:
               data:
                 zone: "{{ repeat.item.entity }}"
                 minutes: "{{ repeat.item.minutes }}"
+      - variables:
+          minutes: "{{ [((now() - as_datetime(started)).total_seconds() / 60) | round(0) | int, 0] | max if started else none }}"
+          # retic_run_zone quietly gives up on a zone it can't read, so a run
+          # that ended well short of its planned time didn't water everything.
+          complete: "{{ minutes is none or minutes >= planned - 2 }}"
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.retic_last_result
+        data:
+          value: "{{ ('Watered ' if complete else 'Stopped early ') ~ when }}"
+      - if:
+          - condition: template
+            value_template: "{{ started is string and started != '' }}"
+        then:
+          - event: retic_schedule_result
+            event_data:
+              at: "{{ started }}"
+              result: "{{ 'watered' if complete else 'stopped' }}"
+              minutes: "{{ minutes }}"
+              rain_before: "{{ past }}"
+              rain_after: "{{ ahead }}"
 
   retic_close_all:
     alias: Retic close all
@@ -264,6 +299,13 @@ automation:
       - trigger: time
         at: sensor.retic_next_run
     actions:
+      # The rain sensors refresh every 30 minutes, so their windows could be
+      # an hour behind. Refreshing now makes them end at this hour, the same
+      # windows the Cannvas page predicts with.
+      - action: homeassistant.update_entity
+        continue_on_error: true
+        target:
+          entity_id: sensor.retic_rain_last_24h
       - variables:
           when: "{{ now().strftime('%a %-d %b, %-I:%M %p') }}"
           started: "{{ now().isoformat() }}"
@@ -311,21 +353,56 @@ automation:
           rain_before: "{{ past }}"
           rain_after: "{{ ahead }}"
       - action: script.retic_run_schedule
+        data:
+          started: "{{ started }}"
+          when: "{{ when }}"
+          past: "{{ past }}"
+          ahead: "{{ ahead }}"
+
+  # A scheduled run that never reached the end of retic_run_schedule: switched
+  # off, Stop pressed, another zone started, or Home Assistant restarted. The
+  # script sets the last result before it finishes, so a finished run never
+  # still reads "Watering since" when the script goes off.
+  - id: retic_schedule_stopped
+    alias: Retic schedule stopped
+    description: Records a scheduled run that was cut short.
+    mode: queued
+    triggers:
+      - trigger: state
+        entity_id: script.retic_run_schedule
+        from: "on"
+        to: "off"
+        id: stopped
+      - trigger: homeassistant
+        event: start
+        id: restarted
+    conditions:
+      - condition: template
+        value_template: >
+          {{ states('input_text.retic_last_result').startswith('Watering since')
+             and not is_state('script.retic_run_schedule', 'on') }}
+    actions:
       - variables:
-          watered: "{{ is_state('input_boolean.retic_enabled', 'on') }}"
+          last: "{{ (state_attr('sensor.retic_history', 'log') or [none])[-1] }}"
+          known: "{{ last is mapping and last.result == 'watering' }}"
       - action: input_text.set_value
         target:
           entity_id: input_text.retic_last_result
         data:
-          value: >-
-            {{ ('Watered ' if watered else 'Stopped early ') ~ when }}
-      - event: retic_schedule_result
-        event_data:
-          at: "{{ started }}"
-          result: "{{ 'watered' if watered else 'stopped' }}"
-          minutes: "{{ ((now() - as_datetime(started)).total_seconds() / 60) | round(0) | int }}"
-          rain_before: "{{ past }}"
-          rain_after: "{{ ahead }}"
+          value: "{{ states('input_text.retic_last_result') | replace('Watering since', 'Stopped early', 1) }}"
+      - if:
+          - condition: template
+            value_template: "{{ known }}"
+        then:
+          - event: retic_schedule_result
+            event_data:
+              at: "{{ last.at }}"
+              result: stopped
+              # After a restart the downtime would count, so leave it unknown.
+              minutes: >-
+                {{ [((now() - as_datetime(last.at)).total_seconds() / 60) | round(0) | int, 0] | max if trigger.id == 'stopped' else none }}
+              rain_before: "{{ last.rainBefore }}"
+              rain_after: "{{ last.rainAfter }}"
 
   # The WX8 ignores a close that arrives within a second or two of a zone
   # opening, then reports it open again, so both of these keep closing until
@@ -339,32 +416,11 @@ automation:
         entity_id: input_boolean.retic_enabled
         to: "off"
     actions:
-      - variables:
-          last: "{{ (state_attr('sensor.retic_history', 'log') or [none])[-1] }}"
-          was_watering: "{{ is_state('script.retic_run_schedule', 'on') and last is mapping and last.result == 'watering' }}"
       - action: script.turn_off
         target:
           entity_id:
             - script.retic_run_schedule
             - script.retic_run_zone
-      # Turning the schedule off also ends the watering automation waiting on
-      # it, so it never gets to record how the run ended. Record it here.
-      - if:
-          - condition: template
-            value_template: "{{ was_watering }}"
-        then:
-          - action: input_text.set_value
-            target:
-              entity_id: input_text.retic_last_result
-            data:
-              value: "Stopped early {{ as_timestamp(last.at) | timestamp_custom('%a %-d %b, %-I:%M %p') }}"
-          - event: retic_schedule_result
-            event_data:
-              at: "{{ last.at }}"
-              result: stopped
-              minutes: "{{ ((now() - as_datetime(last.at)).total_seconds() / 60) | round(0) | int }}"
-              rain_before: "{{ last.rainBefore }}"
-              rain_after: "{{ last.rainAfter }}"
       - action: script.retic_close_all
 
   - id: retic_switched_on

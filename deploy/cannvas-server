@@ -740,13 +740,16 @@ RETIC_RAIN_PAST_DAYS = 21
 RETIC_RAIN_FORECAST_DAYS = 5
 RETIC_RAIN_REFRESH_SECONDS = 15 * 60
 _RETIC_RAIN_LOCK = Lock()
-_RETIC_RAIN_CACHE: dict[str, Any] = {"body": None, "fetched_at": 0.0}
+# Keyed by the Home Assistant URL, so connecting another one never serves the old home's rain.
+_RETIC_RAIN_CACHE: dict[str, Any] = {"key": None, "body": None, "fetched_at": 0.0}
 
 
 def retic_rain(config: dict[str, str]) -> dict[str, Any]:
+    key = config.get("url")
     with _RETIC_RAIN_LOCK:
         cached = _RETIC_RAIN_CACHE["body"]
-        if cached is not None and time.monotonic() - _RETIC_RAIN_CACHE["fetched_at"] < RETIC_RAIN_REFRESH_SECONDS:
+        fresh = time.monotonic() - _RETIC_RAIN_CACHE["fetched_at"] < RETIC_RAIN_REFRESH_SECONDS
+        if cached is not None and fresh and _RETIC_RAIN_CACHE["key"] == key:
             return cached
     core = home_assistant_request(config, "/api/config", timeout=SOLAR_STATES_TIMEOUT)
     latitude = number(core.get("latitude")) if isinstance(core, dict) else None
@@ -774,7 +777,7 @@ def retic_rain(config: dict[str, str]) -> dict[str, Any]:
         "precipitation": [number(value) for value in rain],
     }
     with _RETIC_RAIN_LOCK:
-        _RETIC_RAIN_CACHE.update(body=body, fetched_at=time.monotonic())
+        _RETIC_RAIN_CACHE.update(key=key, body=body, fetched_at=time.monotonic())
     return body
 
 

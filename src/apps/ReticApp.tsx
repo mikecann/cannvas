@@ -144,7 +144,7 @@ function AnswerCard({ retic, rain, switchPending, onSwitch, onInfo }: {
   onInfo: () => void;
 }) {
   const runRain = rain ? rainAroundRun(rain, retic.schedule?.nextRun ?? null) : null;
-  const outlook: ReticOutlook = reticOutlook(retic, runRain);
+  const outlook: ReticOutlook = reticOutlook(retic, runRain, Date.now(), rain != null);
   const willSkip = predictedSkip(retic, runRain) != null;
   return (
     <article className={`retic-answer ${outlook.tone}`}>
