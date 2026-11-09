@@ -399,24 +399,41 @@ automation:
           seconds: 3
       - variables:
           last: "{{ (state_attr('sensor.retic_history', 'log') or [none])[-1] }}"
+          shown: "{{ as_timestamp(last.at) | timestamp_custom('%a %-d %b, %-I:%M %p') if last is mapping else '' }}"
       - condition: template
-        value_template: >
-          {{ last is mapping and last.result == 'watering'
-             and not is_state('script.retic_run_schedule', 'on') }}
-      - event: retic_schedule_result
-        event_data:
-          at: "{{ last.at }}"
-          result: stopped
-          # After a restart the downtime would count, so leave it unknown.
-          minutes: >-
-            {{ [((now() - as_datetime(last.at)).total_seconds() / 60) | round(0) | int, 0] | max if trigger.id == 'stopped' else none }}
-          rain_before: "{{ last.rainBefore }}"
-          rain_after: "{{ last.rainAfter }}"
-      - action: input_text.set_value
-        target:
-          entity_id: input_text.retic_last_result
-        data:
-          value: "Stopped early {{ as_timestamp(last.at) | timestamp_custom('%a %-d %b, %-I:%M %p') }}"
+        value_template: "{{ last is mapping and not is_state('script.retic_run_schedule', 'on') }}"
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ last.result == 'watering' }}"
+            sequence:
+              - event: retic_schedule_result
+                event_data:
+                  at: "{{ last.at }}"
+                  result: stopped
+                  # After a restart the downtime would count, so leave it unknown.
+                  minutes: >-
+                    {{ [((now() - as_datetime(last.at)).total_seconds() / 60) | round(0) | int, 0] | max if trigger.id == 'stopped' else none }}
+                  rain_before: "{{ last.rainBefore }}"
+                  rain_after: "{{ last.rainAfter }}"
+              - action: input_text.set_value
+                target:
+                  entity_id: input_text.retic_last_result
+                data:
+                  value: "Stopped early {{ shown }}"
+          # The run logged its end but was cut off before updating the last
+          # result, so bring the text in line with the log.
+          - conditions:
+              - condition: template
+                value_template: >
+                  {{ last.result in ['watered', 'stopped']
+                     and states('input_text.retic_last_result').startswith('Watering since') }}
+            sequence:
+              - action: input_text.set_value
+                target:
+                  entity_id: input_text.retic_last_result
+                data:
+                  value: "{{ ('Watered ' if last.result == 'watered' else 'Stopped early ') ~ shown }}"
 
   # The WX8 ignores a close that arrives within a second or two of a zone
   # opening, then reports it open again, so both of these keep closing until
