@@ -1,19 +1,23 @@
-import { BatteryMedium, BatteryWarning, CalendarClock, CircleHelp, CloudRain, Droplets, Gauge, LoaderCircle, Power, Square, Sun } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { CircleCheck, Info, LoaderCircle, Square, TriangleAlert } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { errorText, readJsonResponse } from "../lib/http";
 import {
-  batteryLabel,
-  dialBlocksWatering,
   formatMm,
   minutesLeftLabel,
-  nextRunLabel,
+  perthDate,
+  predictedSkip,
+  type ReticOutlook,
+  reticOutlook,
   type ReticStatus,
   type ReticZone,
+  type RunMark,
+  runMarks,
   scheduleLabel,
-  skipReason,
   zoneMinutesLeft,
 } from "../lib/retic";
+import { dailyRain, type HourlyRain, rainAroundRun } from "../lib/reticRain";
 import { useRetic } from "../lib/useRetic";
+import { useReticRain } from "../lib/useReticRain";
 
 type Pending = { entityId: string; kind: "start" | "stop" };
 const MASTER = "master";
@@ -24,8 +28,10 @@ const PENDING_LIMIT_MS = 10_000;
 
 export function ReticApp() {
   const { state, refresh } = useRetic(5000);
+  const rain = useReticRain();
   const [pending, setPending] = useState<Pending | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [infoOpen, setInfoOpen] = useState(false);
   const timers = useRef<number[]>([]);
   const pendingRef = useRef<Pending | null>(null);
 
@@ -83,40 +89,30 @@ export function ReticApp() {
 
   return (
     <section className="retic-app">
-      <header className="retic-header">
-        <div>
-          <p className="eyebrow">Retic</p>
-          <h1>Garden watering</h1>
-        </div>
-        {retic?.configured && <ReticStatusPill retic={retic} />}
-      </header>
+      <h1>Garden watering</h1>
 
       {state.kind === "loading" && <div className="retic-message">Checking the controller…</div>}
       {state.kind === "error" && <div className="retic-message">{state.message}</div>}
       {retic && !retic.configured && <div className="retic-message">Connect Home Assistant in Home controls to use the retic.</div>}
       {retic?.configured && (
         <>
-          <MasterSwitch
-            enabled={retic.enabled ?? null}
-            pending={pending?.entityId === MASTER}
-            onChange={(enabled) => void setEnabled(enabled)}
+          <AnswerCard
+            retic={retic}
+            rain={rain}
+            switchPending={pending?.entityId === MASTER ? pending.kind === "start" : null}
+            onSwitch={(enabled) => void setEnabled(enabled)}
+            onInfo={() => setInfoOpen(true)}
           />
           {error && <div className="retic-alert error" role="alert">{error}</div>}
-          {!retic.available && (
-            <div className="retic-alert">Home Assistant can't reach the controller right now. Check that it's plugged in and on Wi-Fi.</div>
-          )}
           {retic.available && (retic.zones ?? []).some(({ state }) => state == null) && (
             <div className="retic-alert">
               Home Assistant can't read {(retic.zones ?? []).filter(({ state }) => state == null).map(({ name }) => name).join(", ")}.
               Runs are paused in case it's still watering.
             </div>
           )}
-          {retic.available && dialBlocksWatering(retic.dial) && (
-            <div className="retic-alert">The dial on the controller is set to {retic.dial}. Turn it to RUN so zones can water.</div>
-          )}
           <div className="retic-zones">
             {(retic.zones ?? []).map((zone) => (
-              <ZoneCard
+              <ZoneRow
                 key={zone.entityId}
                 zone={zone}
                 retic={retic}
@@ -125,126 +121,196 @@ export function ReticApp() {
                 // The script refuses to run while the retic is off or any
                 // zone's state is unknown, because that zone might be open.
                 blocked={retic.enabled !== true || (retic.zones ?? []).some(({ state }) => state == null)}
+                watering={(retic.zones ?? []).some(({ open }) => open)}
                 onRun={(minutes) => void run(zone, minutes)}
                 onStop={() => void stop(zone)}
               />
             ))}
           </div>
-          <ScheduleCard retic={retic} />
-          <ControllerTiles retic={retic} />
+          <HealthLine retic={retic} />
+          {infoOpen && <ScheduleInfo retic={retic} rain={rain} onClose={() => setInfoOpen(false)} />}
         </>
       )}
     </section>
   );
 }
 
-function ReticStatusPill({ retic }: { retic: ReticStatus }) {
-  const watering = retic.zones?.find((zone) => zone.open);
-  const minutes = watering ? zoneMinutesLeft(retic, watering) : null;
+function AnswerCard({ retic, rain, switchPending, onSwitch, onInfo }: {
+  retic: ReticStatus;
+  rain: HourlyRain | null;
+  /** The state the switch is being moved to, or null. */
+  switchPending: boolean | null;
+  onSwitch: (enabled: boolean) => void;
+  onInfo: () => void;
+}) {
+  const runRain = rain ? rainAroundRun(rain, retic.schedule?.nextRun ?? null) : null;
+  const outlook: ReticOutlook = reticOutlook(retic, runRain, Date.now(), rain != null);
+  const willSkip = predictedSkip(retic, runRain) != null;
   return (
-    <div className={`retic-status-pill${watering ? " watering" : ""}${retic.available ? "" : " offline"}`}>
-      <Droplets aria-hidden="true" />
-      <span>
-        <strong>{!retic.available ? "Offline" : watering ? watering.name : "All off"}</strong>
-        {!retic.available ? "Controller not responding" : watering ? minutesLeftLabel(minutes) : "No zones watering"}
-      </span>
-    </div>
-  );
-}
-
-function MasterSwitch({ enabled, pending, onChange }: { enabled: boolean | null; pending: boolean; onChange: (enabled: boolean) => void }) {
-  const on = enabled === true;
-  return (
-    <div className={`retic-master${on ? " on" : " off"}`}>
-      <span className="retic-master-icon" aria-hidden="true"><Power /></span>
-      <div>
-        <h2>{enabled == null ? "Retic switch unknown" : on ? "Retic is on" : "Retic is off"}</h2>
-        <p>
-          {enabled == null
-            ? "Home Assistant can't read the master switch."
-            : on
-              ? "Zones can run, and the smart schedule waters on its days."
-              : "Nothing will water, not even the schedule. Any zone that opens is closed."}
-        </p>
-      </div>
-      <button
-        className="retic-toggle"
-        role="switch"
-        aria-checked={on}
-        aria-label="Retic master switch"
-        disabled={pending || enabled == null}
-        onClick={() => onChange(!on)}
-      >
-        <span />
-      </button>
-    </div>
-  );
-}
-
-function ScheduleCard({ retic }: { retic: ReticStatus }) {
-  const schedule = retic.schedule;
-  if (!schedule || (!schedule.nextRun && schedule.days.length === 0)) return null;
-  const skip = skipReason(retic);
-  // Home Assistant only waters on schedule while the switch reads on.
-  const next = retic.enabled !== true
-    ? retic.enabled === false ? "Paused while the retic is off" : "Paused, the retic switch can't be read"
-    : schedule.running ? "Watering on schedule now" : nextRunLabel(schedule.nextRun);
-  const outlook = retic.enabled !== true || schedule.running || !schedule.nextRun
-    ? null
-    : skip ? `Would skip if it ran now: ${skip}` : "Will water unless it rains first";
-  return (
-    <article className="retic-schedule">
-      <header>
-        <span className="retic-tile-icon" aria-hidden="true"><CalendarClock /></span>
+    <article className={`retic-answer ${outlook.tone}`}>
+      <div className="retic-answer-top">
         <div>
-          <span>Smart schedule</span>
-          <h2>{scheduleLabel(schedule.days, schedule.start)}</h2>
+          <h2>{outlook.headline}</h2>
+          <p>
+            {outlook.detail}
+            <button className="retic-info" onClick={onInfo} aria-label="How the schedule works"><Info aria-hidden="true" /></button>
+          </p>
         </div>
-      </header>
-      <div className="retic-schedule-next">
-        <div>
-          <span>Next</span>
-          <strong>{next}</strong>
-          {outlook && <small className={skip ? "skip" : undefined}>{outlook}</small>}
-        </div>
-        <div className="retic-rain">
-          <div><span>Rain, 24 h</span><strong>{formatMm(schedule.rainLast24h)}</strong></div>
-          <div><span>Forecast, 12 h</span><strong>{formatMm(schedule.rainNext12h)}</strong></div>
-        </div>
+        <MasterSwitch enabled={retic.enabled ?? null} pending={switchPending} onChange={onSwitch} />
       </div>
-      <p>
-        Skips when {schedule.skipPastMm ?? 3} mm or more fell in the last 24 hours, {schedule.skipForecastMm ?? 5} mm or more is
-        forecast, or the rain sensor is wet.
-        {schedule.lastResult && <><br /><strong>Last time:</strong> {schedule.lastResult}</>}
-      </p>
+      <RainChart rain={rain} marks={runMarks(retic, willSkip)} />
     </article>
   );
 }
 
-function ZoneCard({ zone, retic, pending, busy, blocked, onRun, onStop }: {
+function MasterSwitch({ enabled, pending, onChange }: { enabled: boolean | null; pending: boolean | null; onChange: (enabled: boolean) => void }) {
+  // Moves straight away while Home Assistant catches up, with a spinner in the knob.
+  const on = pending ?? enabled === true;
+  return (
+    <button
+      className="retic-toggle"
+      role="switch"
+      aria-checked={on}
+      aria-label="Retic master switch"
+      disabled={pending != null || enabled == null}
+      onClick={() => onChange(!on)}
+    >
+      <em>{on ? "On" : "Off"}</em>
+      <span>{pending != null && <LoaderCircle className="spin" aria-hidden="true" />}</span>
+    </button>
+  );
+}
+
+// The graph: the last three weeks, today and the next three days.
+const PAST_DAYS = 21;
+const AHEAD_DAYS = 3;
+const CHART = { width: 932, plot: 850, top: 30, height: 220, max: 20, bar: 22 };
+
+const MARK_LABELS: [RunMark, string][] = [["watered", "Watered"], ["stopped", "Stopped early"], ["skipped", "Skipped"], ["next", "Next"]];
+
+function RainChart({ rain, marks }: { rain: HourlyRain | null; marks: Map<string, RunMark> }) {
+  const now = Date.now();
+  const today = perthDate(now);
+  const totals = new Map((rain ? dailyRain(rain, now) : []).map(({ date, mm }) => [date, mm]));
+  // Noon keeps each step on the right date whatever the time of day.
+  const noon = Date.parse(`${today}T12:00:00+08:00`);
+  const days = Array.from({ length: PAST_DAYS + 1 + AHEAD_DAYS }, (_, index) => {
+    const time = noon + (index - PAST_DAYS) * 86_400_000;
+    const date = perthDate(time);
+    return { date, time, mm: totals.get(date) ?? null, forecast: date > today, monday: new Date(time).getUTCDay() === 1 };
+  });
+  const column = CHART.plot / days.length;
+  const base = CHART.top + CHART.height;
+  const todayIndex = PAST_DAYS;
+  const shown = new Set(MARK_LABELS.map(([kind]) => kind).filter((kind) => [...marks.values()].some((mark) => mark === kind || (kind === "next" && mark === "next-skip"))));
+
+  return (
+    <div className="retic-chart">
+      <svg viewBox={`0 0 ${CHART.width} ${base + 96}`} role="img" aria-label="Rain each day for the last three weeks and the next three, with the schedule's runs">
+        {/* Shared by every "stopped early" mark, including the legend's. */}
+        <defs><clipPath id="retic-half-drop"><rect x="0" y="12.5" width="24" height="12" /></clipPath></defs>
+        <rect className="today-band" x={todayIndex * column + 1} y={4} width={column - 2} height={base + 64} rx={12} />
+        <rect className="forecast-box" x={(todayIndex + 1) * column + 1} y={CHART.top - 10} width={CHART.plot - (todayIndex + 1) * column - 2} height={CHART.height + 10} rx={10} />
+        {[10, 20].map((value) => {
+          const y = base - (value / CHART.max) * CHART.height;
+          return (
+            <g key={value}>
+              <line className="grid" x1={0} x2={CHART.plot} y1={y} y2={y} />
+              <text className="axis" x={CHART.plot + 10} y={y + 6}>{value} mm</text>
+            </g>
+          );
+        })}
+        <line className="baseline" x1={0} x2={CHART.plot} y1={base} y2={base} />
+        {days.map((day, index) => {
+          const x = index * column + (column - CHART.bar) / 2;
+          const mark = marks.get(day.date);
+          const label = day.monday && Math.abs(index - todayIndex) > 2
+            ? new Intl.DateTimeFormat("en-AU", { timeZone: "Australia/Perth", day: "numeric", month: "short" }).format(day.time)
+            : null;
+          const height = day.mm && day.mm > 0 ? Math.max(4, (Math.min(day.mm, CHART.max) / CHART.max) * CHART.height) : 0;
+          return (
+            <g key={day.date}>
+              {day.monday && index > 0 && <line className="week" x1={index * column} x2={index * column} y1={CHART.top - 6} y2={base} />}
+              {height > 0 && <rect className={day.forecast ? "bar forecast" : "bar"} x={x} y={base - height} width={CHART.bar} height={height} rx={5} />}
+              {day.mm != null && day.mm >= 3 && <text className="value" x={x + CHART.bar / 2} y={base - height - 9} textAnchor="middle">{formatMm(day.mm).replace(" mm", "")}</text>}
+              {mark ? <MarkIcon kind={mark} x={index * column + column / 2} y={base + 30} /> : <circle className="dot" cx={index * column + column / 2} cy={base + 8} r={1.6} />}
+              {label && <text className="week-label" x={index * column + 4} y={base + 86}>{label}</text>}
+            </g>
+          );
+        })}
+        <rect className="today-pill" x={todayIndex * column + column / 2 - 38} y={base + 64} width={76} height={30} rx={15} />
+        <text className="today-label" x={todayIndex * column + column / 2} y={base + 85} textAnchor="middle">Today</text>
+      </svg>
+      {shown.size > 0 && (
+        <div className="retic-legend">
+          {MARK_LABELS.filter(([kind]) => shown.has(kind)).map(([kind, label]) => (
+            <span key={kind}><svg viewBox="0 0 24 24" aria-hidden="true"><MarkPaths kind={kind} /></svg>{label}</span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const DROP = "M12 3.5c3 3.6 5.5 6.6 5.5 9.9A5.5 5.5 0 0 1 6.5 13.4C6.5 10.1 9 7.1 12 3.5Z";
+const SMALL_DROP = "M12 6.5c1.9 2.3 3.4 4.1 3.4 6.1a3.4 3.4 0 0 1-6.8 0c0-2 1.5-3.8 3.4-6.1Z";
+
+function MarkIcon({ kind, x, y }: { kind: RunMark; x: number; y: number }) {
+  return (
+    <svg x={x - 17} y={y - 17} width={34} height={34} viewBox="0 0 24 24">
+      <MarkPaths kind={kind} />
+    </svg>
+  );
+}
+
+/** Filled drop: watered. Half drop: stopped early. Struck drop: skipped. Ringed drop: next or running. */
+function MarkPaths({ kind }: { kind: RunMark }) {
+  switch (kind) {
+    case "watered":
+      return <path className="mark fill" d={DROP} />;
+    case "stopped":
+      return (
+        <>
+          <path className="mark solid" d={DROP} clipPath="url(#retic-half-drop)" />
+          <path className="mark" d={DROP} />
+        </>
+      );
+    case "skipped":
+      return <><path className="mark muted" d={DROP} /><path className="mark muted" d="M5 5l14 14" /></>;
+    case "next":
+      return <><circle className="mark dashed" cx="12" cy="12" r="10.5" /><path className="mark" d={SMALL_DROP} /></>;
+    case "next-skip":
+      return <><circle className="mark dashed muted" cx="12" cy="12" r="10.5" /><path className="mark muted" d={SMALL_DROP} /><path className="mark muted" d="M7 7l10 10" /></>;
+    case "running":
+      return <><circle className="mark" cx="12" cy="12" r="10.5" /><path className="mark fill" d={SMALL_DROP} /></>;
+  }
+}
+
+function ZoneRow({ zone, retic, pending, busy, blocked, watering, onRun, onStop }: {
   zone: ReticZone;
   retic: ReticStatus;
   pending: "start" | "stop" | null;
   busy: boolean;
   blocked: boolean;
+  /** Another zone is watering, so these buttons would switch to this one. */
+  watering: boolean;
   onRun: (minutes: number) => void;
   onStop: () => void;
 }) {
   const unavailable = zone.state == null;
-  const minutes = zoneMinutesLeft(retic, zone);
   const status = unavailable
     ? "Unavailable"
     : pending === "start" ? "Starting…"
     : pending === "stop" ? "Stopping…"
-    : zone.open ? minutesLeftLabel(minutes)
-    : "Off";
+    : zone.open ? minutesLeftLabel(zoneMinutesLeft(retic, zone))
+    : null;
 
   return (
-    <article className={`retic-zone${zone.open ? " open" : ""}${unavailable ? " unavailable" : ""}`}>
+    <article className={`retic-zone${zone.open ? " open" : ""}${unavailable ? " unavailable" : ""}${watering && !zone.open ? " quiet" : ""}`}>
       <span className="retic-zone-number" aria-hidden="true">{zone.zone}</span>
       <div className="retic-zone-text">
         <h2>{zone.name}</h2>
-        <p>{pending ? <LoaderCircle className="spin" aria-hidden="true" /> : null}{status}</p>
+        {status && <p>{pending ? <LoaderCircle className="spin" aria-hidden="true" /> : null}{status}</p>}
       </div>
       <div className="retic-zone-actions">
         {zone.open ? (
@@ -265,44 +331,45 @@ function ZoneCard({ zone, retic, pending, busy, blocked, onRun, onStop }: {
   );
 }
 
-function ControllerTiles({ retic }: { retic: ReticStatus }) {
-  const rain = retic.rainDetected;
+/** The controller's own readings in one quiet line, which turns amber when one needs attention. */
+function HealthLine({ retic }: { retic: ReticStatus }) {
+  const rain = retic.rainDetected == null ? "Rain sensor unknown" : retic.rainDetected ? "Rain sensor wet" : "Rain sensor dry";
+  const battery = retic.batteryLow ? "Backup battery low, replace the 9V"
+    : retic.batteryVolts != null ? `Battery ${retic.batteryVolts.toFixed(1)} V`
+    : "Battery unknown";
+  const dial = `Dial on ${retic.dial ?? "unknown"}`;
+  // A dial off RUN is the headline whenever it matters, so it isn't flagged twice.
+  const problem = retic.batteryLow || retic.mainsProblem || retic.rainDetected == null;
+  const parts = [rain, battery, dial, ...(retic.mainsProblem ? ["Mains power problem"] : [])];
   return (
-    <div className="retic-tiles">
-      <Tile
-        icon={rain ? <CloudRain /> : rain == null ? <CircleHelp /> : <Sun />}
-        label="Rain sensor"
-        value={rain == null ? "Unknown" : rain ? "Wet" : "Dry"}
-        note={rain == null ? "Can't read the sensor" : rain ? "Rain detected" : "No rain detected"}
-        tone={rain ? "wet" : undefined}
-      />
-      <Tile
-        icon={retic.batteryLow ? <BatteryWarning /> : <BatteryMedium />}
-        label="Backup battery"
-        value={batteryLabel(retic)}
-        note={retic.batteryVolts != null ? `9V battery at ${retic.batteryVolts.toFixed(1)} V` : "9V battery"}
-        tone={retic.batteryLow ? "warn" : undefined}
-      />
-      <Tile
-        icon={<Gauge />}
-        label="Controller"
-        value={retic.dial ?? "Unknown"}
-        note={retic.mainsProblem ? "Mains power problem" : "Dial position"}
-        tone={retic.mainsProblem || dialBlocksWatering(retic.dial) ? "warn" : undefined}
-      />
-    </div>
+    <p className={`retic-health${problem ? " warn" : ""}`}>
+      {problem ? <TriangleAlert aria-hidden="true" /> : <CircleCheck aria-hidden="true" />}
+      {parts.join(" · ")}
+    </p>
   );
 }
 
-function Tile({ icon, label, value, note, tone }: { icon: ReactNode; label: string; value: string; note: string; tone?: "wet" | "warn" }) {
+function ScheduleInfo({ retic, rain, onClose }: { retic: ReticStatus; rain: HourlyRain | null; onClose: () => void }) {
+  const schedule = retic.schedule;
+  const runRain = rain ? rainAroundRun(rain, schedule?.nextRun ?? null) : null;
   return (
-    <article className={`retic-tile${tone ? ` ${tone}` : ""}`}>
-      <span className="retic-tile-icon" aria-hidden="true">{icon}</span>
-      <div>
-        <span>{label}</span>
-        <strong>{value}</strong>
-        <small>{note}</small>
-      </div>
-    </article>
+    <div className="dialog-backdrop" role="presentation" onPointerDown={onClose}>
+      <section className="dialog-card retic-info-card" role="dialog" aria-modal="true" aria-labelledby="retic-info-title" onPointerDown={(event) => event.stopPropagation()}>
+        <h2 id="retic-info-title">{schedule ? scheduleLabel(schedule.days, schedule.start) : "No schedule"}</h2>
+        <p>September to May, all five zones in turn.</p>
+        <p>
+          It skips when {schedule?.skipPastMm ?? 3} mm or more fell in the 24 hours before, {schedule?.skipForecastMm ?? 5} mm or more is
+          forecast for the 12 hours after, or the rain sensor is wet. Home Assistant decides at the start time.
+        </p>
+        <dl>
+          <div><dt>Rain, last 24 hours</dt><dd>{formatMm(schedule?.rainLast24h)}</dd></div>
+          <div><dt>Forecast, next 12 hours</dt><dd>{formatMm(schedule?.rainNext12h)}</dd></div>
+          {runRain && <div><dt>24 hours before the next run</dt><dd>{formatMm(runRain.before)}</dd></div>}
+          {runRain && <div><dt>12 hours after it starts</dt><dd>{formatMm(runRain.after)}</dd></div>}
+        </dl>
+        {schedule?.lastResult && <p><strong>Last time:</strong> {schedule.lastResult}</p>}
+        <button className="button primary" onClick={onClose}>Got it</button>
+      </section>
+    </div>
   );
 }

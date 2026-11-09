@@ -66,8 +66,15 @@ def fake_states() -> list[dict]:
         {"entity_id": "sensor.retic_rain_last_24h", "state": "0.2"},
         {"entity_id": "sensor.retic_rain_next_12h", "state": "1.5"},
         {"entity_id": "sensor.retic_next_run", "state": "2026-10-01T22:00:00+00:00", "attributes": {
-            "days": [2, 5], "start": "06:00", "skip_past_mm": 3, "skip_forecast_mm": 5, "zones": [],
+            "days": [2, 5], "start": "06:00", "skip_past_mm": 3, "skip_forecast_mm": 5,
+            "zones": [{"entity": "valve.retic_back_grass_right", "minutes": 15}, {"entity": "valve.not_retic", "minutes": 5}, {"entity": "valve.retic_front_grass", "minutes": 10}],
         }},
+        {"entity_id": "sensor.retic_history", "state": "2026-09-29T06:00:00+08:00", "attributes": {"log": [
+            {"at": "2026-09-26T06:00:00+08:00", "result": "watered", "reason": None, "minutes": 65, "rainBefore": 0.0, "rainAfter": 0.2},
+            {"at": "2026-09-29T06:00:00+08:00", "result": "skipped", "reason": "4.1 mm of rain in the last 24 hours", "minutes": None, "rainBefore": 4.1, "rainAfter": None},
+            {"at": "2026-09-30T06:00:00+08:00", "result": "exploded"},
+            "not an entry",
+        ]}},
     ]
     return [FakeUpstream.state_overrides.get(str(state["entity_id"]), state) for state in states]
 
@@ -86,6 +93,7 @@ class FakeUpstream(BaseHTTPRequestHandler):
     map_type = "image/png"
     camera_works = False
     vacuum_has_rooms = False
+    home = (-33.65432, 115.34567)
 
     def date_time_string(self, timestamp: float | None = None) -> str:
         return FakeUpstream.date or super().date_time_string(timestamp)
@@ -105,6 +113,12 @@ class FakeUpstream(BaseHTTPRequestHandler):
         if self.path == "/api/states":
             body = json.dumps(fake_states()).encode()
             self.reply(200, body, "application/json")
+        elif self.path == "/api/config":
+            latitude, longitude = FakeUpstream.home
+            self.reply(200, json.dumps({"latitude": latitude, "longitude": longitude, "time_zone": "Australia/Perth"}).encode(), "application/json")
+        elif self.path.startswith("/forecast?"):
+            body = {"hourly": {"time": ["2026-11-09T05:00", "2026-11-09T06:00"], "precipitation": [0.4, None]}}
+            self.reply(200, json.dumps(body).encode(), "application/json")
         elif self.path == "/api/states/sun.sun":
             body = json.dumps({
                 "entity_id": "sun.sun",
@@ -610,7 +624,35 @@ class CannvasServerTest(unittest.TestCase):
         self.assertIs(value["batteryLow"], False)
         self.assertEqual(value["batteryVolts"], 8.6)
         self.assertTrue(value["available"])
+        # The run log passes through, dropping anything malformed.
+        self.assertEqual(value["history"], [
+            {"at": "2026-09-26T06:00:00+08:00", "result": "watered", "reason": None, "minutes": 65, "rainBefore": 0.0, "rainAfter": 0.2},
+            {"at": "2026-09-29T06:00:00+08:00", "result": "skipped", "reason": "4.1 mm of rain in the last 24 hours", "minutes": None, "rainBefore": 4.1, "rainAfter": None},
+        ])
         self.assertEqual([path for path, _ in FakeUpstream.requests], ["/api/states"])
+
+    def test_retic_rain_uses_the_rounded_home_location_and_caches(self) -> None:
+        self.connect_home_assistant()
+        self.module.OPEN_METEO_URL = f"{self.upstream_url}/forecast"
+        self.module._RETIC_RAIN_CACHE.update(key=None, body=None, fetched_at=0.0)
+        response, body = self.request("GET", "/api/retic/rain")
+        self.assertEqual(response.status, 200)
+        self.assertEqual(json.loads(body), {"configured": True, "time": ["2026-11-09T05:00", "2026-11-09T06:00"], "precipitation": [0.4, None]})
+        forecast = [path for path, _ in FakeUpstream.requests if path.startswith("/forecast?")]
+        self.assertEqual(len(forecast), 1)
+        # About 1 km, the same as the Home Assistant rain sensors, and never the exact spot.
+        self.assertIn("latitude=-33.65&longitude=115.35", forecast[0])
+        self.request("GET", "/api/retic/rain")
+        self.assertEqual(len([path for path, _ in FakeUpstream.requests if path.startswith("/forecast?")]), 1)
+        # A different home location doesn't get the cached rain.
+        FakeUpstream.home = (-31.95, 115.86)
+        try:
+            self.request("GET", "/api/retic/rain")
+        finally:
+            FakeUpstream.home = (-33.65432, 115.34567)
+        forecast = [path for path, _ in FakeUpstream.requests if path.startswith("/forecast?")]
+        self.assertEqual(len(forecast), 2)
+        self.assertIn("latitude=-31.95&longitude=115.86", forecast[1])
 
     def override_states(self, *states: dict[str, object]) -> None:
         FakeUpstream.state_overrides = {str(state["entity_id"]): state for state in states}
@@ -712,6 +754,11 @@ class CannvasServerTest(unittest.TestCase):
             "start": "06:00",
             "skipPastMm": 3,
             "skipForecastMm": 5,
+            # Only real retic zones, in order.
+            "zones": [
+                {"entityId": "valve.retic_back_grass_right", "minutes": 15},
+                {"entityId": "valve.retic_front_grass", "minutes": 10},
+            ],
             "running": False,
             "lastResult": "Skipped Tue 29 Sep, 6:00 AM: 4.1 mm of rain in the last 24 hours",
             "rainLast24h": 0.2,

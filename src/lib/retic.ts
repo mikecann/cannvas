@@ -20,6 +20,19 @@ export type ReticSchedule = {
   lastResult: string | null;
   rainLast24h: number | null;
   rainNext12h: number | null;
+  /** The zones a scheduled run waters, in order. */
+  zones?: { entityId: string; minutes: number | null }[];
+};
+
+/** One scheduled run from the Home Assistant log, oldest first. */
+export type ReticRun = {
+  at: string;
+  /** "watering" while it runs, or forever if Home Assistant restarted mid-run. */
+  result: "watering" | "watered" | "stopped" | "skipped";
+  reason: string | null;
+  minutes: number | null;
+  rainBefore: number | null;
+  rainAfter: number | null;
 };
 
 export type ReticStatus = {
@@ -39,6 +52,7 @@ export type ReticStatus = {
   batteryLow?: boolean | null;
   batteryVolts?: number | null;
   mainsProblem?: boolean | null;
+  history?: ReticRun[];
 };
 
 export type ReticState =
@@ -64,12 +78,6 @@ export function minutesLeftLabel(minutes: number | null): string {
   return `${minutes} min left`;
 }
 
-export function batteryLabel(status: Pick<ReticStatus, "batteryLow" | "batteryVolts">): string {
-  if (status.batteryLow == null && status.batteryVolts == null) return "Unknown";
-  if (status.batteryLow) return "Replace soon";
-  return "OK";
-}
-
 /** The dial has to sit on RUN for app or scheduled watering to happen. */
 export function dialBlocksWatering(dial: string | null | undefined): boolean {
   return dial != null && dial.toLowerCase() !== "run";
@@ -86,38 +94,144 @@ export function scheduleLabel(days: number[], start: string | null): string {
   return `${list} at ${hours % 12 || 12}:${String(minutes).padStart(2, "0")} ${hours < 12 ? "am" : "pm"}`;
 }
 
-/** "Tomorrow, 6:00 am", "Today, 6:00 pm" or "Tue 6 Oct, 6:00 am" in Perth time. */
-export function nextRunLabel(nextRun: string | null, now = Date.now()): string {
-  const at = nextRun ? Date.parse(nextRun) : Number.NaN;
-  if (!Number.isFinite(at)) return "Not scheduled";
-  const zone = "Australia/Perth";
-  const day = (time: number) => new Intl.DateTimeFormat("en-CA", { timeZone: zone }).format(time);
-  const time = new Intl.DateTimeFormat("en-AU", { timeZone: zone, hour: "numeric", minute: "2-digit" }).format(at).replace(/\s/g, " ").toLowerCase();
-  if (day(at) === day(now)) return `Today, ${time}`;
-  if (day(at) === day(now + 24 * 60 * 60 * 1000)) return `Tomorrow, ${time}`;
-  const date = new Intl.DateTimeFormat("en-AU", { timeZone: zone, weekday: "short", day: "numeric", month: "short" }).format(at).replace(",", "");
-  return `${date}, ${time}`;
-}
-
 export function formatMm(value: number | null | undefined): string {
   return value == null ? "–" : `${value.toFixed(1)} mm`;
 }
 
+const ZONE = "Australia/Perth";
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The local date, "2026-11-09", of a time in Perth. */
+export function perthDate(time: number): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: ZONE }).format(time);
+}
+
+/** "6 am", "6:30 am". */
+function clockLabel(time: number): string {
+  return new Intl.DateTimeFormat("en-AU", { timeZone: ZONE, hour: "numeric", minute: "2-digit" })
+    .format(time).replace(/\s/g, " ").replace(":00", "").toLowerCase();
+}
+
+/** "today", "tomorrow", "Wednesday" within the week, or "Tue 1 Sep" further out. */
+function dayLabel(time: number, now: number): string {
+  const day = perthDate(time);
+  if (day === perthDate(now)) return "today";
+  if (day === perthDate(now + DAY_MS)) return "tomorrow";
+  if (time - now < 6 * DAY_MS) return new Intl.DateTimeFormat("en-AU", { timeZone: ZONE, weekday: "long" }).format(time);
+  return new Intl.DateTimeFormat("en-AU", { timeZone: ZONE, weekday: "short", day: "numeric", month: "short" }).format(time).replace(",", "");
+}
+
+const capitalise = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
 /**
- * Why the schedule would skip if it ran now, matching the checks in the Home
- * Assistant package, or null if it would water.
+ * Why the next scheduled run looks set to skip, or null if it should water.
+ * Matches the Home Assistant checks that can be known ahead: rain data it
+ * can't read (it fails closed), and rain before or after the run. `runRain`
+ * is null when the forecast doesn't reach that far yet. The rain sensor isn't
+ * here: it dries out, so it only counts if it's still wet at the start time.
  */
-export function skipReason(status: Pick<ReticStatus, "enabled" | "rainDetected" | "schedule">): string | null {
+export function predictedSkip(
+  status: Pick<ReticStatus, "schedule">,
+  runRain: { before: number; after: number } | null,
+): string | null {
   const schedule = status.schedule;
-  if (status.enabled === false) return "the retic is switched off";
-  if (status.enabled !== true) return "the retic switch can't be read";
-  if (status.rainDetected) return "the rain sensor is wet";
-  if (!schedule) return null;
-  const { rainLast24h, rainNext12h } = schedule;
-  // The same defaults Home Assistant uses when a limit is missing.
-  const pastLimit = schedule.skipPastMm ?? 3;
-  const forecastLimit = schedule.skipForecastMm ?? 5;
-  if (rainLast24h != null && rainLast24h >= pastLimit) return `${formatMm(rainLast24h)} of rain in the last 24 hours`;
-  if (rainNext12h != null && rainNext12h >= forecastLimit) return `${formatMm(rainNext12h)} of rain forecast in the next 12 hours`;
+  if (schedule && (schedule.rainLast24h == null || schedule.rainNext12h == null)) return "Home Assistant has no rain data";
+  const pastLimit = schedule?.skipPastMm ?? 3;
+  const forecastLimit = schedule?.skipForecastMm ?? 5;
+  if (runRain && runRain.before >= pastLimit) return `${formatMm(runRain.before)} of rain by then`;
+  if (runRain && runRain.after >= forecastLimit) return `${formatMm(runRain.after)} of rain forecast that morning`;
   return null;
+}
+
+export type ReticOutlook = {
+  headline: string;
+  detail: string;
+  tone: "water" | "skip" | "watering" | "off" | "warn";
+};
+
+/**
+ * The page's one-line answer to "will it water, and when?". `forecastLoaded`
+ * is false while the Pi has no recent rain forecast, as opposed to a run
+ * that's beyond the forecast.
+ */
+export function reticOutlook(
+  status: ReticStatus,
+  runRain: { before: number; after: number } | null,
+  now = Date.now(),
+  forecastLoaded = true,
+): ReticOutlook {
+  const schedule = status.schedule;
+  if (status.enabled === false) return { headline: "Retic is off", detail: "Nothing will water, not even the schedule", tone: "off" };
+  if (status.enabled !== true) return { headline: "Retic switch unknown", detail: "Home Assistant can't read the master switch", tone: "warn" };
+  if (!status.available) return { headline: "Controller offline", detail: "Check it's plugged in and on Wi-Fi", tone: "warn" };
+
+  const open = status.zones?.find((zone) => zone.open);
+  if (open) {
+    const minutes = zoneMinutesLeft(status, open, now);
+    const order = schedule?.zones ?? [];
+    const index = order.findIndex(({ entityId }) => entityId === open.entityId);
+    if (schedule?.running && index >= 0) {
+      const rest = order.slice(index + 1).reduce((total, zone) => total + (zone.minutes ?? 0), 0);
+      const detail = `Zone ${index + 1} of ${order.length}, ${open.name.toLowerCase()}`;
+      if (minutes == null) return { headline: "Watering now", detail, tone: "watering" };
+      return { headline: `Watering now, done about ${clockLabel(now + (minutes + rest) * 60_000)}`, detail, tone: "watering" };
+    }
+    // The zone's own row shows the minutes left, so say what's next instead.
+    const next = schedule?.nextRun ? Date.parse(schedule.nextRun) : Number.NaN;
+    const detail = Number.isFinite(next) ? `Next on the schedule ${dayLabel(next, now)}, ${clockLabel(next)}` : "Started by hand";
+    return { headline: `Watering ${open.name.toLowerCase()}`, detail, tone: "watering" };
+  }
+
+  if (dialBlocksWatering(status.dial)) {
+    return { headline: "Won't water", detail: `The controller's dial is on ${status.dial}. Turn it to RUN.`, tone: "warn" };
+  }
+  // Home Assistant won't start a schedule while any zone might be open.
+  if ((status.zones ?? []).some(({ state }) => state == null)) {
+    return { headline: "Won't water", detail: "Home Assistant can't read every zone", tone: "warn" };
+  }
+
+  const at = schedule?.nextRun ? Date.parse(schedule.nextRun) : Number.NaN;
+  if (!Number.isFinite(at)) return { headline: "No watering scheduled", detail: "The schedule is off June to August", tone: "off" };
+  const day = dayLabel(at, now);
+
+  // Home Assistant keeps the start time for 5 minutes after a run, so a run
+  // it has just skipped, or that was stopped straight away, still looks due.
+  // Say what happened instead.
+  const last = status.history?.at(-1);
+  if (last && last.result !== "watering" && Math.abs(Date.parse(last.at) - at) < 10 * 60_000) {
+    if (last.result === "skipped") return { headline: `${capitalise(day)}'s watering skipped`, detail: capitalise(last.reason ?? "it was too wet"), tone: "skip" };
+    return { headline: last.result === "stopped" ? `${capitalise(day)}'s watering stopped early` : `${capitalise(day)}'s watering is done`, detail: "Nothing else is due today", tone: "off" };
+  }
+
+  const skip = predictedSkip(status, runRain);
+  if (skip) return { headline: `${capitalise(day)}'s watering will skip`, detail: capitalise(skip), tone: "skip" };
+  const due = runRain ? runRain.before + runRain.after : null;
+  const detail = status.rainDetected ? "Unless the rain sensor's still wet then"
+    : !forecastLoaded ? "No rain forecast right now"
+    : due == null ? "Too far ahead to forecast rain"
+    : due < 0.5 ? "No rain due"
+    : `${formatMm(due)} of rain due, not enough to skip`;
+  return { headline: `Next watering ${day}, ${clockLabel(at)}`, detail, tone: "water" };
+}
+
+export type RunMark = "watered" | "stopped" | "skipped" | "next" | "next-skip" | "running";
+
+/** One mark per local date for the history graph: what each scheduled run did, and the next one. */
+export function runMarks(status: ReticStatus, willSkip: boolean): Map<string, RunMark> {
+  const marks = new Map<string, RunMark>();
+  const history = status.history ?? [];
+  history.forEach((run, index) => {
+    const at = Date.parse(run.at);
+    if (!Number.isFinite(at)) return;
+    // Only the newest run can be the one watering now. Any other entry still
+    // marked watering was cut short by a restart before it could be closed off.
+    const current = index === history.length - 1 && status.schedule?.running === true;
+    const result = run.result === "watering" ? (current ? "running" : "stopped") : run.result;
+    marks.set(perthDate(at), result);
+  });
+  const next = status.schedule?.nextRun ? Date.parse(status.schedule.nextRun) : Number.NaN;
+  if (Number.isFinite(next) && status.enabled === true && !marks.has(perthDate(next))) {
+    marks.set(perthDate(next), willSkip ? "next-skip" : "next");
+  }
+  return marks;
 }
