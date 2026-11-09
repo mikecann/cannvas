@@ -667,6 +667,16 @@ def retic_history(state: dict[str, Any]) -> list[dict[str, Any]]:
     return entries
 
 
+def retic_schedule_zones(zones: Any) -> list[dict[str, Any]]:
+    if not isinstance(zones, list):
+        return []
+    return [
+        {"entityId": zone["entity"], "minutes": number(zone.get("minutes"))}
+        for zone in zones
+        if isinstance(zone, dict) and zone.get("entity") in RETIC_ZONE_IDS
+    ]
+
+
 def retic_status(config: dict[str, str]) -> dict[str, Any]:
     by_id = {
         entity.get("entity_id"): entity
@@ -710,6 +720,8 @@ def retic_status(config: dict[str, str]) -> dict[str, Any]:
             "start": schedule_attributes.get("start") if isinstance(schedule_attributes.get("start"), str) else None,
             "skipPastMm": number(schedule_attributes.get("skip_past_mm")),
             "skipForecastMm": number(schedule_attributes.get("skip_forecast_mm")),
+            # The zones a scheduled run waters, in order, for "zone 2 of 5" and its finish time.
+            "zones": retic_schedule_zones(schedule_attributes.get("zones")),
             "running": known_state(by_id.get(RETIC_SCHEDULE_SCRIPT) or {}) == "on",
             "lastResult": known_state(by_id.get(RETIC_LAST_RESULT) or {}),
             "rainLast24h": number(known_state(sensors["rainLast24h"])),

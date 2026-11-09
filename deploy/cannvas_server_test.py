@@ -66,7 +66,8 @@ def fake_states() -> list[dict]:
         {"entity_id": "sensor.retic_rain_last_24h", "state": "0.2"},
         {"entity_id": "sensor.retic_rain_next_12h", "state": "1.5"},
         {"entity_id": "sensor.retic_next_run", "state": "2026-10-01T22:00:00+00:00", "attributes": {
-            "days": [2, 5], "start": "06:00", "skip_past_mm": 3, "skip_forecast_mm": 5, "zones": [],
+            "days": [2, 5], "start": "06:00", "skip_past_mm": 3, "skip_forecast_mm": 5,
+            "zones": [{"entity": "valve.retic_back_grass_right", "minutes": 15}, {"entity": "valve.not_retic", "minutes": 5}, {"entity": "valve.retic_front_grass", "minutes": 10}],
         }},
         {"entity_id": "sensor.retic_history", "state": "2026-09-29T06:00:00+08:00", "attributes": {"log": [
             {"at": "2026-09-26T06:00:00+08:00", "result": "watered", "reason": None, "minutes": 65, "rainBefore": 0.0, "rainAfter": 0.2},
@@ -742,6 +743,11 @@ class CannvasServerTest(unittest.TestCase):
             "start": "06:00",
             "skipPastMm": 3,
             "skipForecastMm": 5,
+            # Only real retic zones, in order.
+            "zones": [
+                {"entityId": "valve.retic_back_grass_right", "minutes": 15},
+                {"entityId": "valve.retic_front_grass", "minutes": 10},
+            ],
             "running": False,
             "lastResult": "Skipped Tue 29 Sep, 6:00 AM: 4.1 mm of rain in the last 24 hours",
             "rainLast24h": 0.2,
