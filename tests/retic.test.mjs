@@ -109,6 +109,8 @@ test("a run Home Assistant has just skipped isn't still shown as due", () => {
   const justAfter = Date.parse("2026-11-11T06:02:00+08:00");
   const status = ready({ history: [{ at: "2026-11-11T06:00:01+08:00", result: "skipped", reason: "4.1 mm of rain in the last 24 hours", minutes: null, rainBefore: 4.1, rainAfter: 0 }] });
   assert.deepEqual(reticOutlook(status, { before: 0, after: 0 }, justAfter), { headline: "Today's watering skipped", detail: "4.1 mm of rain in the last 24 hours", tone: "skip" });
+  const stopped = ready({ history: [{ at: "2026-11-11T06:00:01+08:00", result: "stopped", reason: null, minutes: 1, rainBefore: 0, rainAfter: 0 }] });
+  assert.equal(reticOutlook(stopped, { before: 0, after: 0 }, justAfter).headline, "Today's watering stopped early");
 });
 
 test("calls tomorrow's run tomorrow", () => {

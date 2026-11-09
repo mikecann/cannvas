@@ -93,6 +93,7 @@ class FakeUpstream(BaseHTTPRequestHandler):
     map_type = "image/png"
     camera_works = False
     vacuum_has_rooms = False
+    home = (-33.65432, 115.34567)
 
     def date_time_string(self, timestamp: float | None = None) -> str:
         return FakeUpstream.date or super().date_time_string(timestamp)
@@ -113,7 +114,8 @@ class FakeUpstream(BaseHTTPRequestHandler):
             body = json.dumps(fake_states()).encode()
             self.reply(200, body, "application/json")
         elif self.path == "/api/config":
-            self.reply(200, json.dumps({"latitude": -33.65432, "longitude": 115.34567, "time_zone": "Australia/Perth"}).encode(), "application/json")
+            latitude, longitude = FakeUpstream.home
+            self.reply(200, json.dumps({"latitude": latitude, "longitude": longitude, "time_zone": "Australia/Perth"}).encode(), "application/json")
         elif self.path.startswith("/forecast?"):
             body = {"hourly": {"time": ["2026-11-09T05:00", "2026-11-09T06:00"], "precipitation": [0.4, None]}}
             self.reply(200, json.dumps(body).encode(), "application/json")
@@ -642,10 +644,15 @@ class CannvasServerTest(unittest.TestCase):
         self.assertIn("latitude=-33.65&longitude=115.35", forecast[0])
         self.request("GET", "/api/retic/rain")
         self.assertEqual(len([path for path, _ in FakeUpstream.requests if path.startswith("/forecast?")]), 1)
-        # Another Home Assistant means another home, so the cached rain doesn't carry over.
-        (self.temp / "home-assistant.json").write_text(json.dumps({"url": self.upstream_url.replace("127.0.0.1", "localhost"), "token": "t" * 40}))
-        self.request("GET", "/api/retic/rain")
-        self.assertEqual(len([path for path, _ in FakeUpstream.requests if path.startswith("/forecast?")]), 2)
+        # A different home location doesn't get the cached rain.
+        FakeUpstream.home = (-31.95, 115.86)
+        try:
+            self.request("GET", "/api/retic/rain")
+        finally:
+            FakeUpstream.home = (-33.65432, 115.34567)
+        forecast = [path for path, _ in FakeUpstream.requests if path.startswith("/forecast?")]
+        self.assertEqual(len(forecast), 2)
+        self.assertIn("latitude=-31.95&longitude=115.86", forecast[1])
 
     def override_states(self, *states: dict[str, object]) -> None:
         FakeUpstream.state_overrides = {str(state["entity_id"]): state for state in states}

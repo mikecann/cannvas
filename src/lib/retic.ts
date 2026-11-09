@@ -195,10 +195,12 @@ export function reticOutlook(
   const day = dayLabel(at, now);
 
   // Home Assistant keeps the start time for 5 minutes after a run, so a run
-  // it has just skipped still looks due. Say what happened instead.
+  // it has just skipped, or that was stopped straight away, still looks due.
+  // Say what happened instead.
   const last = status.history?.at(-1);
-  if (last?.result === "skipped" && Math.abs(Date.parse(last.at) - at) < 10 * 60_000) {
-    return { headline: `${capitalise(day)}'s watering skipped`, detail: capitalise(last.reason ?? "it was too wet"), tone: "skip" };
+  if (last && last.result !== "watering" && Math.abs(Date.parse(last.at) - at) < 10 * 60_000) {
+    if (last.result === "skipped") return { headline: `${capitalise(day)}'s watering skipped`, detail: capitalise(last.reason ?? "it was too wet"), tone: "skip" };
+    return { headline: last.result === "stopped" ? `${capitalise(day)}'s watering stopped early` : `${capitalise(day)}'s watering is done`, detail: "Nothing else is due today", tone: "off" };
   }
 
   const skip = predictedSkip(status, runRain);

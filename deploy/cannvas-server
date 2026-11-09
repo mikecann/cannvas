@@ -740,25 +740,27 @@ RETIC_RAIN_PAST_DAYS = 21
 RETIC_RAIN_FORECAST_DAYS = 5
 RETIC_RAIN_REFRESH_SECONDS = 15 * 60
 _RETIC_RAIN_LOCK = Lock()
-# Keyed by the Home Assistant URL, so connecting another one never serves the old home's rain.
+# Keyed by the rounded home location.
 _RETIC_RAIN_CACHE: dict[str, Any] = {"key": None, "body": None, "fetched_at": 0.0}
 
 
 def retic_rain(config: dict[str, str]) -> dict[str, Any]:
-    key = config.get("url")
-    with _RETIC_RAIN_LOCK:
-        cached = _RETIC_RAIN_CACHE["body"]
-        fresh = time.monotonic() - _RETIC_RAIN_CACHE["fetched_at"] < RETIC_RAIN_REFRESH_SECONDS
-        if cached is not None and fresh and _RETIC_RAIN_CACHE["key"] == key:
-            return cached
+    # Asking Home Assistant for the location every time is cheap, and it means
+    # a different home (or a moved one) never gets the cached rain.
     core = home_assistant_request(config, "/api/config", timeout=SOLAR_STATES_TIMEOUT)
     latitude = number(core.get("latitude")) if isinstance(core, dict) else None
     longitude = number(core.get("longitude")) if isinstance(core, dict) else None
     if latitude is None or longitude is None:
         raise ValueError("Home Assistant has no home location")
+    key = (f"{latitude:.2f}", f"{longitude:.2f}")
+    with _RETIC_RAIN_LOCK:
+        cached = _RETIC_RAIN_CACHE["body"]
+        fresh = time.monotonic() - _RETIC_RAIN_CACHE["fetched_at"] < RETIC_RAIN_REFRESH_SECONDS
+        if cached is not None and fresh and _RETIC_RAIN_CACHE["key"] == key:
+            return cached
     query = urlencode({
-        "latitude": f"{latitude:.2f}",
-        "longitude": f"{longitude:.2f}",
+        "latitude": key[0],
+        "longitude": key[1],
         "hourly": "precipitation",
         "past_days": RETIC_RAIN_PAST_DAYS,
         "forecast_days": RETIC_RAIN_FORECAST_DAYS,
