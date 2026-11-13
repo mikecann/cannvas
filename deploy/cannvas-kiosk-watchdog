@@ -41,10 +41,14 @@ if [ $((monotonic - started / 1000000)) -le "$stale_after" ]; then
 fi
 if [ "$silence" = never ]; then
   # cannvas-kiosk execs Chromium, so the main PID only becomes chromium once
-  # the waits are over. Time the grace from then, not from the unit's start.
+  # its waits for the TV and the server are over. It notes the boot-clock
+  # second just before that exec; time the grace from there.
   pid=$(/usr/bin/systemctl --user show cannvas-kiosk.service -p MainPID --value)
   [ "$(cat "/proc/$pid/comm" 2>/dev/null)" = chromium ] || exit 0
-  [ "$(/usr/bin/ps -o etimes= -p "$pid" | tr -d ' ')" -gt "$stale_after" ] || exit 0
+  launched_file="$(dirname "$state")/cannvas-kiosk-launched"
+  [ -r "$launched_file" ] || exit 0
+  now=$(cut -d. -f1 /proc/uptime)
+  [ $((now - $(cut -d. -f1 "$launched_file"))) -gt "$stale_after" ] || exit 0
 fi
 
 # Restart once per silence. If the page never pings again after a restart,
@@ -54,6 +58,8 @@ if [ -r "$state" ] && [ "$(cat "$state")" = "$silence" ]; then
 fi
 # <4> marks the line as a warning so it passes the unit's LogLevelMax.
 echo "<4>Cannvas page ${reason}; restarting the kiosk"
-# Record the silence only once the restart worked, so a failed restart is retried.
-/usr/bin/systemctl --user restart cannvas-kiosk.service
+# Record the silence only once the restart is queued, so a failed request is
+# retried. --no-block returns once queued: a slow Chromium stop could outlast
+# this unit's 30 s timeout, kill us before the record, and repeat the restart.
+/usr/bin/systemctl --user --no-block restart cannvas-kiosk.service
 echo "$silence" >"$state"
