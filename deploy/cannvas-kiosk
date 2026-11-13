@@ -86,6 +86,11 @@ if [ -n "$panel_respawner" ]; then
 fi
 /usr/bin/pkill -x wf-panel-pi || true
 
+# The watchdog times its grace period for a page that never pings from here.
+# exec keeps this script's PID and start time, which can include a long wait
+# for the TV above, so the process age alone would cut the grace short.
+/usr/bin/cut -d. -f1 /proc/uptime >"${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/cannvas-kiosk-launched"
+
 exec /usr/bin/chromium \
   --app="$launch_url" \
   --window-position=0,0 \
