@@ -3,7 +3,7 @@ import { errorText, readJsonResponse } from "./http";
 import { formatKw } from "./solar";
 import { usePolling } from "./usePolling";
 
-export type CarMode = "solar" | "now" | "off";
+export type CarMode = "solar" | "boost" | "off";
 
 /** What /api/car reports. Home Assistant runs the charging rules; see deploy/home-assistant/car_charging.yaml. */
 export type CarStatus = {
@@ -23,14 +23,19 @@ export type CarStatus = {
   rangeKm?: number | null;
   pluggedIn?: boolean | null;
   overnightActive?: boolean;
+  /** Charging up to the daytime minimum, sun or not. */
+  minimumActive?: boolean;
+  /** The % the last (or current) boost charges to. */
+  boostTarget?: number | null;
   settings?: Partial<Record<CarSettingKey, number | null>>;
 };
 
-export type CarSettingKey = "chargeLimit" | "overnightBelow" | "overnightTarget";
+export type CarSettingKey = "chargeLimit" | "dayMinimum" | "overnightBelow" | "overnightTarget";
 
 /** Matches CAR_SETTINGS in deploy/cannvas-server and the input_numbers in car_charging.yaml. */
 export const CAR_SETTING_RANGES: Record<CarSettingKey, { min: number; max: number }> = {
   chargeLimit: { min: 50, max: 100 },
+  dayMinimum: { min: 0, max: 90 },
   overnightBelow: { min: 0, max: 90 },
   overnightTarget: { min: 10, max: 100 },
 };
@@ -42,8 +47,8 @@ export type CarState =
   | { kind: "ready"; car: CarStatus };
 
 export const CAR_MODES: Array<{ mode: CarMode; label: string }> = [
-  { mode: "solar", label: "Sun only" },
-  { mode: "now", label: "Charge now" },
+  { mode: "solar", label: "Auto" },
+  { mode: "boost", label: "Boost" },
   { mode: "off", label: "Off" },
 ];
 
@@ -56,10 +61,12 @@ export function carHeadline(car: CarStatus): { title: string; detail: string | n
   const charging = car.plugOn && (car.powerKw ?? 0) >= CHARGING_KW;
   if (charging) {
     return {
-      title: `Charging at ${formatKw(car.powerKw)}`,
-      detail: car.overnightActive
-        ? car.reason ?? "Topping up overnight."
-        : car.mode === "now" ? "Charging now, sun or not. Goes back to sun only when the car's full." : "From sun that would otherwise go unused.",
+      title: car.mode === "boost" && car.boostTarget != null ? `Boosting to ${Math.round(car.boostTarget)}%` : `Charging at ${formatKw(car.powerKw)}`,
+      detail: car.mode === "boost"
+        ? `${formatKw(car.powerKw)}, sun or not. Back to Auto when it gets there.`
+        : car.overnightActive || car.minimumActive
+          ? car.reason ?? "Charging, sun or not."
+          : "From sun that would otherwise go unused.",
       charging,
     };
   }

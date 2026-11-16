@@ -52,6 +52,7 @@ function CarBattery({ car }: { car: CarStatus }) {
 
 const SETTING_ROWS: Array<{ key: CarSettingKey; label: string }> = [
   { key: "chargeLimit", label: "Sun charging stops at" },
+  { key: "dayMinimum", label: "By day, charge anyway below" },
   { key: "overnightBelow", label: "Top up overnight when below" },
   { key: "overnightTarget", label: "Overnight top-up to" },
 ];
@@ -109,7 +110,7 @@ function CarSettings({ car, refresh }: { car: CarStatus; refresh: () => void | P
           </div>
         );
       })}
-      <small className={error ? "error" : undefined}>{error ?? "Overnight top-ups run from 9pm to 7am on grid power, adding about 8% an hour."}</small>
+      <small className={error ? "error" : undefined}>{error ?? "Below the daytime minimum it charges on cloudy days too. Overnight top-ups run 9pm to 7am. Grid charging adds about 8% an hour."}</small>
     </div>
   );
 }
@@ -132,7 +133,7 @@ export function CarHomeWidget({ onOpen }: { onOpen: () => void }) {
   );
 }
 
-const CAR_MODE_ICONS: Record<CarMode, ReactNode> = { solar: <Sun />, now: <Zap />, off: <Power /> };
+const CAR_MODE_ICONS: Record<CarMode, ReactNode> = { solar: <Sun />, boost: <Zap />, off: <Power /> };
 // Home Assistant answers at once, but the mode only shows once the next poll reads it back.
 const CAR_PENDING_LIMIT_MS = 10_000;
 
@@ -142,6 +143,7 @@ export function CarCharging({ car: shared }: { car?: ReturnType<typeof useCar> }
   const { state, refresh } = shared ?? own;
   const [pending, setPending] = useState<CarMode | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [boostOpen, setBoostOpen] = useState(false);
   const timer = useRef<number | undefined>(undefined);
   const car = state.kind === "ready" ? state.car : null;
 
@@ -154,7 +156,8 @@ export function CarCharging({ car: shared }: { car?: ReturnType<typeof useCar> }
   if (state.kind === "error") return <div className="car-charging"><strong>{state.message}</strong></div>;
   if (!car) return null;
 
-  async function choose(mode: CarMode) {
+  async function choose(mode: CarMode, target?: number) {
+    setBoostOpen(false);
     setError(null);
     setPending(mode);
     window.clearTimeout(timer.current);
@@ -162,7 +165,7 @@ export function CarCharging({ car: shared }: { car?: ReturnType<typeof useCar> }
       await readJsonResponse(await fetch("/api/car/mode", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode }),
+        body: JSON.stringify(target == null ? { mode } : { mode, target }),
         signal: AbortSignal.timeout(CAR_PENDING_LIMIT_MS),
       }), "Home Assistant didn't answer");
       void refresh();
@@ -201,12 +204,45 @@ export function CarCharging({ car: shared }: { car?: ReturnType<typeof useCar> }
             aria-checked={selected === mode}
             className={selected === mode ? "is-selected" : undefined}
             disabled={pending != null}
-            onClick={() => selected !== mode && void choose(mode)}
+            // Boost always asks how far, even while boosting, so the target can change.
+            onClick={() => (mode === "boost" ? setBoostOpen(true) : selected !== mode && void choose(mode))}
           >
             {pending === mode ? <LoaderCircle className="spin" aria-hidden="true" /> : CAR_MODE_ICONS[mode]}
             {label}
           </button>
         ))}
+      </div>
+      {boostOpen && <BoostSheet car={car} onBoost={(target) => void choose("boost", target)} onCancel={() => setBoostOpen(false)} />}
+    </div>
+  );
+}
+
+const BOOST_CHOICES = [60, 70, 80, 90, 100];
+
+/** Asks how far to boost. Starts at the last target, or the next 10% up from where the car is. */
+function BoostSheet({ car, onBoost, onCancel }: { car: CarStatus; onBoost: (target: number) => void; onCancel: () => void }) {
+  const battery = car.batteryPct ?? null;
+  const floor = battery == null ? 10 : Math.min(100, Math.ceil((battery + 1) / CAR_SETTING_STEP) * CAR_SETTING_STEP);
+  const [target, setTarget] = useState(() => Math.max(floor, car.boostTarget ?? 80));
+  return (
+    <div className="car-boost-backdrop" onPointerDown={onCancel}>
+      <div className="car-boost-sheet" role="dialog" aria-label="Boost charge" onPointerDown={(event) => event.stopPropagation()}>
+        <h2>Boost to</h2>
+        <div className="car-stepper">
+          <button aria-label="Less" disabled={target - CAR_SETTING_STEP < floor} onClick={() => setTarget(target - CAR_SETTING_STEP)}><Minus /></button>
+          <strong>{target}%</strong>
+          <button aria-label="More" disabled={target >= 100} onClick={() => setTarget(target + CAR_SETTING_STEP)}><Plus /></button>
+        </div>
+        <div className="car-boost-choices">
+          {BOOST_CHOICES.map((value) => (
+            <button key={value} className={value === target ? "is-selected" : undefined} disabled={value < floor} onClick={() => setTarget(value)}>{value}%</button>
+          ))}
+        </div>
+        <p>{battery == null ? "Charges sun or not, then goes back to Auto." : `From ${Math.round(battery)}%, sun or not, then back to Auto.`}</p>
+        <div className="car-boost-actions">
+          <button onClick={onCancel}>Cancel</button>
+          <button className="primary" onClick={() => onBoost(target)}><Zap aria-hidden="true" />Boost</button>
+        </div>
       </div>
     </div>
   );

@@ -1021,6 +1021,21 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .car-settings > small { padding-top: 14px; color: var(--muted); font-size: .85rem; font-weight: 600; }
 .car-settings > small.error { color: #9c3522; }
 
+/* Boost asks how far before it starts. */
+.car-boost-backdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(20,18,15,.38); }
+.car-boost-sheet { width: min(640px, 86vw); padding: 30px 32px; display: flex; flex-direction: column; align-items: center; gap: 22px; border-radius: 30px; background: var(--paper); box-shadow: 0 30px 80px rgba(0,0,0,.25); }
+.car-boost-sheet h2 { font: 700 2rem "Fraunces", serif; }
+.car-boost-sheet .car-stepper strong { min-width: 170px; font-size: 3.4rem; }
+.car-boost-choices { display: flex; gap: 10px; }
+.car-boost-choices button { min-width: 88px; height: 60px; border: 0; border-radius: 16px; color: var(--ink); background: #f1ece4; font: 800 1.1rem "DM Sans", sans-serif; cursor: pointer; }
+.car-boost-choices button.is-selected { color: white; background: var(--ink); }
+.car-boost-choices button:disabled { opacity: .35; cursor: default; }
+.car-boost-sheet p { color: var(--muted); font-weight: 600; text-align: center; }
+.car-boost-actions { align-self: stretch; display: flex; gap: 12px; }
+.car-boost-actions button { flex: 1; height: 72px; display: flex; align-items: center; justify-content: center; gap: 10px; border: 0; border-radius: 20px; color: var(--ink); background: #f1ece4; font: 800 1.2rem "DM Sans", sans-serif; cursor: pointer; }
+.car-boost-actions button.primary { color: white; background: var(--ink); }
+.car-boost-actions button svg { width: 22px; height: 22px; }
+
 /* Car charging, under the spare-sun card: what the garage plug is doing and its mode. */
 .car-charging { flex: 0 0 auto; padding: 14px 16px 14px 20px; display: flex; align-items: center; gap: 16px; border: 1px solid #e2dbd0; border-radius: 22px; background: var(--paper); box-shadow: 0 8px 22px rgba(64,53,38,.06); }
 .car-charging.is-charging { border-color: #b9e2cf; background: #eefaf3; }

@@ -91,6 +91,9 @@ def fake_states() -> list[dict]:
         {"entity_id": "input_number.car_charge_limit", "state": "80.0"},
         {"entity_id": "input_number.car_overnight_below", "state": "30.0"},
         {"entity_id": "input_number.car_overnight_target", "state": "50.0"},
+        {"entity_id": "input_number.car_day_minimum", "state": "50.0"},
+        {"entity_id": "input_number.car_boost_target", "state": "80.0"},
+        {"entity_id": "input_boolean.car_minimum_active", "state": "on"},
     ]
     return [FakeUpstream.state_overrides.get(str(state["entity_id"]), state) for state in states]
 
@@ -852,7 +855,9 @@ class CannvasServerTest(unittest.TestCase):
             "rangeKm": 232.0,
             "pluggedIn": True,
             "overnightActive": False,
-            "settings": {"chargeLimit": 80.0, "overnightBelow": 30.0, "overnightTarget": 50.0},
+            "minimumActive": True,
+            "boostTarget": 80.0,
+            "settings": {"chargeLimit": 80.0, "overnightBelow": 30.0, "overnightTarget": 50.0, "dayMinimum": 50.0},
         })
 
     def test_car_without_a_battery_reading(self) -> None:
@@ -892,13 +897,29 @@ class CannvasServerTest(unittest.TestCase):
 
     def test_car_mode_sets_the_input_select(self) -> None:
         self.connect_home_assistant()
-        for mode in ("now", "off", "solar"):
+        for mode in ("off", "solar"):
             response, _ = self.post_json("/api/car/mode", {"mode": mode})
             self.assertEqual(response.status, 200)
         self.assertEqual(FakeUpstream.posts, [
             ("/api/services/input_select/select_option", {"entity_id": "input_select.car_charging_mode", "option": mode})
-            for mode in ("now", "off", "solar")
+            for mode in ("off", "solar")
         ])
+
+    def test_car_boost_sets_the_target_then_the_mode(self) -> None:
+        self.connect_home_assistant()
+        response, _ = self.post_json("/api/car/mode", {"mode": "boost", "target": 90})
+        self.assertEqual(response.status, 200)
+        self.assertEqual(FakeUpstream.posts, [
+            ("/api/services/input_number/set_value", {"entity_id": "input_number.car_boost_target", "value": 90}),
+            ("/api/services/input_select/select_option", {"entity_id": "input_select.car_charging_mode", "option": "boost"}),
+        ])
+
+    def test_car_boost_needs_a_valid_target(self) -> None:
+        self.connect_home_assistant()
+        for body in ({"mode": "boost"}, {"mode": "boost", "target": 5}, {"mode": "boost", "target": 83}, {"mode": "boost", "target": "90"}, {"mode": "now"}):
+            response, _ = self.post_json("/api/car/mode", body)
+            self.assertEqual(response.status, 400, body)
+        self.assertEqual(FakeUpstream.posts, [])
 
     def test_car_mode_rejects_anything_else(self) -> None:
         self.connect_home_assistant()
