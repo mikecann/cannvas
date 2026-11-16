@@ -60,6 +60,11 @@ test("sun charging ends at sunset unless it reaches the limit first", () => {
   assert.equal(chargePlan({ ...charging, batteryUpdatedAt: noon.toISOString(), settings: { chargeLimit: 50 } }, noon, sunset).cutShort, false);
 });
 
+test("no estimate for sun charging after sunset, as it's about to stop", () => {
+  assert.equal(chargePlan(charging, at("2026-11-16T21:01:00"), at("2026-11-16T19:10:00")), null);
+  assert.equal(chargePlan(charging, at("2026-11-16T21:01:00"), null), null);
+});
+
 test("moves the reading on since it last ticked, but never past the next whole %", () => {
   const plan = chargePlan({ ...charging, mode: "boost", boostTarget: 80 }, at("2026-11-16T21:44:00"), null);
   assert.equal(plan.nowPct, 37.99);

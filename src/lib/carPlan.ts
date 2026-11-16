@@ -75,7 +75,9 @@ export function chargePlan(car: CarStatus, now: Date, sunset: Date | null): Char
   } else {
     target = settings.chargeLimit ?? 100;
     needsSun = true;
-    deadline = sunset && sunset.getTime() > now.getTime() ? sunset : null;
+    // After sunset the sun rules switch the plug off within a few minutes.
+    if (!sunset || sunset.getTime() <= now.getTime()) return null;
+    deadline = sunset;
   }
   target = Math.min(100, target);
   if (nowPct >= target) return { target, endPct: target, endAt: now, cutShort: false, needsSun, rate, nowPct };
