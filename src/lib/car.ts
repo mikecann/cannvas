@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { errorText, readJsonResponse } from "./http";
 import { formatKw } from "./solar";
+import { CHARGING_KW } from "./carPlan";
 import { usePolling } from "./usePolling";
 
 export type CarMode = "solar" | "boost" | "off";
@@ -27,6 +28,13 @@ export type CarStatus = {
   minimumActive?: boolean;
   /** The % the last (or current) boost charges to. */
   boostTarget?: number | null;
+  /** Power into the pack, from the car (kW, negative while driving). */
+  batteryKw?: number | null;
+  /** The car's own countdown to 100%, while it says it's charging. */
+  fullInMinutes?: number | null;
+  carCharging?: boolean | null;
+  /** When the BYD cloud last answered. */
+  telemetryAt?: string | null;
   settings?: Partial<Record<CarSettingKey, number | null>>;
 };
 
@@ -52,8 +60,6 @@ export const CAR_MODES: Array<{ mode: CarMode; label: string }> = [
   { mode: "off", label: "Off" },
 ];
 
-// The car's charger idles at a watt or two, so anything under this isn't charging.
-const CHARGING_KW = 0.05;
 const STALE_AFTER_MS = 2 * 60 * 1000;
 
 export function carHeadline(car: CarStatus): { title: string; detail: string | null; charging: boolean } {
@@ -105,4 +111,31 @@ export function useCar(intervalMs: number, { enabled = true }: { enabled?: boole
   }, intervalMs, { enabled });
 
   return { state, refresh };
+}
+
+/** What /api/car/history reports: the last day in 10-minute steps, and kWh per day this week. */
+export type CarHistory = {
+  configured: boolean;
+  start?: string;
+  end?: string;
+  stepMinutes?: number;
+  /** The car's draw each step, split by where it came from (kW). */
+  sunKw?: Array<number | null>;
+  gridKw?: Array<number | null>;
+  /** Every BYD reading as [ms, %]. */
+  battery?: Array<[number, number | null]>;
+  /** Oldest first, today last. Null when the plug has no history that far back. */
+  days?: Array<{ date: string; sunKwh: number | null; gridKwh: number | null }>;
+};
+
+export function useCarHistory(intervalMs = 5 * 60_000) {
+  const [history, setHistory] = useState<CarHistory | null>(null);
+  usePolling(async (signal) => {
+    try {
+      setHistory(await readJsonResponse<CarHistory>(await fetch("/api/car/history", { signal }), "No charging history"));
+    } catch {
+      // Keep the last graphs; they only change every few minutes anyway.
+    }
+  }, intervalMs);
+  return history;
 }

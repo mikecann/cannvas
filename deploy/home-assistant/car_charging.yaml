@@ -354,7 +354,10 @@ automation:
         then:
           - action: input_text.set_value
             target: { entity_id: input_text.car_charging_reason }
-            data: { value: "Back over {{ states('input_number.car_day_minimum') | int }}%, waiting for spare sun" }
+            data:
+              value: >
+                {{ 'Daytime minimum stops at 9pm' if trigger.id == 'evening'
+                   else 'Back over ' ~ (states('input_number.car_day_minimum') | int) ~ '%, waiting for spare sun' }}
 
   # Checked every 10 minutes through the night, so plugging in late still counts.
   - id: car_charging_overnight_start
