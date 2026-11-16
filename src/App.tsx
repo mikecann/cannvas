@@ -14,6 +14,7 @@ import {
   PencilLine,
   Power,
   SlidersHorizontal,
+  Car,
   CloudSun,
   CloudOff,
   Droplets,
@@ -28,6 +29,7 @@ import { KioskInventoryApp } from "./apps/KioskInventoryApp";
 import { ReticApp } from "./apps/ReticApp";
 import { SammyCamApp } from "./apps/SammyCamApp";
 import { SammyTabletTickerApp } from "./apps/SammyTabletTickerApp";
+import { CarApp } from "./apps/CarApp";
 import { SolarApp } from "./apps/SolarApp";
 import { TodosApp } from "./apps/TodosApp";
 import { WhiteboardApp } from "./apps/WhiteboardApp";
@@ -59,6 +61,7 @@ type AppId =
   | "calendar"
   | "weather"
   | "solar"
+  | "car"
   | "retic"
   | "home-automation"
   | "sammy-tablets"
@@ -79,6 +82,7 @@ const primaryApps = [
 // Things used less often. The home screen's solar readout still opens Solar.
 const moreApps = [
   { id: "solar" as const, label: "Solar", description: "Power right now and today", icon: Sun },
+  { id: "car" as const, label: "Car", description: "Battery and charging", icon: Car },
   { id: "retic" as const, label: "Retic", description: "Water the garden", icon: Droplets },
   { id: "sammy-tablets" as const, label: "Sammy", description: "Tablet schedule", icon: Dog },
   { id: "sammy-cam" as const, label: "Sammy Cam", description: "Live view and last night", icon: Cctv },
@@ -239,13 +243,14 @@ export function App() {
               {activeApp === "calendar" && <CalendarApp />}
               {activeApp === "weather" && <WeatherApp />}
               {activeApp === "solar" && <SolarApp />}
+              {activeApp === "car" && <CarApp />}
               {activeApp === "retic" && <ReticApp />}
               {activeApp === "home-automation" && <HomeAutomationApp />}
               {activeApp === "sammy-tablets" && <SammyTabletTickerApp />}
               {activeApp === "sammy-cam" && <SammyCamApp />}
               {activeApp === "admin" && <AdminApp />}
               {activeApp === "inventory" && <KioskInventoryApp />}
-              {activeApp === "display" && <DisplayApp displaySession={displaySession} onActivity={resetIdleTimer} onWake={wake} onOpenCalendar={() => openApp("calendar")} onOpenWeather={() => openApp("weather")} onOpenSolar={() => openApp("solar")} />}
+              {activeApp === "display" && <DisplayApp displaySession={displaySession} onActivity={resetIdleTimer} onWake={wake} onOpenCalendar={() => openApp("calendar")} onOpenWeather={() => openApp("weather")} onOpenSolar={() => openApp("solar")} onOpenCar={() => openApp("car")} />}
             </Suspense>
           </AppErrorBoundary>
         )}

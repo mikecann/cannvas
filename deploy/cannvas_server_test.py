@@ -84,6 +84,13 @@ def fake_states() -> list[dict]:
         {"entity_id": "input_text.car_charging_reason", "state": "Charging from spare sun"},
         {"entity_id": "input_datetime.car_charging_retry_after", "state": "2026-11-16 10:00:00", "attributes": {"timestamp": 1794800000.0}},
         {"entity_id": "sensor.car_charging_spare_sun", "state": "2.35"},
+        {"entity_id": "sensor.byd_atto_3_battery_level", "state": "48.0", "last_changed": "2026-11-16T05:00:00+00:00"},
+        {"entity_id": "sensor.byd_atto_3_range", "state": "232"},
+        {"entity_id": "binary_sensor.byd_atto_3_plug", "state": "on"},
+        {"entity_id": "input_boolean.car_overnight_active", "state": "off"},
+        {"entity_id": "input_number.car_charge_limit", "state": "80.0"},
+        {"entity_id": "input_number.car_overnight_below", "state": "30.0"},
+        {"entity_id": "input_number.car_overnight_target", "state": "50.0"},
     ]
     return [FakeUpstream.state_overrides.get(str(state["entity_id"]), state) for state in states]
 
@@ -840,7 +847,36 @@ class CannvasServerTest(unittest.TestCase):
             "reason": "Charging from spare sun",
             # The retry time has passed, so there's nothing to wait for.
             "retryAfter": None,
+            "batteryPct": 48.0,
+            "batteryUpdatedAt": "2026-11-16T05:00:00+00:00",
+            "rangeKm": 232.0,
+            "pluggedIn": True,
+            "overnightActive": False,
+            "settings": {"chargeLimit": 80.0, "overnightBelow": 30.0, "overnightTarget": 50.0},
         })
+
+    def test_car_without_a_battery_reading(self) -> None:
+        self.connect_home_assistant()
+        self.override_states({"entity_id": "sensor.byd_atto_3_battery_level", "state": "unavailable"})
+        car = self.car()
+        self.assertIsNone(car["batteryPct"])
+        self.assertIsNone(car["batteryUpdatedAt"])
+
+    def test_car_settings_set_the_input_numbers(self) -> None:
+        self.connect_home_assistant()
+        response, _ = self.post_json("/api/car/settings", {"chargeLimit": 90, "overnightBelow": 25})
+        self.assertEqual(response.status, 200)
+        self.assertEqual(FakeUpstream.posts, [
+            ("/api/services/input_number/set_value", {"entity_id": "input_number.car_charge_limit", "value": 90}),
+            ("/api/services/input_number/set_value", {"entity_id": "input_number.car_overnight_below", "value": 25}),
+        ])
+
+    def test_car_settings_reject_bad_values(self) -> None:
+        self.connect_home_assistant()
+        for body in ({"chargeLimit": 45}, {"chargeLimit": 105}, {"chargeLimit": 82}, {"chargeLimit": 80.0}, {"overnightTarget": "50"}, {"other": 5}, {}):
+            response, _ = self.post_json("/api/car/settings", body)
+            self.assertEqual(response.status, 400, body)
+        self.assertEqual(FakeUpstream.posts, [])
 
     def test_car_without_the_package_is_not_configured(self) -> None:
         self.connect_home_assistant()
@@ -877,6 +913,7 @@ class CannvasServerTest(unittest.TestCase):
             ("switch.car_charger", "turn_on"),
             ("switch.car_charger", "turn_off"),
             ("switch.car_charger_led", "turn_off"),
+            ("input_boolean.car_overnight_active", "turn_on"),
         ):
             response, _ = self.action(entity_id, action)
             self.assertEqual(response.status, 400, (entity_id, action))

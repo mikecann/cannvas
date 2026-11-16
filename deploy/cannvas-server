@@ -806,6 +806,18 @@ CAR_ENTITIES = {
     "reason": "input_text.car_charging_reason",
     "retryAfter": "input_datetime.car_charging_retry_after",
     "spare": "sensor.car_charging_spare_sun",
+    # From the BYD Vehicle integration, through a second BYD account.
+    "battery": "sensor.byd_atto_3_battery_level",
+    "range": "sensor.byd_atto_3_range",
+    "pluggedIn": "binary_sensor.byd_atto_3_plug",
+    "overnightActive": "input_boolean.car_overnight_active",
+}
+# The numbers set from the car card: key -> (entity, min, max). All step by 5,
+# matching the input_numbers in car_charging.yaml.
+CAR_SETTINGS = {
+    "chargeLimit": ("input_number.car_charge_limit", 50, 100),
+    "overnightBelow": ("input_number.car_overnight_below", 0, 90),
+    "overnightTarget": ("input_number.car_overnight_target", 10, 100),
 }
 
 
@@ -813,7 +825,7 @@ def is_car_entity(entity_id: str) -> bool:
     """The charger plug and its helpers only change through /api/car/mode, so
     the generic home controls can't fight the charging rules."""
     name = entity_id.partition(".")[2]
-    return name.startswith("car_charger") or name.startswith("car_charging")
+    return name.startswith(("car_charger", "car_charging", "car_overnight", "car_charge_limit"))
 
 
 def car_status(config: dict[str, str]) -> dict[str, Any]:
@@ -839,7 +851,28 @@ def car_status(config: dict[str, str]) -> dict[str, Any]:
         "spareKw": number(states["spare"].get("state")),
         "reason": known_state(states["reason"]),
         "retryAfter": datetime.fromtimestamp(retry, timezone.utc).isoformat() if retry and retry > time.time() else None,
+        "batteryPct": number(states["battery"].get("state")),
+        "batteryUpdatedAt": states["battery"].get("last_changed") if number(states["battery"].get("state")) is not None else None,
+        "rangeKm": number(states["range"].get("state")),
+        "pluggedIn": on_off(states["pluggedIn"]),
+        "overnightActive": on_off(states["overnightActive"]) is True,
+        "settings": {key: number((by_id.get(entity) or {}).get("state")) for key, (entity, _, _) in CAR_SETTINGS.items()},
     }
+
+
+def car_settings(body: dict[str, Any]) -> dict[str, int]:
+    """Only the known numbers, as whole multiples of 5 inside each one's range."""
+    changes = {}
+    for key, value in body.items():
+        if key not in CAR_SETTINGS:
+            raise ValueError("That car setting is not allowed")
+        _, low, high = CAR_SETTINGS[key]
+        if type(value) is not int or not low <= value <= high or value % 5:
+            raise ValueError(f"{key} must be a multiple of 5 from {low} to {high}")
+        changes[key] = value
+    if not changes:
+        raise ValueError("Nothing to change")
+    return changes
 
 
 def car_mode(body: dict[str, Any]) -> str:
@@ -1249,6 +1282,21 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         except Exception as error:
             self.home_assistant_error(error)
 
+    def post_car_settings(self) -> None:
+        config = load_config()
+        if not config:
+            self.send_json(409, {"error": "Home Assistant is not connected"})
+            return
+        try:
+            changes = car_settings(self.read_json())
+            for key, value in changes.items():
+                home_assistant_request(config, "/api/services/input_number/set_value", {"entity_id": CAR_SETTINGS[key][0], "value": value})
+            self.send_json(200, {"ok": True, "settings": changes})
+        except ValueError as error:
+            self.send_json(400, {"error": str(error)})
+        except Exception as error:
+            self.home_assistant_error(error)
+
     def get_sun(self, query: str) -> None:
         config = load_config()
         if not config:
@@ -1474,6 +1522,7 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         "/api/retic/stop": post_retic_stop,
         "/api/retic/enabled": post_retic_enabled,
         "/api/car/mode": post_car_mode,
+        "/api/car/settings": post_car_settings,
         "/api/voice/listen": post_voice_listen,
         "/api/voice/cancel": post_voice_cancel,
         "/api/voice/training/start": post_voice_training_start,

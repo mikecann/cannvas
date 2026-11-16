@@ -17,7 +17,24 @@ export type CarStatus = {
   spareKw?: number | null;
   reason?: string | null;
   retryAfter?: string | null;
+  /** From the BYD app's cloud, polled every 10 minutes, so it lags a little. */
+  batteryPct?: number | null;
+  batteryUpdatedAt?: string | null;
+  rangeKm?: number | null;
+  pluggedIn?: boolean | null;
+  overnightActive?: boolean;
+  settings?: Partial<Record<CarSettingKey, number | null>>;
 };
+
+export type CarSettingKey = "chargeLimit" | "overnightBelow" | "overnightTarget";
+
+/** Matches CAR_SETTINGS in deploy/cannvas-server and the input_numbers in car_charging.yaml. */
+export const CAR_SETTING_RANGES: Record<CarSettingKey, { min: number; max: number }> = {
+  chargeLimit: { min: 50, max: 100 },
+  overnightBelow: { min: 0, max: 90 },
+  overnightTarget: { min: 10, max: 100 },
+};
+export const CAR_SETTING_STEP = 5;
 
 export type CarState =
   | { kind: "loading" }
@@ -40,11 +57,19 @@ export function carHeadline(car: CarStatus): { title: string; detail: string | n
   if (charging) {
     return {
       title: `Charging at ${formatKw(car.powerKw)}`,
-      detail: car.mode === "now" ? "Charging now, sun or not. Goes back to sun only when the car's full." : "From sun that would otherwise go unused.",
+      detail: car.overnightActive
+        ? car.reason ?? "Topping up overnight."
+        : car.mode === "now" ? "Charging now, sun or not. Goes back to sun only when the car's full." : "From sun that would otherwise go unused.",
       charging,
     };
   }
-  if (car.plugOn) return { title: "Ready, but the car isn't charging", detail: "It's full, or not plugged in.", charging };
+  if (car.plugOn) {
+    return {
+      title: "Ready, but the car isn't charging",
+      detail: car.pluggedIn === false ? "The car isn't plugged in." : "It's full, or not plugged in.",
+      charging,
+    };
+  }
   if (car.mode === "off") return { title: "Off", detail: car.reason && car.reason !== "Switched off" ? car.reason : null, charging };
   const retry = car.retryAfter ? new Date(car.retryAfter).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" }) : null;
   return {
@@ -54,7 +79,7 @@ export function carHeadline(car: CarStatus): { title: string; detail: string | n
   };
 }
 
-export function useCar(intervalMs: number) {
+export function useCar(intervalMs: number, { enabled = true }: { enabled?: boolean } = {}) {
   const [state, setState] = useState<CarState>({ kind: "loading" });
   const lastSuccess = useRef(0);
 
@@ -70,7 +95,7 @@ export function useCar(intervalMs: number) {
         ? current
         : { kind: "error", message });
     }
-  }, intervalMs);
+  }, intervalMs, { enabled });
 
   return { state, refresh };
 }

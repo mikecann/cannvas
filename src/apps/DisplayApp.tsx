@@ -5,6 +5,7 @@ import { FLOW_THRESHOLD_KW, formatKw, isSolarFresh } from "../lib/solar";
 import { classifySwipe, type Swipe } from "../lib/swipe";
 import { useMinuteClock } from "../lib/useMinuteClock";
 import { useSolar } from "../lib/useSolar";
+import { CarHomeWidget } from "./CarApp";
 import { CalendarHomeWidget } from "./display/CalendarHomeWidget";
 import { FilmingBanner } from "./display/FilmingBanner";
 import { IdleVideo, type IdleVideoHandle } from "./display/IdleVideo";
@@ -23,6 +24,7 @@ export function DisplayApp({
   onOpenCalendar,
   onOpenWeather,
   onOpenSolar,
+  onOpenCar,
 }: {
   displaySession: number;
   onActivity: () => void;
@@ -30,6 +32,7 @@ export function DisplayApp({
   onOpenCalendar: () => void;
   onOpenWeather: () => void;
   onOpenSolar: () => void;
+  onOpenCar: () => void;
 }) {
   const [videoAudio, setVideoAudio] = useState(() => ({ session: displaySession, muted: true }));
   const [videoPlayable, setVideoPlayable] = useState(false);
@@ -72,7 +75,11 @@ export function DisplayApp({
 
       <div className="display-widgets">
         <LightsHomeWidget onActivity={onActivity} />
-        <SolarHomeWidget onOpen={onOpenSolar} />
+        {/* Solar and car readouts sit in one row above the weather. */}
+        <div className="power-home-widgets">
+          <SolarHomeWidget onOpen={onOpenSolar} />
+          <CarHomeWidget onOpen={onOpenCar} />
+        </div>
         <WeatherWidget onOpen={onOpenWeather} />
         <NewsWidget />
         {videoPlayable && (

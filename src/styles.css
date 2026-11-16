@@ -996,6 +996,31 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .solar-potential strong { font: 700 1.3rem "Fraunces", serif; }
 .solar-potential span { color: var(--muted); font-size: .9rem; font-weight: 600; line-height: 1.4; }
 
+.car-app { height: 100%; padding: 36px 34px 22px; display: flex; flex-direction: column; gap: 18px; overflow-y: auto; background: var(--cream); }
+.car-app > h1 { font-size: 2.75rem; }
+.car-message { padding: 60px; border-radius: 28px; background: var(--paper); color: var(--muted); font-weight: 700; text-align: center; box-shadow: var(--shadow); }
+.car-battery { padding: 26px 28px; display: flex; flex-direction: column; gap: 14px; border: 1px solid #e2dbd0; border-radius: 26px; background: var(--paper); box-shadow: 0 8px 22px rgba(64,53,38,.06); }
+.car-battery-figures { display: flex; align-items: baseline; gap: 18px; }
+.car-battery-figures strong { font: 700 5rem/1 "Fraunces", serif; letter-spacing: -.04em; }
+.car-battery-figures span { color: var(--muted); font-size: 1.4rem; font-weight: 700; }
+.car-battery-bar { position: relative; height: 26px; border-radius: 13px; background: #f1ece4; overflow: hidden; }
+.car-battery-bar .fill { position: absolute; inset: 0 auto 0 0; border-radius: 13px; background: var(--green); }
+/* Where sun charging stops. */
+.car-battery-bar .limit { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1.5px; background: var(--ink); opacity: .35; }
+.car-battery small { color: var(--muted); font-size: .85rem; font-weight: 700; }
+.car-settings { padding: 8px 22px 18px; display: flex; flex-direction: column; border: 1px solid #e2dbd0; border-radius: 22px; background: var(--paper); box-shadow: 0 8px 22px rgba(64,53,38,.06); }
+.car-setting { min-height: 84px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid #efe9df; }
+.car-setting > span { font-size: 1.15rem; font-weight: 700; }
+.car-stepper { display: flex; align-items: center; gap: 10px; }
+.car-stepper button { width: 64px; height: 64px; display: grid; place-items: center; border: 0; border-radius: 18px; color: var(--ink); background: #f1ece4; cursor: pointer; }
+.car-stepper button svg { width: 24px; height: 24px; }
+.car-stepper button:disabled { opacity: .4; cursor: default; }
+.car-stepper button:active:not(:disabled) { transform: scale(.95); }
+.car-stepper strong { min-width: 110px; display: flex; align-items: center; justify-content: center; gap: 6px; font: 700 1.8rem "Fraunces", serif; }
+.car-stepper strong svg { width: 20px; height: 20px; }
+.car-settings > small { padding-top: 14px; color: var(--muted); font-size: .85rem; font-weight: 600; }
+.car-settings > small.error { color: #9c3522; }
+
 /* Car charging, under the spare-sun card: what the garage plug is doing and its mode. */
 .car-charging { flex: 0 0 auto; padding: 14px 16px 14px 20px; display: flex; align-items: center; gap: 16px; border: 1px solid #e2dbd0; border-radius: 22px; background: var(--paper); box-shadow: 0 8px 22px rgba(64,53,38,.06); }
 .car-charging.is-charging { border-color: #b9e2cf; background: #eefaf3; }
@@ -1015,7 +1040,10 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .car-charging-modes button:disabled:not(.is-selected) { opacity: .55; }
 .car-charging-modes button:active:not(:disabled) { transform: scale(.97); }
 
-.solar-home-widget { position: absolute; left: 4px; bottom: 100%; margin-bottom: 2px; min-height: 52px; padding: 0 4px; display: flex; align-items: center; gap: 18px; border: 0; color: rgba(255,255,255,.82); background: none; font: 700 1.05rem "DM Sans", sans-serif; text-shadow: 0 1px 3px rgba(0,0,0,.7); white-space: nowrap; cursor: pointer; }
+/* The solar and car readouts share one row, so the car sits right after the grid figure. */
+.power-home-widgets { position: absolute; left: 4px; bottom: 100%; margin-bottom: 2px; display: flex; align-items: center; gap: 18px; }
+.car-home-widget.charging svg { color: #75d3b6; }
+.solar-home-widget { min-height: 52px; padding: 0 4px; display: flex; align-items: center; gap: 18px; border: 0; color: rgba(255,255,255,.82); background: none; font: 700 1.05rem "DM Sans", sans-serif; text-shadow: 0 1px 3px rgba(0,0,0,.7); white-space: nowrap; cursor: pointer; }
 .solar-home-widget span { display: flex; align-items: center; gap: 7px; }
 .solar-home-widget svg { width: 19px; height: 19px; filter: drop-shadow(0 1px 2px rgba(0,0,0,.6)); }
 .solar-home-widget .solar svg { color: #ffc84d; }

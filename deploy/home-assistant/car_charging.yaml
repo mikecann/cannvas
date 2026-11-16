@@ -11,6 +11,13 @@
 #   now   - charge regardless, then go back to solar once the car stops drawing
 #   off   - leave the plug off
 #
+# The car's battery % comes from the BYD Vehicle integration
+# (sensor.byd_atto_3_battery_level, polled every 10 min through a second BYD
+# account the car is shared with). With it, sun charging stops at a limit, and
+# on a low evening the car is topped up overnight from the grid. All three
+# numbers are set from the Cannvas car card. If the battery reading is missing,
+# the rules carry on as if there were no limit.
+#
 # Source of truth is cannvas deploy/home-assistant/car_charging.yaml. Copy it to
 # /config/packages on the HA Pi after edits (`ssh ha`), then reload automations,
 # input helpers and template entities (or restart Home Assistant).
@@ -21,6 +28,36 @@ input_select:
     # No `initial`, so the mode survives a Home Assistant restart.
     options: [solar, now, "off"]
     icon: mdi:car-electric
+
+# No `initial` on these, so values set from Cannvas survive a restart. Their
+# first values (80, 30, 50) were set once by hand after installing.
+input_number:
+  car_charge_limit:
+    name: Car sun charging limit
+    min: 50
+    max: 100
+    step: 5
+    unit_of_measurement: "%"
+    mode: box
+  car_overnight_below:
+    name: Car overnight top-up when below
+    min: 0
+    max: 90
+    step: 5
+    unit_of_measurement: "%"
+    mode: box
+  car_overnight_target:
+    name: Car overnight top-up to
+    min: 10
+    max: 100
+    step: 5
+    unit_of_measurement: "%"
+    mode: box
+
+input_boolean:
+  # On while an overnight top-up is running, so the sun rules leave it alone.
+  car_overnight_active:
+    name: Car overnight top-up running
 
 input_datetime:
   # After a pause for lack of sun, wait a while before trying again so a cloudy
@@ -122,6 +159,14 @@ automation:
       - condition: numeric_state
         entity_id: sensor.solis_grid_import_power
         below: 0.3
+      - condition: state
+        entity_id: input_boolean.car_overnight_active
+        state: "off"
+      # Under the limit, or no reading from the car.
+      - condition: template
+        value_template: >
+          {% set battery = states('sensor.byd_atto_3_battery_level') %}
+          {{ not is_number(battery) or battery | float < states('input_number.car_charge_limit') | float(100) }}
     actions:
       - action: switch.turn_on
         target: { entity_id: switch.car_charger }
@@ -149,6 +194,9 @@ automation:
       - condition: state
         entity_id: switch.car_charger
         state: "on"
+      - condition: state
+        entity_id: input_boolean.car_overnight_active
+        state: "off"
       - condition: or
         conditions:
           - condition: state
@@ -169,6 +217,113 @@ automation:
           value: >
             {{ 'Waiting for tomorrow\'s sun' if is_state('sun.sun', 'below_horizon')
                else 'Paused: not enough sun' }}
+
+  - id: car_charging_reached_limit
+    alias: "Car charging: stop at the sun charging limit"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: sensor.byd_atto_3_battery_level
+      - trigger: state
+        entity_id: input_number.car_charge_limit
+    conditions:
+      - condition: state
+        entity_id: input_select.car_charging_mode
+        state: solar
+      - condition: state
+        entity_id: switch.car_charger
+        state: "on"
+      - condition: state
+        entity_id: input_boolean.car_overnight_active
+        state: "off"
+      - condition: template
+        value_template: >
+          {% set battery = states('sensor.byd_atto_3_battery_level') %}
+          {{ is_number(battery) and battery | float >= states('input_number.car_charge_limit') | float(100) }}
+    actions:
+      - action: switch.turn_off
+        target: { entity_id: switch.car_charger }
+      - action: input_text.set_value
+        target: { entity_id: input_text.car_charging_reason }
+        data: { value: "Charged to {{ states('input_number.car_charge_limit') | int }}%" }
+
+  # Checked every 10 minutes through the night, so plugging in late still counts.
+  - id: car_charging_overnight_start
+    alias: "Car charging: overnight top-up when low"
+    mode: single
+    triggers:
+      - trigger: time_pattern
+        minutes: "/10"
+    conditions:
+      - condition: time
+        after: "21:00:00"
+        before: "06:00:00"
+      - condition: state
+        entity_id: input_select.car_charging_mode
+        state: solar
+      - condition: state
+        entity_id: input_boolean.car_overnight_active
+        state: "off"
+      - condition: state
+        entity_id: binary_sensor.byd_atto_3_plug
+        state: "on"
+      - condition: template
+        value_template: >
+          {% set battery = states('sensor.byd_atto_3_battery_level') %}
+          {{ is_number(battery)
+             and battery | float < states('input_number.car_overnight_below') | float(0)
+             and battery | float < states('input_number.car_overnight_target') | float(0) }}
+    actions:
+      - action: input_boolean.turn_on
+        target: { entity_id: input_boolean.car_overnight_active }
+      - action: switch.turn_on
+        target: { entity_id: switch.car_charger }
+      - action: input_text.set_value
+        target: { entity_id: input_text.car_charging_reason }
+        data: { value: "Topping up overnight to {{ states('input_number.car_overnight_target') | int }}%" }
+
+  - id: car_charging_overnight_stop
+    alias: "Car charging: overnight top-up done"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: sensor.byd_atto_3_battery_level
+      - trigger: state
+        entity_id: input_number.car_overnight_target
+      # Morning: hand back to the sun rules, which start again if there's sun.
+      - trigger: time
+        at: "07:00:00"
+        id: morning
+      # Someone picked another mode while it was running.
+      - trigger: state
+        entity_id: input_select.car_charging_mode
+        id: mode
+    conditions:
+      - condition: state
+        entity_id: input_boolean.car_overnight_active
+        state: "on"
+      - condition: or
+        conditions:
+          - condition: trigger
+            id: [morning, mode]
+          - condition: template
+            value_template: >
+              {% set battery = states('sensor.byd_atto_3_battery_level') %}
+              {{ is_number(battery) and battery | float >= states('input_number.car_overnight_target') | float(0) }}
+    actions:
+      - action: input_boolean.turn_off
+        target: { entity_id: input_boolean.car_overnight_active }
+      # A mode change already set the plug the way it wants.
+      - if: "{{ trigger.id != 'mode' }}"
+        then:
+          - action: switch.turn_off
+            target: { entity_id: switch.car_charger }
+          - action: input_text.set_value
+            target: { entity_id: input_text.car_charging_reason }
+            data:
+              value: >
+                {{ 'Waiting for spare sun' if trigger.id == 'morning'
+                   else 'Topped up to ' ~ (states('input_number.car_overnight_target') | int) ~ '%' }}
 
   # "Charge now" is for one charge: once the car has been drawing nothing for a
   # while (full, or unplugged), go back to charging on sun only.
