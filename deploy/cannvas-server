@@ -790,6 +790,65 @@ def retic_zone(body: dict[str, Any]) -> str:
     return entity_id
 
 
+# Car charging. The BYD's portable charger is plugged into a TP-Link HS110 and
+# Home Assistant decides when it runs (deploy/home-assistant/car_charging.yaml).
+# The kiosk only reads the state and picks a mode; the rules stay in Home
+# Assistant so charging carries on if the wall is off.
+CAR_MODE = "input_select.car_charging_mode"
+CAR_MODES = ("solar", "now", "off")
+CAR_ENTITIES = {
+    "plug": "switch.car_charger",
+    "power": "sensor.car_charger_current_consumption",
+    "current": "sensor.car_charger_current",
+    "today": "sensor.car_charger_today_s_consumption",
+    "month": "sensor.car_charger_this_month_s_consumption",
+    "mode": CAR_MODE,
+    "reason": "input_text.car_charging_reason",
+    "retryAfter": "input_datetime.car_charging_retry_after",
+    "spare": "sensor.car_charging_spare_sun",
+}
+
+
+def is_car_entity(entity_id: str) -> bool:
+    """The charger plug and its helpers only change through /api/car/mode, so
+    the generic home controls can't fight the charging rules."""
+    name = entity_id.partition(".")[2]
+    return name.startswith("car_charger") or name.startswith("car_charging")
+
+
+def car_status(config: dict[str, str]) -> dict[str, Any]:
+    by_id = {
+        entity.get("entity_id"): entity
+        for entity in home_assistant_request(config, "/api/states", timeout=SOLAR_STATES_TIMEOUT) or []
+        if isinstance(entity, dict)
+    }
+    states = {key: by_id.get(entity) or {} for key, entity in CAR_ENTITIES.items()}
+    if not states["plug"] or not states["mode"]:
+        return {"configured": False}
+    mode = known_state(states["mode"])
+    retry_attributes = states["retryAfter"].get("attributes")
+    retry = number(retry_attributes.get("timestamp")) if isinstance(retry_attributes, dict) else None
+    return {
+        "configured": True,
+        "mode": mode if mode in CAR_MODES else None,
+        "plugOn": on_off(states["plug"]),
+        "powerKw": in_kilo(states["power"]),
+        "currentA": number(states["current"].get("state")),
+        "todayKwh": number(states["today"].get("state")),
+        "monthKwh": number(states["month"].get("state")),
+        "spareKw": number(states["spare"].get("state")),
+        "reason": known_state(states["reason"]),
+        "retryAfter": datetime.fromtimestamp(retry, timezone.utc).isoformat() if retry and retry > time.time() else None,
+    }
+
+
+def car_mode(body: dict[str, Any]) -> str:
+    mode = body.get("mode")
+    if mode not in CAR_MODES:
+        raise ValueError("Choose solar, now or off")
+    return mode
+
+
 VIDEO_RETRY_SECONDS = 60
 _VIDEO_LOCK = Lock()
 _HEARTBEAT_LOCK = Lock()
@@ -1166,6 +1225,30 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         except Exception as error:
             self.home_assistant_error(error)
 
+    def get_car(self, query: str) -> None:
+        config = load_config()
+        if not config:
+            self.send_json(200, {"configured": False})
+            return
+        try:
+            self.send_json(200, car_status(config))
+        except Exception as error:  # The response deliberately avoids leaking network or token details.
+            self.home_assistant_error(error)
+
+    def post_car_mode(self) -> None:
+        config = load_config()
+        if not config:
+            self.send_json(409, {"error": "Home Assistant is not connected"})
+            return
+        try:
+            mode = car_mode(self.read_json())
+            home_assistant_request(config, "/api/services/input_select/select_option", {"entity_id": CAR_MODE, "option": mode})
+            self.send_json(200, {"ok": True, "mode": mode})
+        except ValueError as error:
+            self.send_json(400, {"error": str(error)})
+        except Exception as error:
+            self.home_assistant_error(error)
+
     def get_sun(self, query: str) -> None:
         config = load_config()
         if not config:
@@ -1339,7 +1422,7 @@ class CannvasHandler(SimpleHTTPRequestHandler):
             action = str(body.get("action", ""))
             domain = entity_id.partition(".")[0]
             allowed = domain in ALLOWED_ACTIONS.get(action, set()) or action in ENTITY_ACTIONS.get(entity_id, set())
-            if not ENTITY_ID.fullmatch(entity_id) or not allowed or is_retic_entity(entity_id):
+            if not ENTITY_ID.fullmatch(entity_id) or not allowed or is_retic_entity(entity_id) or is_car_entity(entity_id):
                 raise ValueError("That Home Assistant action is not allowed")
             payload: dict[str, Any] = {"entity_id": entity_id}
             if action == "clean_area":
@@ -1372,6 +1455,7 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         "/api/retic": get_retic,
         "/api/retic/rain": get_retic_rain,
         "/api/sun": get_sun,
+        "/api/car": get_car,
         "/api/home-assistant/status": get_home_assistant_status,
         "/api/home-assistant/entity": get_home_assistant_entity,
         "/api/vacuum/map": get_vacuum_map,
@@ -1389,6 +1473,7 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         "/api/retic/run": post_retic_run,
         "/api/retic/stop": post_retic_stop,
         "/api/retic/enabled": post_retic_enabled,
+        "/api/car/mode": post_car_mode,
         "/api/voice/listen": post_voice_listen,
         "/api/voice/cancel": post_voice_cancel,
         "/api/voice/training/start": post_voice_training_start,

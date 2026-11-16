@@ -75,6 +75,15 @@ def fake_states() -> list[dict]:
             {"at": "2026-09-30T06:00:00+08:00", "result": "exploded"},
             "not an entry",
         ]}},
+        {"entity_id": "switch.car_charger", "state": "on"},
+        {"entity_id": "sensor.car_charger_current_consumption", "state": "1712.4", "attributes": {"unit_of_measurement": "W"}},
+        {"entity_id": "sensor.car_charger_current", "state": "7.1"},
+        {"entity_id": "sensor.car_charger_today_s_consumption", "state": "4.2"},
+        {"entity_id": "sensor.car_charger_this_month_s_consumption", "state": "31.5"},
+        {"entity_id": "input_select.car_charging_mode", "state": "solar"},
+        {"entity_id": "input_text.car_charging_reason", "state": "Charging from spare sun"},
+        {"entity_id": "input_datetime.car_charging_retry_after", "state": "2026-11-16 10:00:00", "attributes": {"timestamp": 1794800000.0}},
+        {"entity_id": "sensor.car_charging_spare_sun", "state": "2.35"},
     ]
     return [FakeUpstream.state_overrides.get(str(state["entity_id"]), state) for state in states]
 
@@ -811,6 +820,67 @@ class CannvasServerTest(unittest.TestCase):
         response, _ = self.post_json("/api/retic/stop", {"entityId": "valve.somewhere_else"})
         self.assertEqual(response.status, 400)
         self.assertEqual(len(FakeUpstream.posts), 3)
+
+    def car(self) -> dict:
+        response, body = self.request("GET", "/api/car")
+        self.assertEqual(response.status, 200)
+        return json.loads(body)
+
+    def test_car_reports_the_charger(self) -> None:
+        self.connect_home_assistant()
+        self.assertEqual(self.car(), {
+            "configured": True,
+            "mode": "solar",
+            "plugOn": True,
+            "powerKw": 1.712,
+            "currentA": 7.1,
+            "todayKwh": 4.2,
+            "monthKwh": 31.5,
+            "spareKw": 2.35,
+            "reason": "Charging from spare sun",
+            # The retry time has passed, so there's nothing to wait for.
+            "retryAfter": None,
+        })
+
+    def test_car_without_the_package_is_not_configured(self) -> None:
+        self.connect_home_assistant()
+        # Swap the mode helper for an unrelated entity, as if the package was never installed.
+        FakeUpstream.state_overrides = {"input_select.car_charging_mode": {"entity_id": "sensor.unrelated", "state": "off"}}
+        self.assertEqual(self.car(), {"configured": False})
+
+    def test_car_reports_a_future_retry(self) -> None:
+        self.connect_home_assistant()
+        later = time.time() + 600
+        self.override_states({"entity_id": "input_datetime.car_charging_retry_after", "state": "x", "attributes": {"timestamp": later}})
+        self.assertIsNotNone(self.car()["retryAfter"])
+
+    def test_car_mode_sets_the_input_select(self) -> None:
+        self.connect_home_assistant()
+        for mode in ("now", "off", "solar"):
+            response, _ = self.post_json("/api/car/mode", {"mode": mode})
+            self.assertEqual(response.status, 200)
+        self.assertEqual(FakeUpstream.posts, [
+            ("/api/services/input_select/select_option", {"entity_id": "input_select.car_charging_mode", "option": mode})
+            for mode in ("now", "off", "solar")
+        ])
+
+    def test_car_mode_rejects_anything_else(self) -> None:
+        self.connect_home_assistant()
+        for body in ({"mode": "fast"}, {"mode": None}, {}):
+            response, _ = self.post_json("/api/car/mode", body)
+            self.assertEqual(response.status, 400)
+        self.assertEqual(FakeUpstream.posts, [])
+
+    def test_generic_actions_cannot_reach_the_car_charger(self) -> None:
+        self.connect_home_assistant()
+        for entity_id, action in (
+            ("switch.car_charger", "turn_on"),
+            ("switch.car_charger", "turn_off"),
+            ("switch.car_charger_led", "turn_off"),
+        ):
+            response, _ = self.action(entity_id, action)
+            self.assertEqual(response.status, 400, (entity_id, action))
+        self.assertEqual(FakeUpstream.posts, [])
 
     def test_generic_actions_cannot_reach_retic(self) -> None:
         self.connect_home_assistant()
