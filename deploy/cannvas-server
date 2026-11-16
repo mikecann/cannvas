@@ -402,24 +402,20 @@ SOLAR_STATES_TIMEOUT = 5
 SOLAR_HISTORY_TIMEOUT = 6
 
 
-def solar_history(config: dict[str, str], start: datetime, end: datetime) -> dict[str, Points]:
-    ids = [SOLAR_ENTITIES[key] for key in SOLAR_HISTORY]
+def entity_history(config: dict[str, str], entity_ids: list[str], start: datetime, end: datetime, timeout: float = SOLAR_HISTORY_TIMEOUT) -> dict[str, Points]:
+    """Each entity's change points between start and end, keyed by entity id."""
     query = urlencode({
-        "filter_entity_id": ",".join(ids),
+        "filter_entity_id": ",".join(entity_ids),
         "end_time": end.isoformat(),
         "minimal_response": "",
         "no_attributes": "",
     })
-    result = home_assistant_request(config, f"/api/history/period/{start.isoformat()}?{query}", timeout=SOLAR_HISTORY_TIMEOUT)
-    keys = {entity: key for key, entity in SOLAR_ENTITIES.items()}
+    result = home_assistant_request(config, f"/api/history/period/{start.isoformat()}?{query}", timeout=timeout)
     points: dict[str, Points] = {}
     for rows in result or []:
-        if not rows:
+        if not rows or rows[0].get("entity_id") not in entity_ids:
             continue
-        key = keys.get(rows[0].get("entity_id", ""))
-        if not key:
-            continue
-        series = points.setdefault(key, [])
+        series = points.setdefault(rows[0]["entity_id"], [])
         for row in rows:
             value = number(row.get("state", row.get("s")))
             stamp = row.get("last_changed") or row.get("lc") or row.get("last_updated") or row.get("lu")
@@ -428,6 +424,11 @@ def solar_history(config: dict[str, str], start: datetime, end: datetime) -> dic
             seconds = float(stamp) if isinstance(stamp, (int, float)) else parse_time(stamp).timestamp()
             series.append((seconds, value))
     return points
+
+
+def solar_history(config: dict[str, str], start: datetime, end: datetime) -> dict[str, Points]:
+    by_entity = entity_history(config, [SOLAR_ENTITIES[key] for key in SOLAR_HISTORY], start, end)
+    return {key: by_entity[entity] for key, entity in SOLAR_ENTITIES.items() if entity in by_entity}
 
 
 def refresh_solar_history(config: dict[str, str], now: datetime) -> dict[str, Points]:
@@ -814,6 +815,14 @@ CAR_ENTITIES = {
     "overnightActive": "input_boolean.car_overnight_active",
     "minimumActive": "input_boolean.car_minimum_active",
     "boostTarget": CAR_BOOST_TARGET,
+    # The car's own view while it charges: power into the pack (W, negative
+    # while driving) and its "HH:MM to full" countdown.
+    "batteryPower": "sensor.byd_atto_3_battery_power",
+    "remaining": "sensor.byd_atto_3_charge_remaining_time",
+    "carCharging": "binary_sensor.byd_atto_3_charging",
+    # When the BYD cloud last answered. The battery's last_changed only moves
+    # when the whole-number % does, so it can look an hour old when it isn't.
+    "telemetryAt": "sensor.byd_atto_3_telemetry_last_updated",
 }
 # The numbers set from the car card: key -> (entity, min, max). All step by 5,
 # matching the input_numbers in car_charging.yaml.
@@ -862,6 +871,10 @@ def car_status(config: dict[str, str]) -> dict[str, Any]:
         "overnightActive": on_off(states["overnightActive"]) is True,
         "minimumActive": on_off(states["minimumActive"]) is True,
         "boostTarget": number(states["boostTarget"].get("state")),
+        "batteryKw": in_kilo(states["batteryPower"]),
+        "fullInMinutes": hours_minutes(known_state(states["remaining"])) if on_off(states["carCharging"]) else None,
+        "carCharging": on_off(states["carCharging"]),
+        "telemetryAt": known_state(states["telemetryAt"]),
         "settings": {key: number((by_id.get(entity) or {}).get("state")) for key, (entity, _, _) in CAR_SETTINGS.items()},
     }
 
@@ -892,6 +905,111 @@ def car_mode(body: dict[str, Any]) -> tuple[str, int | None]:
     if type(target) is not int or not 10 <= target <= 100 or target % 5:
         raise ValueError("Boost to a multiple of 5 from 10 to 100")
     return mode, target
+
+
+def hours_minutes(value: str | None) -> int | None:
+    """The BYD's "25:51" (hours:minutes to full) in minutes."""
+    match = re.fullmatch(r"(\d{1,3}):([0-5]\d)", value or "")
+    return int(match[1]) * 60 + int(match[2]) if match else None
+
+
+# The car page's graphs: the battery over the last day, and how much went into
+# the car each day this week, split into sun and grid. The plug's power sensor
+# updates every ~20 s while charging, so past days are worked out once and kept.
+CAR_HISTORY_DAYS = 7
+CAR_CHART_SPAN = timedelta(hours=24)
+CAR_CHART_STEP = timedelta(minutes=10)
+CAR_HISTORY_TTL = 300
+# A first fetch covers the whole week, which takes HA a few seconds.
+CAR_HISTORY_TIMEOUT = 30
+_CAR_HISTORY_LOCK = Lock()
+_CAR_HISTORY_CACHE: dict[str, Any] = {"url": None, "days": {}, "result": None, "fetched_at": 0.0}
+
+
+def split_car_power(car: Points, grid: Points) -> tuple[Points, Points]:
+    """The car's draw in kW at every change point, as (sun, grid).
+
+    The inverter is export-limited, so the meter can't say where the car's
+    power came from. Treat the car as the last thing switched on: any grid
+    import up to the car's own draw is the car's, the rest of its draw is sun.
+    With no grid reading (the logger sleeps at night) it all counts as grid.
+    """
+    stamps = sorted({stamp for stamp, _ in car} | {stamp for stamp, _ in grid})
+    sun: Points = []
+    from_grid: Points = []
+    car_index = grid_index = 0
+    car_kw = grid_kw = None
+    for stamp in stamps:
+        while car_index < len(car) and car[car_index][0] <= stamp:
+            car_kw = car[car_index][1]
+            car_index += 1
+        while grid_index < len(grid) and grid[grid_index][0] <= stamp:
+            grid_kw = grid[grid_index][1]
+            grid_index += 1
+        if car_kw is None:
+            sun.append((stamp, None))
+            from_grid.append((stamp, None))
+            continue
+        draw = max(0.0, car_kw)
+        # Grid power is positive when exporting, so import is the negative side.
+        imported = draw if grid_kw is None else min(draw, max(0.0, -grid_kw))
+        sun.append((stamp, draw - imported))
+        from_grid.append((stamp, imported))
+    return sun, from_grid
+
+
+def car_day_energy(sun: Points, from_grid: Points, start: float, end: float) -> dict[str, float] | None:
+    """kWh from each source over one day, or None when the plug has no history that far back."""
+    if not any(value is not None and stamp < end for stamp, value in sun):
+        return None
+    return {"sunKwh": round(integrate_kwh(sun, start, end), 2), "gridKwh": round(integrate_kwh(from_grid, start, end), 2)}
+
+
+def car_history(config: dict[str, str]) -> dict[str, Any]:
+    with _CAR_HISTORY_LOCK:
+        cache = dict(_CAR_HISTORY_CACHE)
+    if cache["url"] == config["url"] and cache["result"] and time.monotonic() - cache["fetched_at"] < CAR_HISTORY_TTL:
+        return cache["result"]
+    known_days: dict[str, Any] = cache["days"] if cache["url"] == config["url"] else {}
+
+    now = datetime.now(timezone.utc)
+    today = now.astimezone(SOLAR_ZONE).date()
+    days = [today - timedelta(days=back) for back in range(CAR_HISTORY_DAYS - 1, -1, -1)]
+    midnight = {day: datetime.combine(day, datetime.min.time(), SOLAR_ZONE) for day in days}
+    chart_start = datetime.fromtimestamp((now - CAR_CHART_SPAN).timestamp() // CAR_CHART_STEP.total_seconds() * CAR_CHART_STEP.total_seconds(), timezone.utc)
+    # Only reach back as far as the oldest day not worked out yet.
+    missing = [day for day in days[:-1] if day.isoformat() not in known_days]
+    start = min(chart_start, midnight[missing[0]] if missing else midnight[today])
+
+    power, grid, battery = CAR_ENTITIES["power"], SOLAR_ENTITIES["grid"], CAR_ENTITIES["battery"]
+    points = entity_history(config, [power, grid, battery], start, now, timeout=CAR_HISTORY_TIMEOUT)
+    # The plug reports W.
+    car_kw = [(stamp, value / 1000 if value is not None else None) for stamp, value in points.get(power, [])]
+    sun, from_grid = split_car_power(car_kw, points.get(grid, []))
+
+    fresh_days = dict(known_days)
+    for day in missing:
+        end = midnight[day] + timedelta(days=1)
+        fresh_days[day.isoformat()] = car_day_energy(sun, from_grid, midnight[day].timestamp(), end.timestamp())
+    # Keep just this week's days.
+    fresh_days = {key: fresh_days[key] for key in (day.isoformat() for day in days[:-1]) if key in fresh_days}
+    today_energy = car_day_energy(sun, from_grid, midnight[today].timestamp(), now.timestamp())
+
+    step = CAR_CHART_STEP.total_seconds()
+    result = {
+        "configured": True,
+        "start": chart_start.isoformat(),
+        "end": now.isoformat(),
+        "stepMinutes": int(step // 60),
+        "sunKw": bucket_averages(sun, chart_start.timestamp(), now.timestamp(), step),
+        "gridKw": bucket_averages(from_grid, chart_start.timestamp(), now.timestamp(), step),
+        # Every BYD reading, as [ms, %], from the one in force at the chart's start.
+        "battery": [[int(stamp * 1000), value] for stamp, value in points.get(battery, [])],
+        "days": [{"date": day.isoformat(), **((fresh_days.get(day.isoformat()) if day != today else today_energy) or {"sunKwh": None, "gridKwh": None})} for day in days],
+    }
+    with _CAR_HISTORY_LOCK:
+        _CAR_HISTORY_CACHE.update(url=config["url"], days=fresh_days, result=result, fetched_at=time.monotonic())
+    return result
 
 
 VIDEO_RETRY_SECONDS = 60
@@ -1280,6 +1398,16 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         except Exception as error:  # The response deliberately avoids leaking network or token details.
             self.home_assistant_error(error)
 
+    def get_car_history(self, query: str) -> None:
+        config = load_config()
+        if not config:
+            self.send_json(200, {"configured": False})
+            return
+        try:
+            self.send_json(200, car_history(config))
+        except Exception as error:  # The response deliberately avoids leaking network or token details.
+            self.home_assistant_error(error)
+
     def post_car_mode(self) -> None:
         config = load_config()
         if not config:
@@ -1519,6 +1647,7 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         "/api/retic/rain": get_retic_rain,
         "/api/sun": get_sun,
         "/api/car": get_car,
+        "/api/car/history": get_car_history,
         "/api/home-assistant/status": get_home_assistant_status,
         "/api/home-assistant/entity": get_home_assistant_entity,
         "/api/vacuum/map": get_vacuum_map,

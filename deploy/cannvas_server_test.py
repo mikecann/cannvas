@@ -94,6 +94,9 @@ def fake_states() -> list[dict]:
         {"entity_id": "input_number.car_day_minimum", "state": "50.0"},
         {"entity_id": "input_number.car_boost_target", "state": "80.0"},
         {"entity_id": "input_boolean.car_minimum_active", "state": "on"},
+        {"entity_id": "sensor.byd_atto_3_battery_power", "state": "unavailable"},
+        {"entity_id": "sensor.byd_atto_3_charge_remaining_time", "state": "unavailable"},
+        {"entity_id": "binary_sensor.byd_atto_3_charging", "state": "unavailable"},
     ]
     return [FakeUpstream.state_overrides.get(str(state["entity_id"]), state) for state in states]
 
@@ -857,8 +860,45 @@ class CannvasServerTest(unittest.TestCase):
             "overnightActive": False,
             "minimumActive": True,
             "boostTarget": 80.0,
+            "batteryKw": None,
+            "fullInMinutes": None,
+            "carCharging": None,
+            "telemetryAt": None,
             "settings": {"chargeLimit": 80.0, "overnightBelow": 30.0, "overnightTarget": 50.0, "dayMinimum": 50.0},
         })
+
+    def test_car_reads_the_cars_own_countdown_only_while_it_charges(self) -> None:
+        self.connect_home_assistant()
+        self.override_states(
+            {"entity_id": "sensor.byd_atto_3_battery_power", "state": "1452.5", "attributes": {"unit_of_measurement": "W"}},
+            {"entity_id": "sensor.byd_atto_3_charge_remaining_time", "state": "25:51"},
+            {"entity_id": "binary_sensor.byd_atto_3_charging", "state": "on"},
+        )
+        car = self.car()
+        self.assertEqual((car["batteryKw"], car["fullInMinutes"], car["carCharging"]), (1.452, 1551, True))
+        self.override_states({"entity_id": "binary_sensor.byd_atto_3_charging", "state": "off"})
+        self.assertIsNone(self.car()["fullInMinutes"])
+
+    def test_car_history_without_any_history(self) -> None:
+        self.connect_home_assistant()
+        self.module._CAR_HISTORY_CACHE.update(url=None, days={}, result=None, fetched_at=0.0)
+        response, body = self.request("GET", "/api/car/history")
+        self.assertEqual(response.status, 200)
+        history = json.loads(body)
+        self.assertEqual(len(history["days"]), 7)
+        self.assertTrue(all(day["sunKwh"] is None for day in history["days"]))
+        self.assertEqual(history["battery"], [])
+        self.assertEqual(len(history["sunKw"]), 24 * 6 + 1)
+
+    def test_car_power_counts_grid_import_first(self) -> None:
+        car = [(0.0, 1.8), (3600.0, 0.0)]
+        # Importing 0.5 kW for the first half hour, then exporting, then the logger drops out.
+        grid = [(0.0, -0.5), (1800.0, 0.2), (2700.0, None)]
+        sun, from_grid = self.module.split_car_power(car, grid)
+        self.assertEqual(sun, [(0.0, 1.3), (1800.0, 1.8), (2700.0, 0.0), (3600.0, 0.0)])
+        self.assertEqual(from_grid, [(0.0, 0.5), (1800.0, 0.0), (2700.0, 1.8), (3600.0, 0.0)])
+        self.assertEqual(self.module.car_day_energy(sun, from_grid, 0.0, 3600.0), {"sunKwh": 1.1, "gridKwh": 0.7})
+        self.assertIsNone(self.module.car_day_energy(sun, from_grid, -86400.0, -1.0))
 
     def test_car_without_a_battery_reading(self) -> None:
         self.connect_home_assistant()
