@@ -795,7 +795,8 @@ def retic_zone(body: dict[str, Any]) -> str:
 # The kiosk only reads the state and picks a mode; the rules stay in Home
 # Assistant so charging carries on if the wall is off.
 CAR_MODE = "input_select.car_charging_mode"
-CAR_MODES = ("solar", "now", "off")
+CAR_MODES = ("solar", "boost", "off")
+CAR_BOOST_TARGET = "input_number.car_boost_target"
 CAR_ENTITIES = {
     "plug": "switch.car_charger",
     "power": "sensor.car_charger_current_consumption",
@@ -811,6 +812,8 @@ CAR_ENTITIES = {
     "range": "sensor.byd_atto_3_range",
     "pluggedIn": "binary_sensor.byd_atto_3_plug",
     "overnightActive": "input_boolean.car_overnight_active",
+    "minimumActive": "input_boolean.car_minimum_active",
+    "boostTarget": CAR_BOOST_TARGET,
 }
 # The numbers set from the car card: key -> (entity, min, max). All step by 5,
 # matching the input_numbers in car_charging.yaml.
@@ -818,6 +821,7 @@ CAR_SETTINGS = {
     "chargeLimit": ("input_number.car_charge_limit", 50, 100),
     "overnightBelow": ("input_number.car_overnight_below", 0, 90),
     "overnightTarget": ("input_number.car_overnight_target", 10, 100),
+    "dayMinimum": ("input_number.car_day_minimum", 0, 90),
 }
 
 
@@ -825,7 +829,7 @@ def is_car_entity(entity_id: str) -> bool:
     """The charger plug and its helpers only change through /api/car/mode, so
     the generic home controls can't fight the charging rules."""
     name = entity_id.partition(".")[2]
-    return name.startswith(("car_charger", "car_charging", "car_overnight", "car_charge_limit"))
+    return name.startswith(("car_charger", "car_charging", "car_overnight", "car_charge_limit", "car_minimum", "car_day_minimum", "car_boost"))
 
 
 def car_status(config: dict[str, str]) -> dict[str, Any]:
@@ -856,6 +860,8 @@ def car_status(config: dict[str, str]) -> dict[str, Any]:
         "rangeKm": number(states["range"].get("state")),
         "pluggedIn": on_off(states["pluggedIn"]),
         "overnightActive": on_off(states["overnightActive"]) is True,
+        "minimumActive": on_off(states["minimumActive"]) is True,
+        "boostTarget": number(states["boostTarget"].get("state")),
         "settings": {key: number((by_id.get(entity) or {}).get("state")) for key, (entity, _, _) in CAR_SETTINGS.items()},
     }
 
@@ -875,11 +881,17 @@ def car_settings(body: dict[str, Any]) -> dict[str, int]:
     return changes
 
 
-def car_mode(body: dict[str, Any]) -> str:
+def car_mode(body: dict[str, Any]) -> tuple[str, int | None]:
+    """The mode, plus the % to charge to for a boost."""
     mode = body.get("mode")
     if mode not in CAR_MODES:
-        raise ValueError("Choose solar, now or off")
-    return mode
+        raise ValueError("Choose solar, boost or off")
+    target = body.get("target")
+    if mode != "boost":
+        return mode, None
+    if type(target) is not int or not 10 <= target <= 100 or target % 5:
+        raise ValueError("Boost to a multiple of 5 from 10 to 100")
+    return mode, target
 
 
 VIDEO_RETRY_SECONDS = 60
@@ -1274,7 +1286,10 @@ class CannvasHandler(SimpleHTTPRequestHandler):
             self.send_json(409, {"error": "Home Assistant is not connected"})
             return
         try:
-            mode = car_mode(self.read_json())
+            mode, target = car_mode(self.read_json())
+            # The target goes first, so the boost rules read the new one.
+            if target is not None:
+                home_assistant_request(config, "/api/services/input_number/set_value", {"entity_id": CAR_BOOST_TARGET, "value": target})
             home_assistant_request(config, "/api/services/input_select/select_option", {"entity_id": CAR_MODE, "option": mode})
             self.send_json(200, {"ok": True, "mode": mode})
         except ValueError as error:
