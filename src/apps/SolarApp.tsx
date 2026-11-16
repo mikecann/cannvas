@@ -1,5 +1,7 @@
-import { Home, PlugZap, Sun, UtilityPole } from "lucide-react";
-import { type ReactNode, useMemo } from "react";
+import { Car, Home, LoaderCircle, PlugZap, Power, Sun, UtilityPole, Zap } from "lucide-react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { CAR_MODES, type CarMode, carHeadline, useCar } from "../lib/car";
+import { errorText, readJsonResponse } from "../lib/http";
 import { FLOW_THRESHOLD_KW, formatKw, formatKwh, isSolarFresh, type SolarStatus, spareSolarKw } from "../lib/solar";
 import { useSolar } from "../lib/useSolar";
 
@@ -25,6 +27,7 @@ export function SolarApp() {
         <>
           <PowerFlow solar={state.solar} />
           <SolarPotential solar={state.solar} />
+          <CarCharging />
           <TodayTiles solar={state.solar} />
           <DayChart solar={state.solar} />
         </>
@@ -252,6 +255,85 @@ function DayChart({ solar }: { solar: SolarStatus }) {
         <path className="solar-chart-house" d={chart.houseLine} />
         <line className="solar-chart-now" x1={chart.nowX} x2={chart.nowX} y1={CHART.top} y2={CHART.height - CHART.bottom} />
       </svg>
+    </div>
+  );
+}
+
+const CAR_MODE_ICONS: Record<CarMode, ReactNode> = { solar: <Sun />, now: <Zap />, off: <Power /> };
+// Home Assistant answers at once, but the mode only shows once the next poll reads it back.
+const CAR_PENDING_LIMIT_MS = 10_000;
+
+// The BYD charges from the garage plug. Home Assistant decides when; this picks the mode.
+function CarCharging() {
+  const { state, refresh } = useCar(5000);
+  const [pending, setPending] = useState<CarMode | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const timer = useRef<number | undefined>(undefined);
+  const car = state.kind === "ready" ? state.car : null;
+
+  useEffect(() => {
+    if (pending && car?.mode === pending) setPending(null);
+  }, [pending, car?.mode]);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+
+  if (state.kind === "loading" || (car && !car.configured)) return null;
+  if (state.kind === "error") return <div className="car-charging"><strong>{state.message}</strong></div>;
+  if (!car) return null;
+
+  async function choose(mode: CarMode) {
+    setError(null);
+    setPending(mode);
+    window.clearTimeout(timer.current);
+    try {
+      await readJsonResponse(await fetch("/api/car/mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+        signal: AbortSignal.timeout(CAR_PENDING_LIMIT_MS),
+      }), "Home Assistant didn't answer");
+      void refresh();
+      timer.current = window.setTimeout(() => {
+        setPending((current) => {
+          if (current === mode) setError("Home Assistant didn't change the charging mode. Try again.");
+          return current === mode ? null : current;
+        });
+      }, CAR_PENDING_LIMIT_MS);
+    } catch (requestError) {
+      setError(requestError instanceof DOMException ? "Home Assistant didn't answer" : errorText(requestError, "Home Assistant didn't answer"));
+      setPending(null);
+    }
+  }
+
+  const headline = carHeadline(car);
+  const selected = pending ?? car.mode;
+  const totals = [
+    car.todayKwh != null ? `${formatKwh(car.todayKwh)} today` : null,
+    car.monthKwh != null ? `${formatKwh(car.monthKwh)} this month` : null,
+  ].filter(Boolean).join(" · ");
+
+  return (
+    <div className={`car-charging${headline.charging ? " is-charging" : ""}`}>
+      <span className="car-charging-icon"><Car aria-hidden="true" /></span>
+      <div className="car-charging-text">
+        <strong>{headline.title}</strong>
+        {(error || headline.detail) && <span className={error ? "error" : undefined}>{error ?? headline.detail}</span>}
+        {totals && <small>{totals}</small>}
+      </div>
+      <div className="car-charging-modes" role="radiogroup" aria-label="Car charging">
+        {CAR_MODES.map(({ mode, label }) => (
+          <button
+            key={mode}
+            role="radio"
+            aria-checked={selected === mode}
+            className={selected === mode ? "is-selected" : undefined}
+            disabled={pending != null}
+            onClick={() => selected !== mode && void choose(mode)}
+          >
+            {pending === mode ? <LoaderCircle className="spin" aria-hidden="true" /> : CAR_MODE_ICONS[mode]}
+            {label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

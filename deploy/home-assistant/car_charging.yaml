@@ -1,0 +1,225 @@
+# Car charging: the BYD's portable charger is plugged into a TP-Link HS110
+# ("Car Charger", switch.car_charger) in the garage.
+#
+# The Solis inverter is export-limited to zero with no battery, so spare sun
+# never shows up as export: the panels just throttle down to match the house.
+# The only way to find out whether there's sun for the car is to forecast it,
+# switch the charger on, and watch whether the grid has to step in.
+#
+# Modes (input_select.car_charging_mode, set from Cannvas):
+#   solar - charge only while the sun covers it (the default)
+#   now   - charge regardless, then go back to solar once the car stops drawing
+#   off   - leave the plug off
+#
+# Source of truth is cannvas deploy/home-assistant/car_charging.yaml. Copy it to
+# /config/packages on the HA Pi after edits (`ssh ha`), then reload automations,
+# input helpers and template entities (or restart Home Assistant).
+
+input_select:
+  car_charging_mode:
+    name: Car charging mode
+    # No `initial`, so the mode survives a Home Assistant restart.
+    options: [solar, now, "off"]
+    icon: mdi:car-electric
+
+input_datetime:
+  # After a pause for lack of sun, wait a while before trying again so a cloudy
+  # day doesn't click the charger on and off every few minutes.
+  car_charging_retry_after:
+    name: Car charging retry after
+    has_date: true
+    has_time: true
+
+input_text:
+  # The last thing the controller decided, shown on Cannvas.
+  car_charging_reason:
+    name: Car charging reason
+    max: 120
+
+template:
+  - binary_sensor:
+      # On when the house (car included) has been pulling noticeably from the
+      # grid for 5 minutes. The car draws ~1.7 kW, so 0.5 kW lets it ride
+      # through a passing cloud without paying for most of the charge.
+      - name: Car charging short of sun
+        unique_id: car_charging_short_of_sun
+        state: "{{ states('sensor.solis_grid_import_power') | float(0) > 0.5 }}"
+        delay_on: "00:05:00"
+    sensor:
+      # How much more the panels could make right now than the house is using,
+      # from Forecast.Solar's model. Only a hint: clouds can make it optimistic.
+      - name: Car charging spare sun
+        unique_id: car_charging_spare_sun
+        unit_of_measurement: kW
+        device_class: power
+        state: >
+          {% set possible = states('sensor.power_production_now') | float(0) / 1000 %}
+          {% set house = states('sensor.solis_house_load_power') | float(0) %}
+          {% set car = states('sensor.car_charger_current_consumption') | float(0) / 1000 %}
+          {{ [possible - (house - car), 0] | max | round(2) }}
+
+automation:
+  - id: car_charging_mode_changed
+    alias: "Car charging: mode changed"
+    mode: queued
+    triggers:
+      - trigger: state
+        entity_id: input_select.car_charging_mode
+    actions:
+      - choose:
+          - conditions: "{{ trigger.to_state.state == 'now' }}"
+            sequence:
+              - action: switch.turn_on
+                target: { entity_id: switch.car_charger }
+              - action: input_text.set_value
+                target: { entity_id: input_text.car_charging_reason }
+                data: { value: "Charging now, sun or not" }
+          - conditions: "{{ trigger.to_state.state == 'off' }}"
+            sequence:
+              - action: switch.turn_off
+                target: { entity_id: switch.car_charger }
+              # Only for a person switching it off. The over-current rule sets
+              # its own reason, which this mustn't overwrite.
+              - if: "{{ trigger.to_state.context.parent_id is none }}"
+                then:
+                  - action: input_text.set_value
+                    target: { entity_id: input_text.car_charging_reason }
+                    data: { value: "Switched off" }
+        # solar: leave the plug as it is. If there isn't enough sun the stop
+        # rule below turns it off; switching off here first would just click
+        # the charger off and back on a couple of minutes later.
+        default:
+          - action: input_datetime.set_datetime
+            target: { entity_id: input_datetime.car_charging_retry_after }
+            data: { timestamp: "{{ now().timestamp() | int }}" }
+          - action: input_text.set_value
+            target: { entity_id: input_text.car_charging_reason }
+            data: { value: "Waiting for spare sun" }
+
+  - id: car_charging_solar_start
+    alias: "Car charging: start on spare sun"
+    mode: single
+    triggers:
+      - trigger: time_pattern
+        minutes: "/2"
+    conditions:
+      - condition: state
+        entity_id: input_select.car_charging_mode
+        state: solar
+      - condition: state
+        entity_id: switch.car_charger
+        state: "off"
+      - condition: state
+        entity_id: sun.sun
+        state: above_horizon
+      - condition: template
+        value_template: >
+          {{ now().timestamp() >= state_attr('input_datetime.car_charging_retry_after', 'timestamp') | float(0) }}
+      # Room for the car's ~1.7 kW plus a margin.
+      - condition: numeric_state
+        entity_id: sensor.car_charging_spare_sun
+        above: 2.0
+      - condition: numeric_state
+        entity_id: sensor.solis_grid_import_power
+        below: 0.3
+    actions:
+      - action: switch.turn_on
+        target: { entity_id: switch.car_charger }
+      - action: input_text.set_value
+        target: { entity_id: input_text.car_charging_reason }
+        data: { value: "Charging from spare sun" }
+
+  - id: car_charging_solar_stop
+    alias: "Car charging: stop when the sun can't cover it"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.car_charging_short_of_sun
+        to: "on"
+      - trigger: state
+        entity_id: sun.sun
+        to: below_horizon
+      # Catches a switch to solar mode while already short of sun or after dark.
+      - trigger: time_pattern
+        minutes: "/5"
+    conditions:
+      - condition: state
+        entity_id: input_select.car_charging_mode
+        state: solar
+      - condition: state
+        entity_id: switch.car_charger
+        state: "on"
+      - condition: or
+        conditions:
+          - condition: state
+            entity_id: binary_sensor.car_charging_short_of_sun
+            state: "on"
+          - condition: state
+            entity_id: sun.sun
+            state: below_horizon
+    actions:
+      - action: switch.turn_off
+        target: { entity_id: switch.car_charger }
+      - action: input_datetime.set_datetime
+        target: { entity_id: input_datetime.car_charging_retry_after }
+        data: { timestamp: "{{ (now() + timedelta(minutes=20)).timestamp() | int }}" }
+      - action: input_text.set_value
+        target: { entity_id: input_text.car_charging_reason }
+        data:
+          value: >
+            {{ 'Waiting for tomorrow\'s sun' if is_state('sun.sun', 'below_horizon')
+               else 'Paused: not enough sun' }}
+
+  # "Charge now" is for one charge: once the car has been drawing nothing for a
+  # while (full, or unplugged), go back to charging on sun only.
+  - id: car_charging_now_finished
+    alias: "Car charging: charge now finished"
+    mode: single
+    triggers:
+      - trigger: numeric_state
+        entity_id: sensor.car_charger_current_consumption
+        below: 30
+        for: "00:15:00"
+      - trigger: state
+        entity_id: input_select.car_charging_mode
+        to: now
+        for: "00:15:00"
+    conditions:
+      - condition: state
+        entity_id: input_select.car_charging_mode
+        state: now
+      - condition: numeric_state
+        entity_id: sensor.car_charger_current_consumption
+        below: 30
+    actions:
+      - action: input_select.select_option
+        target: { entity_id: input_select.car_charging_mode }
+        data: { option: solar }
+
+  # The HS110 is a 10 A plug and the car normally draws about 7 A. Anything over
+  # 9 A means something's wrong (or a different charger), so cut it.
+  - id: car_charging_overcurrent
+    alias: "Car charging: switch off over 9 A"
+    mode: single
+    triggers:
+      - trigger: numeric_state
+        entity_id: sensor.car_charger_current
+        above: 9
+        for: "00:00:20"
+    actions:
+      - action: switch.turn_off
+        target: { entity_id: switch.car_charger }
+      - action: input_select.select_option
+        target: { entity_id: input_select.car_charging_mode }
+        data: { option: "off" }
+      - action: input_text.set_value
+        target: { entity_id: input_text.car_charging_reason }
+        data: { value: "Switched off: it drew over 9 A" }
+      - action: notify.mobile_app_mikec
+        data:
+          title: Car charger switched off
+          message: "The car charger plug drew {{ states('sensor.car_charger_current') }} A, over the 9 A limit for a 10 A plug."
+      - action: persistent_notification.create
+        data:
+          title: Car charger switched off
+          message: "The car charger plug drew {{ states('sensor.car_charger_current') }} A, over the 9 A limit for a 10 A plug."
