@@ -1215,3 +1215,35 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .car-chart-missing { fill: #efe9df; }
 .car-chart .car-chart-value { fill: var(--ink); font-size: 17px; font-weight: 800; }
 .car-chart .car-chart-empty { font-size: 18px; }
+
+/* Lights: the outdoor Christmas strings (src/apps/LightsApp.tsx). */
+.lights-app { height: 100%; padding: 36px 34px 22px; display: flex; flex-direction: column; gap: 18px; overflow-y: auto; background: var(--cream); }
+.lights-app > h1 { font-size: 2.75rem; }
+.lights-power { padding: 24px 26px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border: 1px solid #e2dbd0; border-radius: 26px; background: var(--paper); box-shadow: 0 8px 22px rgba(64,53,38,.06); }
+.lights-power > div { display: flex; flex-direction: column; gap: 6px; }
+.lights-power strong { font: 700 4.5rem/1 "Fraunces", serif; letter-spacing: -.04em; }
+.lights-power span { color: var(--muted); font-size: 1.05rem; font-weight: 700; }
+.lights-power-button { min-width: 150px; height: 60px; padding: 0 26px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 999px; color: var(--paper); background: var(--ink); font: inherit; font-size: 1.1rem; font-weight: 700; cursor: pointer; }
+.lights-power-button svg { width: 20px; height: 20px; }
+.lights-power-button:disabled { opacity: .6; cursor: default; }
+.lights-strings { padding: 4px 24px; display: flex; flex-direction: column; border: 1px solid #e2dbd0; border-radius: 26px; background: var(--paper); box-shadow: 0 8px 22px rgba(64,53,38,.06); }
+.lights-row { min-height: 74px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid #efe9df; }
+.lights-row:last-child { border-bottom: 0; }
+.lights-row-name { display: flex; flex-direction: column; gap: 2px; }
+.lights-row-name strong { font-size: 1.25rem; }
+.lights-row-name span { color: var(--muted); font-size: .85rem; font-weight: 700; }
+.lights-row.offline .lights-row-name span { color: var(--orange); }
+.lights-row-end { display: flex; align-items: center; gap: 18px; }
+.lights-row-end button { width: 92px; height: 42px; display: grid; place-items: center; border: 0; border-radius: 999px; color: var(--ink); background: #f1ece4; font: inherit; font-size: .9rem; font-weight: 700; cursor: pointer; }
+.lights-row-end button svg { width: 18px; height: 18px; }
+.lights-row-end button:disabled { opacity: .45; cursor: default; }
+.lights-bars { height: 30px; display: flex; align-items: flex-end; gap: 3px; }
+.lights-bars span { width: 8px; border-radius: 2px; background: #e7e0d4; }
+.lights-bars span:nth-child(1) { height: 10px; }
+.lights-bars span:nth-child(2) { height: 16px; }
+.lights-bars span:nth-child(3) { height: 23px; }
+.lights-bars span:nth-child(4) { height: 30px; }
+.lights-bars span.on { background: var(--green); }
+.lights-bars.weak span.on { background: var(--orange); }
+.lights-error { color: var(--orange) !important; }
+.lights-strings-error { padding: 12px 0 0; font-size: .9rem; font-weight: 700; }
