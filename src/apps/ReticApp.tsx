@@ -1,26 +1,29 @@
-import { CircleCheck, Info, LoaderCircle, Square, TriangleAlert } from "lucide-react";
+import { CircleCheck, Info, ListX, LoaderCircle, Square, TriangleAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { errorText, readJsonResponse } from "../lib/http";
 import {
+  editQueue,
   formatMm,
   minutesLeftLabel,
   perthDate,
   predictedSkip,
   type ReticOutlook,
   reticOutlook,
+  type ReticQueueEdit,
+  type ReticQueueItem,
   type ReticStatus,
   type ReticZone,
   type RunMark,
   runMarks,
   scheduleLabel,
+  tapEdit,
   zoneMinutesLeft,
 } from "../lib/retic";
 import { dailyRain, type HourlyRain, rainAroundRun } from "../lib/reticRain";
 import { useRetic } from "../lib/useRetic";
 import { useReticRain } from "../lib/useReticRain";
 
-type Pending = { entityId: string; kind: "start" | "stop" };
-const MASTER = "master";
+type QueueEdit = { id: number; edit: ReticQueueEdit };
 
 // Home Assistant opens or closes the valve a second or two after the request.
 const REFRESH_AFTER_MS = [1500, 4000];
@@ -29,33 +32,49 @@ const PENDING_LIMIT_MS = 10_000;
 export function ReticApp() {
   const { state, refresh } = useRetic(5000);
   const rain = useReticRain();
-  const [pending, setPending] = useState<Pending | null>(null);
+  // Edits sent but not yet seen in a refresh, laid over the queue so taps show at once.
+  const [edits, setEdits] = useState<QueueEdit[]>([]);
+  // The zone a tap is starting, until it opens.
+  const [starting, setStarting] = useState<string | null>(null);
+  const [stopping, setStopping] = useState(false);
+  // The state the master switch is being moved to, until Home Assistant reports it.
+  const [switchPending, setSwitchPending] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
   const timers = useRef<number[]>([]);
-  const pendingRef = useRef<Pending | null>(null);
+  const nextEdit = useRef(0);
+  // Requests go one at a time, in the order they were tapped.
+  const chain = useRef<Promise<void>>(Promise.resolve());
+  const waiting = useRef({ starting, stopping, switchPending });
 
   useEffect(() => {
-    pendingRef.current = pending;
+    waiting.current = { starting, stopping, switchPending };
   });
 
   useEffect(() => () => timers.current.forEach((timer) => window.clearTimeout(timer)), []);
 
-  // Clear the spinner as soon as the controller reports the change.
+  // Clear each spinner as soon as the controller reports the change.
   const retic = state.kind === "ready" ? state.retic : null;
+  const anyOpen = (retic?.zones ?? []).some(({ open }) => open);
   useEffect(() => {
-    if (!pending || !retic) return;
-    if (pending.entityId === MASTER) {
-      if (retic.enabled === (pending.kind === "start")) setPending(null);
-      return;
-    }
-    const zone = retic.zones?.find(({ entityId }) => entityId === pending.entityId);
-    if (zone && zone.open === (pending.kind === "start")) setPending(null);
-  }, [pending, retic]);
+    if (!retic) return;
+    if (switchPending != null && retic.enabled === switchPending) setSwitchPending(null);
+    if (starting && retic.zones?.some(({ entityId, open }) => open && entityId === starting)) setStarting(null);
+    if (stopping && !anyOpen && !retic.queue?.length) setStopping(false);
+  }, [retic, anyOpen, starting, stopping, switchPending]);
 
-  async function send(path: string, body: object, next: Pending) {
-    setError(null);
-    setPending(next);
+  /** Refreshes while Home Assistant moves the valve, and says so if nothing happens. */
+  function watch(stillWaiting: () => boolean, giveUp: () => void, message: string) {
+    timers.current.push(...REFRESH_AFTER_MS.map((delay) => window.setTimeout(() => void refresh(), delay)));
+    timers.current.push(window.setTimeout(() => {
+      if (!stillWaiting()) return;
+      giveUp();
+      setError(message);
+    }, PENDING_LIMIT_MS));
+  }
+
+  /** Sends a request, showing any failure. Home Assistant accepts it before the valve moves. */
+  async function post(path: string, body: object) {
     try {
       const response = await fetch(path, {
         method: "POST",
@@ -64,28 +83,60 @@ export function ReticApp() {
         signal: AbortSignal.timeout(PENDING_LIMIT_MS),
       });
       await readJsonResponse(response, "The retic controller did not respond");
-      timers.current.push(...REFRESH_AFTER_MS.map((delay) => window.setTimeout(() => void refresh(), delay)));
-      // Home Assistant accepts the request before the valve moves, so only
-      // the valve's state shows whether it worked.
-      timers.current.push(window.setTimeout(() => {
-        if (pendingRef.current !== next) return;
-        setPending(null);
-        setError(next.entityId === MASTER
-          ? "Home Assistant didn't change the retic switch. Try again."
-          : next.kind === "start"
-            ? "The zone didn't turn on. Check the controller and try again."
-            : "The zone didn't turn off. Try Stop again, or press STOP on the controller.");
-      }, PENDING_LIMIT_MS));
+      return true;
     } catch (requestError) {
       // A timed-out request throws a DOMException whose message means nothing to people.
       setError(requestError instanceof DOMException ? "The retic controller did not respond" : errorText(requestError, "The retic controller did not respond"));
-      setPending(null);
+      return false;
     }
   }
 
-  const run = (zone: ReticZone, minutes: number) => send("/api/retic/run", { entityId: zone.entityId, minutes }, { entityId: zone.entityId, kind: "start" });
-  const stop = (zone: ReticZone) => send("/api/retic/stop", { entityId: zone.entityId }, { entityId: zone.entityId, kind: "stop" });
-  const setEnabled = (enabled: boolean) => send("/api/retic/enabled", { enabled }, { entityId: MASTER, kind: enabled ? "start" : "stop" });
+  const running = (retic?.queueRunning ?? false) || starting != null;
+  const queue = edits.reduce((current, { edit }) => editQueue(current, edit, running), retic?.queue ?? []);
+
+  function changeQueue(edit: ReticQueueEdit) {
+    setError(null);
+    const id = nextEdit.current++;
+    setEdits((current) => [...current, { id, edit }]);
+    // The first zone into an empty queue starts watering straight away.
+    const starts = edit.action === "add" && !running && queue.length === 0;
+    if (starts) {
+      setStarting(edit.entityId);
+      watch(() => waiting.current.starting === edit.entityId, () => setStarting(null), "The zone didn't turn on. Check the controller and try again.");
+    }
+    chain.current = chain.current.then(async () => {
+      const sent = edit.action === "add"
+        ? await post("/api/retic/run", { entityId: edit.entityId, minutes: edit.minutes })
+        : await post("/api/retic/queue", edit);
+      if (!sent && starts) setStarting(null);
+      await refresh();
+      setEdits((current) => current.filter((pending) => pending.id !== id));
+    });
+  }
+
+  function stop() {
+    setError(null);
+    setStopping(true);
+    setStarting(null);
+    watch(() => waiting.current.stopping, () => setStopping(false), "The retic didn't stop. Try Stop again, or press STOP on the controller.");
+    chain.current = chain.current.then(async () => {
+      if (!await post("/api/retic/stop", {})) setStopping(false);
+      await refresh();
+    });
+  }
+
+  async function setEnabled(enabled: boolean) {
+    setError(null);
+    setSwitchPending(enabled);
+    if (!await post("/api/retic/enabled", { enabled })) {
+      setSwitchPending(null);
+      return;
+    }
+    watch(() => waiting.current.switchPending === enabled, () => setSwitchPending(null), "Home Assistant didn't change the retic switch. Try again.");
+  }
+
+  // Zones waiting behind the one watering.
+  const waitingCount = running ? Math.max(queue.length - 1, 0) : queue.length;
 
   return (
     <section className="retic-app">
@@ -99,7 +150,7 @@ export function ReticApp() {
           <AnswerCard
             retic={retic}
             rain={rain}
-            switchPending={pending?.entityId === MASTER ? pending.kind === "start" : null}
+            switchPending={switchPending}
             onSwitch={(enabled) => void setEnabled(enabled)}
             onInfo={() => setInfoOpen(true)}
           />
@@ -116,17 +167,31 @@ export function ReticApp() {
                 key={zone.entityId}
                 zone={zone}
                 retic={retic}
-                pending={pending?.entityId === zone.entityId ? pending.kind : null}
-                busy={pending != null}
+                queue={queue}
+                running={running}
+                starting={starting === zone.entityId}
                 // The script refuses to run while the retic is off or any
                 // zone's state is unknown, because that zone might be open.
-                blocked={retic.enabled !== true || (retic.zones ?? []).some(({ state }) => state == null)}
-                watering={(retic.zones ?? []).some(({ open }) => open)}
-                onRun={(minutes) => void run(zone, minutes)}
-                onStop={() => void stop(zone)}
+                blocked={stopping || retic.enabled !== true || (retic.zones ?? []).some(({ state }) => state == null)}
+                onTap={(minutes) => changeQueue(tapEdit(queue, zone.entityId, minutes))}
               />
             ))}
           </div>
+          {/* Under the zones, so it showing up never moves a button about to be tapped. */}
+          {(anyOpen || queue.length > 0 || stopping) && (
+            <div className="retic-queue-actions">
+              {waitingCount > 0 && (
+                <button className="retic-clear" onClick={() => changeQueue({ action: "clear" })} disabled={stopping}>
+                  <ListX aria-hidden="true" />
+                  Clear queue
+                </button>
+              )}
+              <button className="retic-stop" onClick={stop} disabled={stopping}>
+                {stopping ? <LoaderCircle className="spin" aria-hidden="true" /> : <Square aria-hidden="true" />}
+                {stopping ? "Stopping…" : "Stop watering"}
+              </button>
+            </div>
+          )}
           <HealthLine retic={retic} />
           {infoOpen && <ScheduleInfo retic={retic} rain={rain} onClose={() => setInfoOpen(false)} />}
         </>
@@ -286,46 +351,52 @@ function MarkPaths({ kind }: { kind: RunMark }) {
   }
 }
 
-function ZoneRow({ zone, retic, pending, busy, blocked, watering, onRun, onStop }: {
+function ZoneRow({ zone, retic, queue, running, starting, blocked, onTap }: {
   zone: ReticZone;
   retic: ReticStatus;
-  pending: "start" | "stop" | null;
-  busy: boolean;
+  queue: ReticQueueItem[];
+  /** The queue's first zone is watering, so it can only be stopped. */
+  running: boolean;
+  starting: boolean;
   blocked: boolean;
-  /** Another zone is watering, so these buttons would switch to this one. */
-  watering: boolean;
-  onRun: (minutes: number) => void;
-  onStop: () => void;
+  onTap: (minutes: number) => void;
 }) {
   const unavailable = zone.state == null;
+  const place = queue.findIndex(({ entityId }) => entityId === zone.entityId);
+  const queued = place >= 0 ? queue[place] : null;
+  const locked = starting || (running && place === 0);
   const status = unavailable
     ? "Unavailable"
-    : pending === "start" ? "Starting…"
-    : pending === "stop" ? "Stopping…"
+    : starting ? "Starting…"
     : zone.open ? minutesLeftLabel(zoneMinutesLeft(retic, zone))
     : null;
 
   return (
-    <article className={`retic-zone${zone.open ? " open" : ""}${unavailable ? " unavailable" : ""}${watering && !zone.open ? " quiet" : ""}`}>
+    <article className={`retic-zone${zone.open ? " open" : ""}${unavailable ? " unavailable" : ""}`}>
       <span className="retic-zone-number" aria-hidden="true">{zone.zone}</span>
       <div className="retic-zone-text">
         <h2>{zone.name}</h2>
-        {status && <p>{pending ? <LoaderCircle className="spin" aria-hidden="true" /> : null}{status}</p>}
+        {status && <p>{starting ? <LoaderCircle className="spin" aria-hidden="true" /> : null}{status}</p>}
       </div>
       <div className="retic-zone-actions">
-        {zone.open ? (
-          <button className="retic-stop" onClick={onStop} disabled={busy}>
-            <Square aria-hidden="true" />
-            Stop
-          </button>
-        ) : (
-          (retic.runMinutes ?? []).map((value) => (
-            <button key={value} className="retic-run" onClick={() => onRun(value)} disabled={busy || blocked} aria-label={`Water ${zone.name} for ${value} minutes`}>
+        {(retic.runMinutes ?? []).map((value) => {
+          const picked = queued?.minutes === value;
+          return (
+            <button
+              key={value}
+              className={`retic-run${picked ? " picked" : ""}`}
+              onClick={() => onTap(value)}
+              disabled={blocked || locked}
+              aria-label={picked
+                ? `${zone.name} for ${value} minutes, number ${place + 1} in the queue. Tap to take it out.`
+                : `Water ${zone.name} for ${value} minutes`}
+            >
               <strong>{value}</strong>
               <small>min</small>
+              {picked && <span className="retic-run-place" aria-hidden="true">{place + 1}</span>}
             </button>
-          ))
-        )}
+          );
+        })}
       </div>
     </article>
   );

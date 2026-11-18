@@ -609,6 +609,13 @@ RETIC_ZONE_IDS = {entity for _, entity, _ in RETIC_ZONES}
 RETIC_RUN_MINUTES = (5, 10, 15)
 RETIC_SCRIPT = "script.retic_run_zone"
 RETIC_SCHEDULE_SCRIPT = "script.retic_run_schedule"
+# Zones queued by hand. Every edit goes through the queue script so edits and
+# the runner taking finished zones off never overlap. The first zone in the
+# queue is the one watering while the runner is on.
+RETIC_QUEUE = "input_text.retic_queue"
+# Called as its own service, so the request waits until the edit is made.
+RETIC_QUEUE_EDIT = "/api/services/script/retic_queue"
+RETIC_QUEUE_RUNNER = "script.retic_run_queue"
 # Closes every zone and retries until they all report closed, because the WX8
 # ignores a close that arrives a second or two after a zone opens.
 RETIC_CLOSE_ALL = "script.retic_close_all"
@@ -679,6 +686,16 @@ def retic_schedule_zones(zones: Any) -> list[dict[str, Any]]:
     ]
 
 
+def retic_queue(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """The queue's "valve.retic_x:15,valve.retic_y:5" text, keeping only real zones."""
+    queue = []
+    for entry in (known_state(state) or "").split(","):
+        entity_id, _, minutes = entry.strip().partition(":")
+        if entity_id in RETIC_ZONE_IDS and minutes.isdigit():
+            queue.append({"entityId": entity_id, "minutes": int(minutes)})
+    return queue
+
+
 def retic_status(config: dict[str, str]) -> dict[str, Any]:
     by_id = {
         entity.get("entity_id"): entity
@@ -710,6 +727,8 @@ def retic_status(config: dict[str, str]) -> dict[str, Any]:
         "zones": zones,
         "run": run,
         "runMinutes": list(RETIC_RUN_MINUTES),
+        "queue": retic_queue(by_id.get(RETIC_QUEUE) or {}),
+        "queueRunning": known_state(by_id.get(RETIC_QUEUE_RUNNER) or {}) == "on",
         "controllerMinutesLeft": number(known_state(sensors["remaining"])) if open_zones else None,
         "dial": known_state(sensors["dial"]),
         "rainDetected": on_off(sensors["rain"]),
@@ -1403,35 +1422,53 @@ class CannvasHandler(SimpleHTTPRequestHandler):
             if not isinstance(enabled, dict) or enabled.get("state") != "on":
                 self.send_json(409, {"error": "The retic is switched off"})
                 return
-            # A run by hand replaces any scheduled watering in progress, and
-            # cancels a Stop's close retries so they can't close this run.
-            home_assistant_request(config, "/api/services/script/turn_off", {"entity_id": [RETIC_SCHEDULE_SCRIPT, RETIC_CLOSE_ALL]})
-            home_assistant_request(config, "/api/services/script/turn_on", {
-                "entity_id": RETIC_SCRIPT,
-                "variables": {"zone": entity_id, "minutes": minutes},
-            })
+            # Queues the zone, or changes its minutes if it's already waiting.
+            # With nothing queued it starts straight away, replacing any
+            # scheduled watering and cancelling a Stop's close retries.
+            home_assistant_request(config, RETIC_QUEUE_EDIT, {"action": "add", "zone": entity_id, "minutes": minutes})
             self.send_json(202, {"ok": True})
         except ValueError as error:
             self.send_json(400, {"error": str(error)})
         except Exception as error:
             self.home_assistant_error(error)
 
-    def post_retic_stop(self) -> None:
+    def post_retic_queue(self) -> None:
+        """Takes one waiting zone out of the queue, or clears everything waiting."""
         config = load_config()
         if not config:
             self.send_json(409, {"error": "Home Assistant is not connected"})
             return
         try:
-            entity_id = retic_zone(self.read_json())
-            # Stop the timer first so it can't reopen or later close a new run.
-            home_assistant_request(config, "/api/services/script/turn_off", {"entity_id": [RETIC_SCHEDULE_SCRIPT, RETIC_SCRIPT]})
-            home_assistant_request(config, "/api/services/valve/close_valve", {"entity_id": entity_id})
-            # The close above can be ignored if the zone has only just opened,
-            # so keep retrying in Home Assistant until it reports closed.
-            home_assistant_request(config, "/api/services/script/turn_on", {"entity_id": RETIC_CLOSE_ALL})
+            body = self.read_json()
+            action = body.get("action")
+            if action == "remove":
+                data = {"action": "remove", "zone": retic_zone(body)}
+            elif action == "clear":
+                data = {"action": "clear"}
+            else:
+                raise ValueError("Expected remove or clear")
+            home_assistant_request(config, RETIC_QUEUE_EDIT, data)
             self.send_json(200, {"ok": True})
         except ValueError as error:
             self.send_json(400, {"error": str(error)})
+        except Exception as error:
+            self.home_assistant_error(error)
+
+    def post_retic_stop(self) -> None:
+        """Stops everything: the zone watering, the queue behind it and the schedule."""
+        config = load_config()
+        if not config:
+            self.send_json(409, {"error": "Home Assistant is not connected"})
+            return
+        try:
+            # Empty the queue first so the runner has nothing to move on to,
+            # then stop the timers so they can't reopen or later close a new run.
+            home_assistant_request(config, RETIC_QUEUE_EDIT, {"action": "stop"})
+            home_assistant_request(config, "/api/services/script/turn_off", {"entity_id": [RETIC_QUEUE_RUNNER, RETIC_SCHEDULE_SCRIPT, RETIC_SCRIPT]})
+            # Closes every open zone, retrying in Home Assistant until they all
+            # report closed: the WX8 ignores a close just after a zone opens.
+            home_assistant_request(config, "/api/services/script/turn_on", {"entity_id": RETIC_CLOSE_ALL})
+            self.send_json(200, {"ok": True})
         except Exception as error:
             self.home_assistant_error(error)
 
@@ -1767,6 +1804,7 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         "/api/home-assistant/action": post_home_assistant_action,
         "/api/retic/run": post_retic_run,
         "/api/retic/stop": post_retic_stop,
+        "/api/retic/queue": post_retic_queue,
         "/api/retic/enabled": post_retic_enabled,
         "/api/car/mode": post_car_mode,
         "/api/lights/power": post_lights_power,
