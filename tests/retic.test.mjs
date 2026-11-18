@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { dialBlocksWatering, minutesLeftLabel, predictedSkip, reticOutlook, runMarks, scheduleLabel, zoneMinutesLeft } from "../src/lib/retic.ts";
+import { dialBlocksWatering, editQueue, minutesLeftLabel, predictedSkip, reticOutlook, runMarks, scheduleLabel, tapEdit, zoneMinutesLeft } from "../src/lib/retic.ts";
 import { dailyRain, rainAroundRun } from "../src/lib/reticRain.ts";
 
 const now = Date.parse("2026-09-29T15:20:00+08:00");
@@ -188,4 +188,50 @@ test("adds up rain by local day and around a 6 am run like Home Assistant", () =
   assert.deepEqual(rainAroundRun(hourly, "2026-11-11T06:00:00+08:00"), { before: 6, after: 0.5 });
   // Monday 6 am has no 24 hours before it in this series.
   assert.equal(rainAroundRun(hourly, "2026-11-09T06:00:00+08:00"), null);
+});
+
+test("says when a queue of zones run by hand will finish", () => {
+  const status = ready({
+    zones: [{ ...closed(1, "Back grass right", "valve.retic_back_grass_right"), state: "open", open: true }, closed(2, "Back grass left", "valve.retic_back_grass_left"), closed(5, "Front grass", "valve.retic_front_grass")],
+    run: { entityId: "valve.retic_back_grass_right", endsAt: "2026-11-09T08:00:00+08:00" },
+    queue: [{ entityId: "valve.retic_back_grass_right", minutes: 15 }, { entityId: "valve.retic_front_grass", minutes: 5 }, { entityId: "valve.retic_back_grass_left", minutes: 10 }],
+    queueRunning: true,
+  });
+  // 11 minutes left here, then 5 and 10.
+  assert.deepEqual(reticOutlook(status, null, monday), { headline: "Watering now, done about 8:15 am", detail: "Back grass right, then 2 more", tone: "watering" });
+  status.queue = status.queue.slice(0, 1);
+  assert.deepEqual(reticOutlook(status, null, monday), { headline: "Watering now, done about 8 am", detail: "Back grass right", tone: "watering" });
+});
+
+const A = "valve.retic_back_grass_right";
+const B = "valve.retic_front_grass";
+const C = "valve.retic_back_flower_beds";
+const queued = [{ entityId: A, minutes: 15 }, { entityId: B, minutes: 5 }];
+
+test("queues zones in the order they're tapped", () => {
+  let queue = editQueue([], { action: "add", entityId: A, minutes: 15 }, false);
+  queue = editQueue(queue, { action: "add", entityId: B, minutes: 5 }, true);
+  queue = editQueue(queue, { action: "add", entityId: C, minutes: 10 }, true);
+  assert.deepEqual(queue.map(({ entityId }) => entityId), [A, B, C]);
+});
+
+test("a waiting zone's minutes change in place, the watering one's don't", () => {
+  assert.deepEqual(editQueue(queued, { action: "add", entityId: B, minutes: 15 }, true), [{ entityId: A, minutes: 15 }, { entityId: B, minutes: 15 }]);
+  assert.deepEqual(editQueue(queued, { action: "add", entityId: A, minutes: 5 }, true), queued);
+  // Before the runner starts, the first zone is still just waiting.
+  assert.deepEqual(editQueue(queued, { action: "add", entityId: A, minutes: 5 }, false)[0], { entityId: A, minutes: 5 });
+});
+
+test("removing or clearing leaves the zone watering now", () => {
+  assert.deepEqual(editQueue(queued, { action: "remove", entityId: B }, true), [queued[0]]);
+  assert.deepEqual(editQueue(queued, { action: "remove", entityId: A }, true), queued);
+  assert.deepEqual(editQueue(queued, { action: "clear" }, true), [queued[0]]);
+  assert.deepEqual(editQueue(queued, { action: "clear" }, false), []);
+  assert.deepEqual(editQueue(queued, { action: "stop" }, true), []);
+});
+
+test("tapping a queued zone's minutes again takes it out", () => {
+  assert.deepEqual(tapEdit(queued, B, 5), { action: "remove", entityId: B });
+  assert.deepEqual(tapEdit(queued, B, 10), { action: "add", entityId: B, minutes: 10 });
+  assert.deepEqual(tapEdit(queued, C, 10), { action: "add", entityId: C, minutes: 10 });
 });

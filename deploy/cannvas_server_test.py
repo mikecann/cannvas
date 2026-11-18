@@ -62,6 +62,8 @@ def fake_states() -> list[dict]:
         {"entity_id": "sensor.retic_time_remaining", "state": "14"},
         {"entity_id": "input_boolean.retic_enabled", "state": "on"},
         {"entity_id": "script.retic_run_schedule", "state": "off"},
+        {"entity_id": "script.retic_run_queue", "state": "on"},
+        {"entity_id": "input_text.retic_queue", "state": "valve.retic_front_grass:10,valve.not_retic:5,valve.retic_back_grass_left:x,valve.retic_back_flower_beds:5"},
         {"entity_id": "input_text.retic_last_result", "state": "Skipped Tue 29 Sep, 6:00 AM: 4.1 mm of rain in the last 24 hours"},
         {"entity_id": "sensor.retic_rain_last_24h", "state": "0.2"},
         {"entity_id": "sensor.retic_rain_next_12h", "state": "1.5"},
@@ -642,6 +644,12 @@ class CannvasServerTest(unittest.TestCase):
         self.assertFalse(value["zones"][2]["open"])
         self.assertEqual(value["run"], {"entityId": "valve.retic_front_grass", "endsAt": "2026-09-29T07:30:00+00:00"})
         self.assertEqual(value["runMinutes"], [5, 10, 15])
+        # Only real zones with whole minutes, in order.
+        self.assertEqual(value["queue"], [
+            {"entityId": "valve.retic_front_grass", "minutes": 10},
+            {"entityId": "valve.retic_back_flower_beds", "minutes": 5},
+        ])
+        self.assertIs(value["queueRunning"], True)
         self.assertEqual(value["controllerMinutesLeft"], 14)
         self.assertEqual(value["dial"], "Run")
         self.assertIs(value["rainDetected"], False)
@@ -732,15 +740,29 @@ class CannvasServerTest(unittest.TestCase):
         self.assertIs(value["batteryLow"], True)
         self.assertIs(value["mainsProblem"], True)
 
-    def test_retic_run_starts_the_script(self) -> None:
+    def test_retic_run_queues_the_zone(self) -> None:
         self.connect_home_assistant()
         response, _ = self.post_json("/api/retic/run", {"entityId": "valve.retic_back_grass_left", "minutes": 10})
         self.assertEqual(response.status, 202)
+        # Home Assistant's queue script starts it straight away when nothing else is queued.
         self.assertEqual(FakeUpstream.posts, [
-            # A run by hand replaces any scheduled watering.
-            ("/api/services/script/turn_off", {"entity_id": ["script.retic_run_schedule", "script.retic_close_all"]}),
-            ("/api/services/script/turn_on", {"entity_id": "script.retic_run_zone", "variables": {"zone": "valve.retic_back_grass_left", "minutes": 10}}),
+            ("/api/services/script/retic_queue", {"action": "add", "zone": "valve.retic_back_grass_left", "minutes": 10}),
         ])
+
+    def test_retic_queue_removes_a_zone_or_clears(self) -> None:
+        self.connect_home_assistant()
+        response, _ = self.post_json("/api/retic/queue", {"action": "remove", "entityId": "valve.retic_front_grass"})
+        self.assertEqual(response.status, 200)
+        response, _ = self.post_json("/api/retic/queue", {"action": "clear", "entityId": "ignored"})
+        self.assertEqual(response.status, 200)
+        self.assertEqual(FakeUpstream.posts, [
+            ("/api/services/script/retic_queue", {"action": "remove", "zone": "valve.retic_front_grass"}),
+            ("/api/services/script/retic_queue", {"action": "clear"}),
+        ])
+        for body in ({"action": "stop"}, {"action": "add", "entityId": "valve.retic_front_grass"}, {"action": "remove", "entityId": "valve.somewhere_else"}, {}):
+            response, _ = self.post_json("/api/retic/queue", body)
+            self.assertEqual(response.status, 400, body)
+        self.assertEqual(len(FakeUpstream.posts), 2)
 
     def test_retic_run_is_refused_while_switched_off(self) -> None:
         self.connect_home_assistant()
@@ -823,18 +845,15 @@ class CannvasServerTest(unittest.TestCase):
             self.assertEqual(response.status, 400, body)
         self.assertEqual(FakeUpstream.posts, [])
 
-    def test_retic_stop_cancels_the_timer_then_closes_with_retries(self) -> None:
+    def test_retic_stop_empties_the_queue_cancels_the_timers_then_closes_with_retries(self) -> None:
         self.connect_home_assistant()
-        response, _ = self.post_json("/api/retic/stop", {"entityId": "valve.retic_front_grass"})
+        response, _ = self.post_json("/api/retic/stop", {})
         self.assertEqual(response.status, 200)
         self.assertEqual(FakeUpstream.posts, [
-            ("/api/services/script/turn_off", {"entity_id": ["script.retic_run_schedule", "script.retic_run_zone"]}),
-            ("/api/services/valve/close_valve", {"entity_id": "valve.retic_front_grass"}),
+            ("/api/services/script/retic_queue", {"action": "stop"}),
+            ("/api/services/script/turn_off", {"entity_id": ["script.retic_run_queue", "script.retic_run_schedule", "script.retic_run_zone"]}),
             ("/api/services/script/turn_on", {"entity_id": "script.retic_close_all"}),
         ])
-        response, _ = self.post_json("/api/retic/stop", {"entityId": "valve.somewhere_else"})
-        self.assertEqual(response.status, 400)
-        self.assertEqual(len(FakeUpstream.posts), 3)
 
     def car(self) -> dict:
         response, body = self.request("GET", "/api/car")

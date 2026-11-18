@@ -45,6 +45,9 @@ export type ReticStatus = {
   /** A timed run started from Cannvas, while Home Assistant is timing it. */
   run?: { entityId: string; endsAt: string } | null;
   runMinutes?: number[];
+  /** Zones queued by hand, in order. The first is watering while `queueRunning`. */
+  queue?: ReticQueueItem[];
+  queueRunning?: boolean;
   /** The WX8's own countdown for a zone started on the controller or in Smart Life. */
   controllerMinutesLeft?: number | null;
   dial?: string | null;
@@ -54,6 +57,43 @@ export type ReticStatus = {
   mainsProblem?: boolean | null;
   history?: ReticRun[];
 };
+
+export type ReticQueueItem = { entityId: string; minutes: number };
+
+/** A change to the queue the page has asked for, mirroring Home Assistant's retic_queue script. */
+export type ReticQueueEdit =
+  | { action: "add"; entityId: string; minutes: number }
+  | { action: "remove"; entityId: string }
+  | { action: "clear" | "stop" };
+
+/**
+ * The queue after an edit, as Home Assistant will make it, so taps show
+ * straight away. While `running`, the first zone is watering and only stop
+ * changes it.
+ */
+export function editQueue(queue: ReticQueueItem[], edit: ReticQueueEdit, running: boolean): ReticQueueItem[] {
+  const watering = (index: number) => running && index === 0;
+  switch (edit.action) {
+    case "stop":
+      return [];
+    case "clear":
+      return queue.filter((_, index) => watering(index));
+    case "remove":
+      return queue.filter((item, index) => watering(index) || item.entityId !== edit.entityId);
+    case "add": {
+      const at = queue.findIndex(({ entityId }) => entityId === edit.entityId);
+      if (at < 0) return [...queue, { entityId: edit.entityId, minutes: edit.minutes }];
+      if (watering(at)) return queue;
+      return queue.map((item, index) => (index === at ? { ...item, minutes: edit.minutes } : item));
+    }
+  }
+}
+
+/** What tapping a zone's minutes button does: queue it, change its minutes, or take it out again. */
+export function tapEdit(queue: ReticQueueItem[], entityId: string, minutes: number): ReticQueueEdit {
+  const queued = queue.find((item) => item.entityId === entityId);
+  return queued?.minutes === minutes ? { action: "remove", entityId } : { action: "add", entityId, minutes };
+}
 
 export type ReticState =
   | { kind: "loading" }
@@ -173,6 +213,13 @@ export function reticOutlook(
     if (schedule?.running && index >= 0) {
       const rest = order.slice(index + 1).reduce((total, zone) => total + (zone.minutes ?? 0), 0);
       const detail = `Zone ${index + 1} of ${order.length}, ${open.name.toLowerCase()}`;
+      if (minutes == null) return { headline: "Watering now", detail, tone: "watering" };
+      return { headline: `Watering now, done about ${clockLabel(now + (minutes + rest) * 60_000)}`, detail, tone: "watering" };
+    }
+    const queue = status.queue ?? [];
+    if (status.queueRunning && queue[0]?.entityId === open.entityId) {
+      const rest = queue.slice(1).reduce((total, zone) => total + zone.minutes, 0);
+      const detail = queue.length > 1 ? `${open.name}, then ${queue.length - 1} more` : open.name;
       if (minutes == null) return { headline: "Watering now", detail, tone: "watering" };
       return { headline: `Watering now, done about ${clockLabel(now + (minutes + rest) * 60_000)}`, detail, tone: "watering" };
     }

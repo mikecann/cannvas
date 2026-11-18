@@ -275,6 +275,17 @@ Home Assistant won't load its configuration.
   Assistant stops mid-run, the WX8 closes the zone by itself once its own manual
   run time is up. In Smart Life that is 16 minutes for zones 1 to 4 and 15 for
   Front grass, so keep it at or above the longest Cannvas run.
+- **Queue.** Tapping a zone's minutes queues it, so several zones water one
+  after another. `input_text.retic_queue` holds the queue (like
+  `valve.retic_back_grass_right:15,valve.retic_front_grass:5`), and the button
+  shows each zone's place in it. `script.retic_queue` makes every change, one
+  at a time: add (or change a waiting zone's minutes), remove, clear (everything
+  waiting) and stop (the lot). The first zone added starts
+  `script.retic_run_queue`, which runs each zone through `retic_run_zone` and
+  takes it off the front when it's done. Tapping a waiting zone's minutes again
+  takes it out. **Stop watering** empties the queue and closes every zone. The
+  schedule empties it too when it starts, and so does the master switch going
+  off. The queue starts empty after a restart.
 - **Smart schedule.** `sensor.retic_next_run` holds the schedule: 6am on the
   watering days from September to May, plus each zone's minutes and the rain
   limits. At run time, the `Retic scheduled watering` automation skips if the
@@ -302,8 +313,8 @@ then reports the zone open again. `script.retic_close_all` retries until every
 zone reports closed.
 
 The server only accepts those five zones and those three durations, through
-`/api/retic/run` and `/api/retic/stop`, and refuses runs while the retic is
-switched off. `/api/retic/enabled` only changes the master switch. The
+`/api/retic/run` (queue a zone), `/api/retic/queue` (take one out, or clear)
+and `/api/retic/stop`, and refuses runs while the retic is switched off. `/api/retic/enabled` only changes the master switch. The
 generic Home controls action refuses anything named `retic_`, and Home controls
 doesn't list those entities. Voice commands can't switch them either.
 

@@ -24,6 +24,14 @@ input_text:
   retic_last_result:
     name: Retic last scheduled run
     max: 255
+  # Zones queued by hand in Cannvas, in order, like
+  # "valve.retic_back_grass_right:15,valve.retic_front_grass:5". The first one
+  # is watering while script.retic_run_queue is on. It starts empty after a
+  # restart, because the runner doesn't survive one.
+  retic_queue:
+    name: Retic queue
+    max: 255
+    initial: ""
 
 # Rain from Open-Meteo, which needs no key and returns yesterday's modelled rain
 # with the forecast in one call. Each hourly value is the rain in the hour
@@ -205,6 +213,104 @@ script:
         target:
           entity_id: "{{ zone }}"
 
+  retic_queue:
+    alias: Retic queue
+    description: >-
+      Edits the zones queued by hand. add puts a zone at the end, or changes its
+      minutes if it's already waiting. remove takes a waiting zone out. clear
+      empties everything waiting. stop empties the lot, including the zone
+      watering now. done takes the finished zone off the front. Only stop and
+      done touch the zone watering now. Queued, so edits never overlap.
+    icon: mdi:format-list-numbered
+    mode: queued
+    max: 30
+    fields:
+      action:
+        description: add, remove, clear, stop or done.
+        required: true
+      zone:
+        description: The zone's valve, for add, remove and done.
+      minutes:
+        description: How long to water it, for add.
+    sequence:
+      - variables:
+          items: "{{ states('input_text.retic_queue').split(',') | select('match', 'valve\\.retic_[a-z0-9_]+:[0-9]+$') | list }}"
+          running: "{{ is_state('script.retic_run_queue', 'on') }}"
+          zone_id: "{{ zone | default('') }}"
+          item: "{{ zone_id ~ ':' ~ (minutes | default(0) | int(0)) }}"
+      - condition: template
+        value_template: >
+          {{ action in ['clear', 'stop']
+             or (action in ['remove', 'done'] and zone_id is match('valve\.retic_[a-z0-9_]+$'))
+             or (action == 'add' and zone_id is match('valve\.retic_[a-z0-9_]+$')
+                 and (minutes | default(0) | int(0)) in range(1, 16)
+                 and is_state('input_boolean.retic_enabled', 'on')) }}
+      - variables:
+          updated: >
+            {% set ns = namespace(out=[], found=false) %}
+            {% for entry in items %}
+              {% set name = entry.split(':')[0] %}
+              {% set watering = loop.first and running %}
+              {% if action == 'stop' or (action == 'done' and loop.first and name == zone_id) %}
+              {% elif action == 'clear' and not watering %}
+              {% elif action == 'remove' and name == zone_id and not watering %}
+              {% elif action == 'add' and name == zone_id %}
+                {% set ns.found = true %}
+                {% set ns.out = ns.out + [entry if watering else item] %}
+              {% else %}
+                {% set ns.out = ns.out + [entry] %}
+              {% endif %}
+            {% endfor %}
+            {% if action == 'add' and not ns.found %}{% set ns.out = ns.out + [item] %}{% endif %}
+            {{ ns.out | join(',') }}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.retic_queue
+        data:
+          value: "{{ updated | trim }}"
+      # The first zone queued starts straight away. Like any run by hand, it
+      # replaces scheduled watering and cancels a Stop's close retries.
+      - if:
+          - condition: template
+            value_template: "{{ action == 'add' and not running }}"
+        then:
+          - action: script.turn_off
+            target:
+              entity_id:
+                - script.retic_run_schedule
+                - script.retic_close_all
+          - action: script.turn_on
+            target:
+              entity_id: script.retic_run_queue
+
+  retic_run_queue:
+    alias: Retic run queue
+    description: >-
+      Waters the queued zones one after another, taking each off the queue
+      when it's done, until the queue is empty or the retic is switched off.
+    icon: mdi:sprinkler-variant
+    mode: single
+    max_exceeded: silent
+    sequence:
+      - repeat:
+          while:
+            - condition: template
+              # The limit only guards against a loop that never takes anything off.
+              value_template: >
+                {{ repeat.index <= 30 and is_state('input_boolean.retic_enabled', 'on')
+                   and states('input_text.retic_queue') is match('valve\.') }}
+          sequence:
+            - variables:
+                head: "{{ states('input_text.retic_queue').split(',')[0].split(':') }}"
+            - action: script.retic_run_zone
+              data:
+                zone: "{{ head[0] }}"
+                minutes: "{{ head[1] | int(0) }}"
+            - action: script.retic_queue
+              data:
+                action: done
+                zone: "{{ head[0] }}"
+
   retic_run_schedule:
     alias: Retic run schedule
     description: >-
@@ -226,6 +332,15 @@ script:
       - variables:
           planned: "{{ (state_attr('sensor.retic_next_run', 'zones') or []) | map(attribute='minutes') | map('int', 0) | sum }}"
           logged: "{{ started is defined and started is string and started != '' }}"
+      # The schedule takes over from zones queued by hand, the way a run by
+      # hand takes over from the schedule. Both running would fight over
+      # retic_run_zone.
+      - action: script.retic_queue
+        data:
+          action: stop
+      - action: script.turn_off
+        target:
+          entity_id: script.retic_run_queue
       # Logged here rather than by the caller, so a call turned away because a
       # run is already going doesn't leave a "watering" entry nothing finishes.
       # Logged as watering first, so a run cut short by a restart still shows.
@@ -447,9 +562,14 @@ automation:
         entity_id: input_boolean.retic_enabled
         to: "off"
     actions:
+      # Empty the queue first, so the runner has nothing to move on to.
+      - action: script.retic_queue
+        data:
+          action: stop
       - action: script.turn_off
         target:
           entity_id:
+            - script.retic_run_queue
             - script.retic_run_schedule
             - script.retic_run_zone
       - action: script.retic_close_all
