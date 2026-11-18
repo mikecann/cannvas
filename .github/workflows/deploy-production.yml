@@ -38,6 +38,9 @@ jobs:
       - name: Run regression tests
         run: pnpm test
 
+      - name: Lint
+        run: pnpm lint
+
       # "Ship it" deploys a Chef build to production and moves main in Chef's
       # repo, not on GitHub. Deploying a commit without it would roll that
       # back, so refuse until it's merged (deploy/ship-from-chef.sh does).

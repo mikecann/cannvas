@@ -5,5 +5,6 @@ minimumReleaseAgeExclude:
   - miniflare@5.20260730.0-alpha
   - wrangler@4.118.0
   - fluent-convex@0.15.0
+  - mikecann-lint@0.1.0
 overrides:
   convex-helpers: "0.1.127"
