@@ -1,0 +1,208 @@
+{
+  "convex/boards.ts": {
+    "@convex-dev/explicit-table-ids": {
+      "count": 1
+    }
+  },
+  "convex/calendar.ts": {
+    "@convex-dev/no-process-env": {
+      "count": 1
+    }
+  },
+  "convex/chef.ts": {
+    "@convex-dev/no-process-env": {
+      "count": 1
+    }
+  },
+  "convex/chefMail.ts": {
+    "@convex-dev/no-process-env": {
+      "count": 2
+    }
+  },
+  "convex/chefWall.ts": {
+    "@convex-dev/no-process-env": {
+      "count": 2
+    }
+  },
+  "convex/chores.ts": {
+    "@convex-dev/explicit-table-ids": {
+      "count": 4
+    },
+    "@convex-dev/no-collect-in-query": {
+      "count": 3
+    }
+  },
+  "convex/deviceBackups.ts": {
+    "@convex-dev/explicit-table-ids": {
+      "count": 1
+    }
+  },
+  "convex/deviceBoards.ts": {
+    "@convex-dev/explicit-table-ids": {
+      "count": 1
+    }
+  },
+  "convex/fluent.ts": {
+    "@convex-dev/no-process-env": {
+      "count": 1
+    },
+    "@typescript-eslint/ban-ts-comment": {
+      "count": 3
+    }
+  },
+  "convex/googleTasks.ts": {
+    "@convex-dev/no-process-env": {
+      "count": 1
+    }
+  },
+  "convex/googleTasksStore.ts": {
+    "@convex-dev/explicit-table-ids": {
+      "count": 5
+    }
+  },
+  "convex/http.ts": {
+    "@convex-dev/no-process-env": {
+      "count": 1
+    }
+  },
+  "convex/inventory.ts": {
+    "@convex-dev/explicit-table-ids": {
+      "count": 10
+    }
+  },
+  "convex/inventoryAi.ts": {
+    "@convex-dev/no-process-env": {
+      "count": 1
+    }
+  },
+  "convex/inventoryAiStore.ts": {
+    "@convex-dev/explicit-table-ids": {
+      "count": 9
+    }
+  },
+  "convex/lib/inventoryWriteGuard.ts": {
+    "@convex-dev/no-process-env": {
+      "count": 1
+    }
+  },
+  "convex/todos.ts": {
+    "@convex-dev/explicit-table-ids": {
+      "count": 16
+    }
+  },
+  "src/apps/AdminApp.tsx": {
+    "mikecann-lint/click-shows-progress": {
+      "count": 1
+    }
+  },
+  "src/apps/CarApp.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 2
+    }
+  },
+  "src/apps/ChoresApp.tsx": {
+    "mikecann-lint/click-shows-progress": {
+      "count": 1
+    }
+  },
+  "src/apps/DisplayApp.tsx": {
+    "react-hooks/purity": {
+      "count": 1
+    }
+  },
+  "src/apps/LightsApp.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "src/apps/ReticApp.tsx": {
+    "react-hooks/purity": {
+      "count": 2
+    },
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "src/apps/SammyTabletTickerApp.tsx": {
+    "mikecann-lint/click-shows-progress": {
+      "count": 4
+    }
+  },
+  "src/apps/SolarApp.tsx": {
+    "react-hooks/purity": {
+      "count": 2
+    }
+  },
+  "src/apps/WeatherApp.tsx": {
+    "react-hooks/preserve-manual-memoization": {
+      "count": 1
+    }
+  },
+  "src/apps/WhiteboardApp.tsx": {
+    "react-hooks/refs": {
+      "count": 1
+    }
+  },
+  "src/apps/display/CalendarHomeWidget.tsx": {
+    "@eslint-community/eslint-comments/require-description": {
+      "count": 1
+    }
+  },
+  "src/apps/display/IdleVideo.tsx": {
+    "react-hooks/immutability": {
+      "count": 1
+    },
+    "react-hooks/refs": {
+      "count": 8
+    },
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "src/apps/home/HomeLocationMap.tsx": {
+    "mikecann-lint/no-render-wait-timer": {
+      "count": 1
+    }
+  },
+  "src/apps/weather/WeatherRadar.tsx": {
+    "mikecann-lint/no-render-wait-timer": {
+      "count": 2
+    },
+    "react-hooks/exhaustive-deps": {
+      "count": 1
+    }
+  },
+  "src/components/ChefSheet.tsx": {
+    "react-hooks/refs": {
+      "count": 1
+    }
+  },
+  "src/components/VoiceOverlay.tsx": {
+    "react-hooks/set-state-in-effect": {
+      "count": 1
+    }
+  },
+  "src/data/DataProvider.tsx": {
+    "mikecann-lint/no-render-wait-timer": {
+      "count": 1
+    },
+    "react-hooks/refs": {
+      "count": 7
+    }
+  },
+  "src/inventory/InventoryExperience.tsx": {
+    "mikecann-lint/click-shows-progress": {
+      "count": 2
+    }
+  },
+  "src/lib/useReticRain.ts": {
+    "react-hooks/purity": {
+      "count": 1
+    }
+  },
+  "src/lib/voice.ts": {
+    "mikecann-lint/prefer-kind-discriminant": {
+      "count": 3
+    }
+  }
+}
