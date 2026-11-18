@@ -914,7 +914,7 @@ def hours_minutes(value: str | None) -> int | None:
     return int(match[1]) * 60 + int(match[2]) if match else None
 
 
-# Outdoor Christmas lights. Eight WLED strings on Canny IoT with fixed IPs
+# Outdoor Christmas lights. Nine WLED strings on Canny IoT with fixed IPs
 # 192.168.2.(100 + string number), fed by effect-sim, all powered through one
 # Athom plug. The far strings should sit on the TP-Link extender; when one lands
 # on the indoor U6+ instead it stutters, and a restart usually moves it over.
@@ -922,7 +922,7 @@ def hours_minutes(value: str | None) -> int | None:
 # where each one ended up and restarts stragglers by hand.
 LIGHTS_PLUG = "switch.athom_outside_lights_smart_plug_v2"
 LIGHTS_POWER = "sensor.athom_outside_lights_power"
-LIGHT_STRINGS = (1, 2, 4, 5, 6, 8, 9, 10)
+LIGHT_STRINGS = (1, 2, 4, 5, 6, 7, 8, 9, 10)
 # Every BSSID of the indoor U6+ ends in this; anything else is the extender.
 INDOOR_AP_BSSID_SUFFIX = "AC:7D"
 LIGHT_TIMEOUT = 2.0
