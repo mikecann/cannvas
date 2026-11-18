@@ -1247,3 +1247,4 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .lights-bars.weak span.on { background: var(--orange); }
 .lights-error { color: var(--orange) !important; }
 .lights-strings-error { padding: 12px 0 0; font-size: .9rem; font-weight: 700; }
+.lights-footnote { color: var(--muted); font-size: .85rem; font-weight: 700; text-align: center; }
