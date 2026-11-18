@@ -97,6 +97,8 @@ def fake_states() -> list[dict]:
         {"entity_id": "sensor.byd_atto_3_battery_power", "state": "unavailable"},
         {"entity_id": "sensor.byd_atto_3_charge_remaining_time", "state": "unavailable"},
         {"entity_id": "binary_sensor.byd_atto_3_charging", "state": "unavailable"},
+        {"entity_id": "switch.athom_outside_lights_smart_plug_v2", "state": "on"},
+        {"entity_id": "sensor.athom_outside_lights_power", "state": "168.2"},
     ]
     return [FakeUpstream.state_overrides.get(str(state["entity_id"]), state) for state in states]
 
@@ -838,6 +840,67 @@ class CannvasServerTest(unittest.TestCase):
         response, body = self.request("GET", "/api/car")
         self.assertEqual(response.status, 200)
         return json.loads(body)
+
+    def fake_wled(self, boards: dict[str, dict]) -> list[tuple[str, str, object]]:
+        """Swaps the server's WLED calls for these boards, keyed by IP. Others time out."""
+        calls: list[tuple[str, str, object]] = []
+        original = self.module.wled_request
+
+        def fake(ip: str, path: str, payload=None, timeout: float = 2.0):
+            calls.append((ip, path, payload))
+            if ip not in boards:
+                raise TimeoutError("no answer")
+            return boards[ip]
+
+        self.module.wled_request = fake
+        self.addCleanup(setattr, self.module, "wled_request", original)
+        return calls
+
+    def test_lights_report_each_string(self) -> None:
+        self.connect_home_assistant()
+        self.fake_wled({
+            "192.168.2.101": {"ver": "16.0.1", "live": True, "wifi": {"rssi": -52, "bssid": "3C:6A:D2:7F:58:BC"}},
+            "192.168.2.104": {"ver": "16.0.1", "live": False, "wifi": {"rssi": -71, "bssid": "DA:B3:70:48:AC:7D"}},
+        })
+        response, body = self.request("GET", "/api/lights")
+        self.assertEqual(response.status, 200)
+        lights = json.loads(body)
+        self.assertEqual((lights["on"], lights["watts"]), (True, 168.2))
+        self.assertEqual([s["string"] for s in lights["strings"]], [1, 2, 4, 5, 6, 8, 9, 10])
+        self.assertEqual(lights["strings"][0], {"string": 1, "online": True, "rssi": -52.0, "via": "extender", "playing": True, "version": "16.0.1"})
+        self.assertEqual(lights["strings"][1], {"string": 2, "online": False})
+        self.assertEqual(lights["strings"][2]["via"], "indoor")
+
+    def test_lights_skip_the_boards_while_the_plug_is_off(self) -> None:
+        self.connect_home_assistant()
+        calls = self.fake_wled({})
+        self.override_states({"entity_id": "switch.athom_outside_lights_smart_plug_v2", "state": "off"})
+        response, body = self.request("GET", "/api/lights")
+        self.assertEqual(json.loads(body)["strings"], [])
+        self.assertEqual(calls, [])
+
+    def test_lights_power_switches_the_plug(self) -> None:
+        self.connect_home_assistant()
+        for on in (True, False):
+            response, _ = self.post_json("/api/lights/power", {"on": on})
+            self.assertEqual(response.status, 200)
+        response, _ = self.post_json("/api/lights/power", {"on": "yes"})
+        self.assertEqual(response.status, 400)
+        self.assertEqual(FakeUpstream.posts, [
+            ("/api/services/switch/turn_on", {"entity_id": "switch.athom_outside_lights_smart_plug_v2"}),
+            ("/api/services/switch/turn_off", {"entity_id": "switch.athom_outside_lights_smart_plug_v2"}),
+        ])
+
+    def test_lights_restart_only_a_known_string(self) -> None:
+        calls = self.fake_wled({"192.168.2.105": {"success": True}})
+        response, _ = self.post_json("/api/lights/restart", {"string": 5})
+        self.assertEqual(response.status, 200)
+        for body in ({"string": 3}, {"string": "5"}, {"string": 5.0}, {}):
+            response, _ = self.post_json("/api/lights/restart", body)
+            self.assertEqual(response.status, 400, body)
+        response, _ = self.post_json("/api/lights/restart", {"string": 6})
+        self.assertEqual(response.status, 502)
+        self.assertEqual(calls, [("192.168.2.105", "/json/state", {"rb": True}), ("192.168.2.106", "/json/state", {"rb": True})])
 
     def test_car_reports_the_charger(self) -> None:
         self.connect_home_assistant()

@@ -17,6 +17,7 @@ import re
 import ssl
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from threading import Lock
@@ -913,6 +914,69 @@ def hours_minutes(value: str | None) -> int | None:
     return int(match[1]) * 60 + int(match[2]) if match else None
 
 
+# Outdoor Christmas lights. Eight WLED strings on Canny IoT with fixed IPs
+# 192.168.2.(100 + string number), fed by effect-sim, all powered through one
+# Athom plug. The far strings should sit on the TP-Link extender; when one lands
+# on the indoor U6+ instead it stutters, and a restart usually moves it over.
+# Home Assistant's xmas_lights.yaml does that after power-up; this page shows
+# where each one ended up and restarts stragglers by hand.
+LIGHTS_PLUG = "switch.athom_outside_lights_smart_plug_v2"
+LIGHTS_POWER = "sensor.athom_outside_lights_power"
+LIGHT_STRINGS = (1, 2, 4, 5, 6, 8, 9, 10)
+# Every BSSID of the indoor U6+ ends in this; anything else is the extender.
+INDOOR_AP_BSSID_SUFFIX = "AC:7D"
+LIGHT_TIMEOUT = 2.0
+
+
+def light_ip(string: int) -> str:
+    return f"192.168.2.{100 + string}"
+
+
+def wled_request(ip: str, path: str, payload: dict[str, Any] | None = None, timeout: float = LIGHT_TIMEOUT) -> Any:
+    """Talks to a string's WLED board directly. Tests swap this out."""
+    data = json.dumps(payload).encode() if payload is not None else None
+    request = Request(f"http://{ip}{path}", data=data, headers={"Content-Type": "application/json"} if data else {})
+    with build_opener().open(request, timeout=timeout) as response:
+        return json.loads(response.read(64 * 1024))
+
+
+def light_string(string: int) -> dict[str, Any]:
+    try:
+        info = wled_request(light_ip(string), "/json/info")
+        wifi = info.get("wifi") if isinstance(info.get("wifi"), dict) else {}
+    except Exception:
+        return {"string": string, "online": False}
+    bssid = str(wifi.get("bssid") or "")
+    return {
+        "string": string,
+        "online": True,
+        "rssi": number(wifi.get("rssi")),
+        "via": None if not bssid else "indoor" if bssid.upper().endswith(INDOOR_AP_BSSID_SUFFIX) else "extender",
+        # True while effect-sim's DDP frames are arriving.
+        "playing": info.get("live") is True,
+        "version": str(info.get("ver") or "") or None,
+    }
+
+
+def lights_status(config: dict[str, str]) -> dict[str, Any]:
+    plug = home_assistant_request(config, f"/api/states/{LIGHTS_PLUG}") or {}
+    power = home_assistant_request(config, f"/api/states/{LIGHTS_POWER}") or {}
+    on = on_off(plug)
+    strings: list[dict[str, Any]] = []
+    # The boards share the plug, so with it off there's nothing to ask.
+    if on:
+        with ThreadPoolExecutor(len(LIGHT_STRINGS)) as pool:
+            strings = list(pool.map(light_string, LIGHT_STRINGS))
+    return {"configured": True, "on": on, "watts": number(power.get("state")), "strings": strings}
+
+
+def light_restart_target(body: dict[str, Any]) -> int:
+    string = body.get("string")
+    if type(string) is not int or string not in LIGHT_STRINGS:
+        raise ValueError("That isn't one of the light strings")
+    return string
+
+
 # The car page's graphs: the battery over the last day, and how much went into
 # the car each day this week, split into sun and grid. The plug's power sensor
 # updates every ~20 s while charging, so past days are worked out once and kept.
@@ -1388,6 +1452,44 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         except Exception as error:
             self.home_assistant_error(error)
 
+    def get_lights(self, query: str) -> None:
+        config = load_config()
+        if not config:
+            self.send_json(200, {"configured": False})
+            return
+        try:
+            self.send_json(200, lights_status(config))
+        except Exception as error:  # The response deliberately avoids leaking network or token details.
+            self.home_assistant_error(error)
+
+    def post_lights_power(self) -> None:
+        config = load_config()
+        if not config:
+            self.send_json(409, {"error": "Home Assistant is not connected"})
+            return
+        try:
+            on = self.read_json().get("on")
+            if type(on) is not bool:
+                raise ValueError("Expected on to be true or false")
+            home_assistant_request(config, f"/api/services/switch/{'turn_on' if on else 'turn_off'}", {"entity_id": LIGHTS_PLUG})
+            self.send_json(200, {"ok": True, "on": on})
+        except ValueError as error:
+            self.send_json(400, {"error": str(error)})
+        except Exception as error:
+            self.home_assistant_error(error)
+
+    def post_lights_restart(self) -> None:
+        try:
+            string = light_restart_target(self.read_json())
+        except ValueError as error:
+            self.send_json(400, {"error": str(error)})
+            return
+        try:
+            wled_request(light_ip(string), "/json/state", {"rb": True})
+            self.send_json(200, {"ok": True, "string": string})
+        except Exception:
+            self.send_json(502, {"error": f"String {string} didn't answer"})
+
     def get_car(self, query: str) -> None:
         config = load_config()
         if not config:
@@ -1647,6 +1749,7 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         "/api/retic/rain": get_retic_rain,
         "/api/sun": get_sun,
         "/api/car": get_car,
+        "/api/lights": get_lights,
         "/api/car/history": get_car_history,
         "/api/home-assistant/status": get_home_assistant_status,
         "/api/home-assistant/entity": get_home_assistant_entity,
@@ -1666,6 +1769,8 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         "/api/retic/stop": post_retic_stop,
         "/api/retic/enabled": post_retic_enabled,
         "/api/car/mode": post_car_mode,
+        "/api/lights/power": post_lights_power,
+        "/api/lights/restart": post_lights_restart,
         "/api/car/settings": post_car_settings,
         "/api/voice/listen": post_voice_listen,
         "/api/voice/cancel": post_voice_cancel,

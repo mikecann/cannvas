@@ -15,6 +15,7 @@ import {
   Power,
   SlidersHorizontal,
   Car,
+  Sparkles,
   CloudSun,
   CloudOff,
   Droplets,
@@ -30,6 +31,7 @@ import { ReticApp } from "./apps/ReticApp";
 import { SammyCamApp } from "./apps/SammyCamApp";
 import { SammyTabletTickerApp } from "./apps/SammyTabletTickerApp";
 import { CarApp } from "./apps/CarApp";
+import { LightsApp } from "./apps/LightsApp";
 import { SolarApp } from "./apps/SolarApp";
 import { TodosApp } from "./apps/TodosApp";
 import { WhiteboardApp } from "./apps/WhiteboardApp";
@@ -62,6 +64,7 @@ type AppId =
   | "weather"
   | "solar"
   | "car"
+  | "lights"
   | "retic"
   | "home-automation"
   | "sammy-tablets"
@@ -83,6 +86,7 @@ const primaryApps = [
 const moreApps = [
   { id: "solar" as const, label: "Solar", description: "Power right now and today", icon: Sun },
   { id: "car" as const, label: "Car", description: "Battery and charging", icon: Car },
+  { id: "lights" as const, label: "Lights", description: "Christmas lights outside", icon: Sparkles },
   { id: "retic" as const, label: "Retic", description: "Water the garden", icon: Droplets },
   { id: "sammy-tablets" as const, label: "Sammy", description: "Tablet schedule", icon: Dog },
   { id: "sammy-cam" as const, label: "Sammy Cam", description: "Live view and last night", icon: Cctv },
@@ -244,6 +248,7 @@ export function App() {
               {activeApp === "weather" && <WeatherApp />}
               {activeApp === "solar" && <SolarApp />}
               {activeApp === "car" && <CarApp />}
+              {activeApp === "lights" && <LightsApp />}
               {activeApp === "retic" && <ReticApp />}
               {activeApp === "home-automation" && <HomeAutomationApp />}
               {activeApp === "sammy-tablets" && <SammyTabletTickerApp />}
