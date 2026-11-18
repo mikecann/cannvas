@@ -20,6 +20,8 @@ export function LightsApp() {
         <>
           <LightsPower lights={status} refresh={lights.refresh} />
           {status.on && <LightsStrings strings={status.strings ?? []} refresh={lights.refresh} />}
+          {/* Home Assistant's "When Sunset Turn Outside Lights On" and "Turn off Outside Lights at 10pm" automations. */}
+          <p className="lights-footnote">Comes on at sunset, off at 10pm</p>
         </>
       )}
     </section>
