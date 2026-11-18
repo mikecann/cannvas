@@ -866,7 +866,7 @@ class CannvasServerTest(unittest.TestCase):
         self.assertEqual(response.status, 200)
         lights = json.loads(body)
         self.assertEqual((lights["on"], lights["watts"]), (True, 168.2))
-        self.assertEqual([s["string"] for s in lights["strings"]], [1, 2, 4, 5, 6, 8, 9, 10])
+        self.assertEqual([s["string"] for s in lights["strings"]], [1, 2, 4, 5, 6, 7, 8, 9, 10])
         self.assertEqual(lights["strings"][0], {"string": 1, "online": True, "rssi": -52.0, "via": "extender", "playing": True, "version": "16.0.1"})
         self.assertEqual(lights["strings"][1], {"string": 2, "online": False})
         self.assertEqual(lights["strings"][2]["via"], "indoor")
