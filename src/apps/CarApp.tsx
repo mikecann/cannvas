@@ -1,4 +1,4 @@
-import { BatteryCharging, Car, Info, LoaderCircle, Minus, Plus, Power, Sun, Zap } from "lucide-react";
+import { BatteryCharging, Car, ChevronDown, Info, LoaderCircle, Minus, Plus, Power, Settings, Sun, Zap } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { CAR_MODES, CAR_SETTING_RANGES, CAR_SETTING_STEP, type CarHistory, type CarMode, type CarSettingKey, type CarStatus, carHeadline, useCar, useCarHistory } from "../lib/car";
 import { type ChargePlan, chargePlan, formatClock, formatDuration } from "../lib/carPlan";
@@ -29,7 +29,7 @@ export function CarApp() {
           <CarCharging car={car} />
           {history?.configured && <BatteryChart history={history} plan={plan} now={now} />}
           {history?.configured && <WeekChart history={history} />}
-          <CarSettings car={status} refresh={car.refresh} />
+          <AutoSettings car={status} refresh={car.refresh} />
         </>
       )}
     </section>
@@ -85,17 +85,48 @@ function ChargeEta({ plan, now }: { plan: ChargePlan; now: Date }) {
   );
 }
 
-const SETTING_ROWS: Array<{ key: CarSettingKey; label: string }> = [
-  { key: "chargeLimit", label: "Sun charging stops at" },
-  { key: "dayMinimum", label: "By day, charge anyway below" },
-  { key: "overnightBelow", label: "Top up overnight when below" },
-  { key: "overnightTarget", label: "Overnight top-up to" },
+// Each line says what Auto does with the number, for someone who didn't set it up.
+const SETTING_ROWS: Array<{ key: CarSettingKey; label: string; about: string }> = [
+  {
+    key: "chargeLimit",
+    label: "Sun charging stops at",
+    about: "When the roof makes more power than the house is using, Auto puts the spare into the car for free. It stops once the battery reaches this.",
+  },
+  {
+    key: "dayMinimum",
+    label: "By day, charge anyway below",
+    about: "Between 6am and 9pm, if the battery drops under this, Auto charges even on a cloudy day, paying for grid power, until it's back up to this.",
+  },
+  {
+    key: "overnightBelow",
+    label: "Top up overnight when below",
+    about: "If the battery is under this after 9pm, Auto charges from the grid overnight so the car isn't low in the morning.",
+  },
+  {
+    key: "overnightTarget",
+    label: "Overnight top-up to",
+    about: "Where that overnight charge stops. It also stops at 7am. The charger adds about 2.4% an hour, so a night adds about 24%.",
+  },
 ];
+
+/** The numbers Auto works from, folded away so the page is just the car and its modes. */
+function AutoSettings({ car, refresh }: { car: CarStatus; refresh: () => void | Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" className={`car-settings-toggle${open ? " is-open" : ""}`} aria-expanded={open} onClick={() => setOpen(!open)}>
+        <Settings aria-hidden="true" />Auto settings<ChevronDown className="chevron" aria-hidden="true" />
+      </button>
+      {open && <CarSettings car={car} refresh={refresh} />}
+    </>
+  );
+}
 const SETTING_PENDING_LIMIT_MS = 10_000;
 
 function CarSettings({ car, refresh }: { car: CarStatus; refresh: () => void | Promise<void> }) {
   const [pending, setPending] = useState<{ key: CarSettingKey; value: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [about, setAbout] = useState<CarSettingKey | null>(null);
   const timer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
@@ -129,23 +160,29 @@ function CarSettings({ car, refresh }: { car: CarStatus; refresh: () => void | P
 
   return (
     <div className="car-settings">
-      {SETTING_ROWS.map(({ key, label }) => {
+      {SETTING_ROWS.map(({ key, label, about: aboutText }) => {
         const saved = car.settings?.[key] ?? null;
         const value = pending?.key === key ? pending.value : saved;
         const { min, max } = CAR_SETTING_RANGES[key];
         const busy = pending != null || value == null;
         return (
-          <div key={key} className="car-setting">
-            <span>{label}</span>
+          <div key={key} className="car-setting-block">
+          <div className="car-setting">
+            <span>
+              {label}
+              <button type="button" className={`car-setting-about${about === key ? " is-open" : ""}`} aria-label={`What "${label}" does`} aria-expanded={about === key} onClick={() => setAbout(about === key ? null : key)}><Info /></button>
+            </span>
             <div className="car-stepper">
               <button aria-label={`${label}: less`} disabled={busy || value <= min} onClick={() => value != null && void change(key, value - CAR_SETTING_STEP)}><Minus /></button>
               <strong>{pending?.key === key ? <LoaderCircle className="spin" aria-hidden="true" /> : null}{value == null ? "–" : `${value}%`}</strong>
               <button aria-label={`${label}: more`} disabled={busy || value >= max} onClick={() => value != null && void change(key, value + CAR_SETTING_STEP)}><Plus /></button>
             </div>
           </div>
+          {about === key && <p className="car-chart-info">{aboutText}</p>}
+          </div>
         );
       })}
-      <small className={error ? "error" : undefined}>{error ?? "Below the daytime minimum it charges on cloudy days too. Overnight top-ups run 9pm to 7am. The charger adds about 2.4% an hour."}</small>
+      {error && <small className="error">{error}</small>}
     </div>
   );
 }

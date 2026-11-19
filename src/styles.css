@@ -1009,8 +1009,19 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .car-battery-bar .limit { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1.5px; background: var(--ink); opacity: .35; }
 .car-battery small { color: var(--muted); font-size: .85rem; font-weight: 700; }
 .car-settings { padding: 8px 22px 18px; display: flex; flex-direction: column; border: 1px solid #e2dbd0; border-radius: 22px; background: var(--paper); box-shadow: 0 8px 22px rgba(64,53,38,.06); }
-.car-setting { min-height: 84px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid #efe9df; }
-.car-setting > span { font-size: 1.15rem; font-weight: 700; }
+.car-setting-block { border-bottom: 1px solid #efe9df; }
+.car-setting-block .car-chart-info { margin: 0 0 16px; }
+.car-setting-block:last-of-type { border-bottom: 0; }
+.car-setting { min-height: 84px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.car-setting > span { display: flex; align-items: center; gap: 4px; font-size: 1.15rem; font-weight: 700; }
+.car-setting-about { width: 44px; height: 44px; flex: 0 0 auto; display: grid; place-items: center; border: 0; border-radius: 14px; color: var(--muted); background: none; cursor: pointer; }
+.car-setting-about.is-open { color: var(--ink); background: #f1ece4; }
+.car-setting-about svg { width: 20px; height: 20px; }
+.car-settings-toggle { align-self: center; min-height: 56px; padding: 0 20px; display: flex; align-items: center; gap: 10px; border: 0; border-radius: 16px; color: var(--muted); background: none; font: 700 1rem "DM Sans", sans-serif; cursor: pointer; }
+.car-settings-toggle svg { width: 20px; height: 20px; }
+.car-settings-toggle .chevron { transition: transform .2s; }
+.car-settings-toggle.is-open { color: var(--ink); }
+.car-settings-toggle.is-open .chevron { transform: rotate(180deg); }
 .car-stepper { display: flex; align-items: center; gap: 10px; }
 .car-stepper button { width: 64px; height: 64px; display: grid; place-items: center; border: 0; border-radius: 18px; color: var(--ink); background: #f1ece4; cursor: pointer; }
 .car-stepper button svg { width: 24px; height: 24px; }
