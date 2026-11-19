@@ -41,10 +41,9 @@ test("only the RUN dial position allows watering", () => {
 });
 
 test("describes the schedule days and start time", () => {
-  assert.equal(scheduleLabel([5, 2], "06:00"), "Tue and Fri at 6:00 am");
-  assert.equal(scheduleLabel([1, 3, 5], "18:30"), "Mon, Wed and Fri at 6:30 pm");
-  assert.equal(scheduleLabel([6], "12:05"), "Sat at 12:05 pm");
-  assert.equal(scheduleLabel([], null), "No days");
+  assert.equal(scheduleLabel(2, "06:00"), "Every 2 days at 6:00 am");
+  assert.equal(scheduleLabel(1, "18:30"), "Every day at 6:30 pm");
+  assert.equal(scheduleLabel(null, null), "Every few days");
 });
 
 // Monday 9 Nov 2026, 7:49 am in Perth. The next run is Wednesday at 6 am.
@@ -59,7 +58,7 @@ const ready = (extra = {}) => ({
   rainDetected: false,
   zones,
   schedule: {
-    nextRun: "2026-11-11T06:00:00+08:00", days: [3, 7], start: "06:00", skipPastMm: 3, skipForecastMm: 5, running: false,
+    nextRun: "2026-11-11T06:00:00+08:00", everyDays: 3, auto: false, start: "06:00", skipPastMm: 3, skipForecastMm: 5, running: false,
     lastResult: null, rainLast24h: 0, rainNext12h: 0,
     zones: [{ entityId: "valve.retic_back_grass_right", minutes: 15 }, { entityId: "valve.retic_back_grass_left", minutes: 15 }, { entityId: "valve.retic_front_grass", minutes: 10 }],
   },
@@ -248,14 +247,25 @@ test("turns the running schedule into a draft and spots changes to it", () => {
   const draft = scheduleDraft(ready().schedule);
   assert.deepEqual(draft, {
     start: "06:00",
+    everyDays: 3,
+    auto: false,
     zones: [{ entityId: "valve.retic_back_grass_right", minutes: 15 }, { entityId: "valve.retic_back_grass_left", minutes: 15 }, { entityId: "valve.retic_front_grass", minutes: 10 }],
   });
   assert.equal(totalMinutes(draft.zones), 40);
   assert.ok(sameSchedule(draft, structuredClone(draft)));
   assert.ok(!sameSchedule(draft, { ...draft, start: "05:45" }));
+  assert.ok(!sameSchedule(draft, { ...draft, everyDays: 2 }));
+  assert.ok(!sameSchedule(draft, { ...draft, auto: true }));
   assert.ok(!sameSchedule(draft, { ...draft, zones: [...draft.zones].reverse() }));
   assert.ok(!sameSchedule(draft, { ...draft, zones: draft.zones.slice(1) }));
   // The schedule's zones are picked the same way as the queue's: in the order they're tapped.
   const picked = editQueue(editQueue([], tapEdit([], "valve.retic_front_grass", 5), false), { action: "add", entityId: "valve.retic_back_grass_left", minutes: 15 }, false);
   assert.deepEqual(picked.map(({ entityId }) => entityId), ["valve.retic_front_grass", "valve.retic_back_grass_left"]);
+});
+
+test("with automatic amounts, rain that's already fallen doesn't skip the run", () => {
+  const auto = ready({ schedule: { ...ready().schedule, auto: true } });
+  assert.equal(predictedSkip(auto, { before: 6, after: 0 }), null);
+  assert.match(predictedSkip(auto, { before: 0, after: 8 }), /8\.0 mm of rain forecast/);
+  assert.match(predictedSkip(ready(), { before: 6, after: 0 }), /6\.0 mm of rain by then/);
 });

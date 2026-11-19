@@ -286,26 +286,45 @@ Home Assistant won't load its configuration.
   takes it out. **Stop watering** empties the queue and closes every zone. The
   schedule empties it too when it starts, and so does the master switch going
   off. The queue starts empty after a restart.
-- **Smart schedule.** `sensor.retic_next_run` holds the schedule: the start
-  time on the watering days from September to May, plus the zones in order
-  with their minutes and the rain limits. **Change schedule**, in the info
-  panel, sets the start time (4 to 8 am) and picks the zones the same way as
-  the queue: tap them in the order to water them, and leave out any to skip.
-  That's saved in `input_text.retic_schedule` (like
-  `06:00;valve.retic_back_grass_right:15,valve.retic_front_grass:10`), and the
-  sensor falls back to 6am and all five zones for anything it can't read. The
-  watering days stay in `secrets.yaml`. At run time, the `Retic scheduled watering` automation skips if the
-  rain sensor is wet, 3 mm or more fell in the last 24 hours, or 5 mm or more
-  is forecast for the next 12. It writes what happened to
-  `input_text.retic_last_result`.
+- **Smart schedule.** `sensor.retic_next_run` holds the schedule: from
+  September to May, every few days at the start time, plus the zones in order
+  with their minutes and the rain limits. The next run is that many days after
+  the last one that watered or was skipped for rain; any other skip (no rain
+  data, switched off) tries again the next day. The cog next to the master
+  switch (or **Change schedule** in the info panel) sets the start time (4 to
+  8 am), how many days apart (1 to 7), whether amounts are automatic, and picks
+  the zones the same way as the queue: tap them in the order to water them,
+  and leave out any to skip. That's saved in `input_text.retic_schedule` (like
+  `06:00;valve.retic_back_grass_right:15,valve.retic_front_grass:10;2;auto`),
+  and the sensor falls back to 6am, all five zones, every 2 days and automatic
+  amounts for anything it can't read.
+- **Automatic amounts.** `sensor.retic_dryness` keeps how many mm of water
+  each zone is short. Each day takes away that day's evaporation (Open-Meteo's
+  FAO ET0) times the zone's crop factor and adds the rain, and each finished
+  zone run (`retic_zone_watered`) puts back its minutes times the zone's
+  sprinkler rate. At run time each zone gets the minutes that put it back, up
+  to its minutes in the schedule, and a zone needing under 3 minutes waits.
+  The crop factors (0.7 for lawn, 0.5 for beds) and rates (0.6 mm a minute)
+  are estimates in the package: to measure a rate, put a few straight-sided
+  tins on the zone, run it 15 minutes and divide the average depth in mm by 15.
+- **Skips.** At run time, the `Retic scheduled watering` automation skips if
+  the rain sensor is wet, 5 mm or more is forecast for the next 12 hours, or
+  there's no rain data. With fixed amounts it also skips when 3 mm or more
+  fell in the last 24 hours, and with automatic amounts when no zone needs
+  watering. It writes what happened to `input_text.retic_last_result`.
 - **History.** Each scheduled run (watered, skipped with the reason, or stopped
   early) fires a `retic_schedule_result` event, and `sensor.retic_history`
   keeps the last 40 in its `log` attribute. It's a trigger-based template
   sensor, so the log survives restarts and outlives the recorder's ~10 days.
-- **Rain.** Two REST sensors read Open-Meteo, which needs no key and returns
-  yesterday's modelled rain along with the forecast. They use the location of
-  Home Assistant's home zone, rounded to two decimal places, kept in the
-  `retic_open_meteo_url` secret so the package holds no coordinates.
+- **Weather.** One REST sensor reads Open-Meteo, which needs no key: hourly
+  rain from a day ago to a day and a half ahead, and each day's rain and
+  evaporation for the last two weeks. It uses the location of Home
+  Assistant's home zone, rounded to two decimal places, kept in the
+  `retic_open_meteo_url` secret so the package holds no coordinates. Fetches
+  time out now and then (for 16 hours on 17-18 Nov 2026, which skipped a
+  watering), so only good ones are copied into `sensor.retic_weather`, which
+  keeps them across restarts. The rain sensors read that, and go unavailable
+  only once it's more than 6 hours old.
 
 The app opens with one line saying whether the retic will water next and
 when, or why it will skip. Under it, a graph shows daily rain for the last

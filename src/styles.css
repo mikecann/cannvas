@@ -1199,11 +1199,18 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .retic-info-card.editing { width: min(94vw, 900px); }
 .retic-edit-start { margin-top: 18px; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 14px 14px 14px 22px; border-radius: 20px; background: #f7f3ec; }
 .retic-edit-start > span { font: 700 1.6rem "Fraunces", serif; }
-.retic-edit-start .car-stepper strong { min-width: 150px; }
+.retic-edit-start .car-stepper strong { min-width: 190px; }
 .retic-info-card .retic-edit-hint { margin: 18px 0 10px; }
 .retic-edit-zones { display: flex; flex-direction: column; gap: 10px; }
 .retic-edit-zone { min-height: 112px; padding: 6px 6px 6px 22px; display: flex; align-items: center; gap: 16px; border: 1px solid #e2dbd0; border-radius: 22px; }
-.retic-edit-zone h3 { min-width: 0; flex: 1 1 auto; margin: 0; font: 700 1.75rem/1.1 "Fraunces", serif; }
+.retic-edit-zone-text { min-width: 0; flex: 1 1 auto; }
+.retic-edit-zone h3 { margin: 0; font: 700 1.75rem/1.1 "Fraunces", serif; }
+.retic-edit-zone-text small { display: block; margin-top: 4px; color: #1f6fa6; font-size: 1.05rem; font-weight: 700; }
+.retic-edit-start + .retic-edit-start { margin-top: 10px; }
+.retic-edit-choice { display: flex; padding: 5px; gap: 4px; border-radius: 18px; background: #ece5d8; }
+.retic-edit-choice button { min-width: 120px; min-height: 56px; border: 0; border-radius: 14px; color: var(--muted); background: transparent; font-size: 1.2rem; font-weight: 800; cursor: pointer; }
+.retic-edit-choice button.on { color: var(--ink); background: var(--paper); box-shadow: 0 2px 8px rgba(0,0,0,.1); }
+.retic-edit-choice button:disabled { cursor: default; }
 .retic-edit-zone.left-out h3 { color: var(--muted); }
 .retic-edit-zone .retic-run { min-height: 92px; width: 104px; }
 .retic-info-card .retic-edit-summary { margin: 16px 0 6px; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--ink); font-size: 1.35rem; font-weight: 700; }

@@ -40,43 +40,59 @@ input_text:
     name: Retic schedule
     max: 255
 
-# Rain from Open-Meteo, which needs no key and returns yesterday's modelled rain
-# with the forecast in one call. Each hourly value is the rain in the hour
-# before that time. The URL, with the home location rounded to two decimal
-# places (about 1 km), is in secrets.yaml. It used to be built from zone.home,
-# but REST sensors set up before zone.home exists at startup, so the template
-# failed and both sensors sat unavailable from 25 Oct 2026 until 1 Nov. In
-# secrets.yaml, with your own rounded coordinates:
+# Weather from Open-Meteo, which needs no key: hourly rain from a day ago to a
+# day and a half ahead, and each day's rain and evaporation (FAO ET0) for the
+# last two weeks and the next few days. Each hourly value is the rain in the
+# hour before that time. The URL, with the home location rounded to two
+# decimal places (about 1 km), is in secrets.yaml. In secrets.yaml, with your
+# own rounded coordinates:
 #
-#   retic_open_meteo_url: "https://api.open-meteo.com/v1/forecast?latitude=-31.95&longitude=115.86&hourly=precipitation&past_days=1&forecast_days=2&timezone=Australia%2FPerth"
+#   retic_open_meteo_url: "https://api.open-meteo.com/v1/forecast?latitude=-31.95&longitude=115.86&hourly=precipitation&daily=precipitation_sum,et0_fao_evapotranspiration&past_days=14&forecast_days=3&past_hours=24&forecast_hours=36&timezone=Australia%2FPerth"
+#
+# A fetch now and then times out (16 hours of them on 17-18 Nov 2026, which
+# skipped that morning's watering for want of rain data), so the raw fetch is
+# only copied into sensor.retic_weather when it worked, and everything reads
+# that. Readings stay usable for 6 hours after the last good fetch.
 rest:
   - resource: !secret retic_open_meteo_url
     scan_interval: 1800
-    timeout: 20
+    timeout: 30
     sensor:
-      - name: Retic rain last 24h
-        unique_id: retic_rain_last_24h
-        unit_of_measurement: mm
-        device_class: precipitation
-        state_class: measurement
-        value_template: >
-          {% set times = value_json.hourly.time %}
-          {% set rain = value_json.hourly.precipitation %}
-          {% set i = times.index(now().strftime('%Y-%m-%dT%H:00')) %}
-          {% set first = [i - 23, 0] | max %}
-          {{ rain[first:i + 1] | reject('none') | sum | round(1) }}
-      - name: Retic rain next 12h
-        unique_id: retic_rain_next_12h
-        unit_of_measurement: mm
-        device_class: precipitation
-        state_class: measurement
-        value_template: >
-          {% set times = value_json.hourly.time %}
-          {% set rain = value_json.hourly.precipitation %}
-          {% set i = times.index(now().strftime('%Y-%m-%dT%H:00')) %}
-          {{ rain[i + 1:i + 13] | reject('none') | sum | round(1) }}
+      - name: Retic weather fetch
+        unique_id: retic_weather_fetch
+        icon: mdi:cloud-download
+        value_template: >-
+          {{ now().isoformat() if value_json.hourly is defined and value_json.daily is defined else none }}
+        json_attributes:
+          - hourly
+          - daily
 
 template:
+  # The last good fetch, kept across restarts. Its state is when it was fetched.
+  - triggers:
+      - trigger: state
+        entity_id: sensor.retic_weather_fetch
+    conditions:
+      - condition: template
+        value_template: >
+          {{ trigger.to_state is not none
+             and as_datetime(trigger.to_state.state, none) is not none
+             and trigger.to_state.attributes.hourly is mapping
+             and trigger.to_state.attributes.daily is mapping
+             and trigger.to_state.attributes.hourly.time is defined
+             and trigger.to_state.attributes.daily.et0_fao_evapotranspiration is defined }}
+    sensor:
+      - name: Retic weather
+        unique_id: retic_weather
+        icon: mdi:weather-rainy
+        device_class: timestamp
+        state: "{{ trigger.to_state.state }}"
+        attributes:
+          hourly: "{{ trigger.to_state.attributes.hourly }}"
+          daily: "{{ trigger.to_state.attributes.daily }}"
+
+  # Rain either side of now, from the last good fetch. Unavailable when that's
+  # more than 6 hours old, and the schedule skips rather than guess.
   - triggers:
       - trigger: homeassistant
         event: start
@@ -84,37 +100,152 @@ template:
         event_type: event_template_reloaded
       - trigger: time_pattern
         minutes: /5
-      # A change from Cannvas shows straight away.
       - trigger: state
-        entity_id: input_text.retic_schedule
-    # The schedule: from 1 September to 31 May, on the watering days. Those
-    # are ISO weekdays (1 is Monday) kept in secrets.yaml, for example
-    # `retic_watering_days: [2, 5]` for Tuesday and Friday. Home Assistant
-    # won't load its configuration until that secret exists. The start time
-    # and the zones, in order with their minutes, come from
+        entity_id: sensor.retic_weather
+    sensor:
+      - name: Retic rain last 24h
+        unique_id: retic_rain_last_24h_saved
+        unit_of_measurement: mm
+        device_class: precipitation
+        state_class: measurement
+        availability: >
+          {% set w = states.sensor.retic_weather %}
+          {% set at = as_datetime(w.state, none) if w is not none else none %}
+          {{ at is not none and now() - at < timedelta(hours=6)
+             and w.attributes.hourly is mapping
+             and now().strftime('%Y-%m-%dT%H:00') in w.attributes.hourly.time }}
+        state: >
+          {% set hourly = state_attr('sensor.retic_weather', 'hourly') %}
+          {% set i = hourly.time.index(now().strftime('%Y-%m-%dT%H:00')) %}
+          {{ hourly.precipitation[[i - 23, 0] | max:i + 1] | reject('none') | sum | round(1) }}
+      - name: Retic rain next 12h
+        unique_id: retic_rain_next_12h_saved
+        unit_of_measurement: mm
+        device_class: precipitation
+        state_class: measurement
+        availability: >
+          {% set w = states.sensor.retic_weather %}
+          {% set at = as_datetime(w.state, none) if w is not none else none %}
+          {{ at is not none and now() - at < timedelta(hours=6)
+             and w.attributes.hourly is mapping
+             and now().strftime('%Y-%m-%dT%H:00') in w.attributes.hourly.time }}
+        state: >
+          {% set hourly = state_attr('sensor.retic_weather', 'hourly') %}
+          {% set i = hourly.time.index(now().strftime('%Y-%m-%dT%H:00')) %}
+          {{ hourly.precipitation[i + 1:i + 13] | reject('none') | sum | round(1) }}
+
+  # How dry each zone has got, in mm of water it's short. Each day the ground
+  # loses that day's evaporation times the zone's crop factor, and gains the
+  # rain. Watering a zone puts back its minutes times its sprinkler rate. It
+  # never goes below 0 (the extra drains away) or above 40.
+  #
+  # The state is the last day counted. Just after midnight (or after a restart)
+  # it counts every finished day since, from the saved daily weather, so a day
+  # missed while Home Assistant was down still counts. A new sensor starts 4
+  # days back, as if fully watered then.
+  #
+  # The crop factors and sprinkler rates are estimates. To measure a zone's
+  # rate, put a few straight-sided tins on it, run it 15 minutes, and divide
+  # the average depth of water in mm by 15.
+  - triggers:
+      - trigger: homeassistant
+        event: start
+      - trigger: event
+        event_type: event_template_reloaded
+      - trigger: time
+        at: "00:10:00"
+      - trigger: state
+        entity_id: sensor.retic_weather
+      - trigger: event
+        event_type: retic_zone_watered
+        id: watered
+    variables:
+      setup:
+        valve.retic_back_grass_right: { crop: 0.7, rate: 0.6 }
+        valve.retic_back_grass_left: { crop: 0.7, rate: 0.6 }
+        valve.retic_back_flower_beds: { crop: 0.5, rate: 0.6 }
+        valve.retic_front_garden_beds: { crop: 0.5, rate: 0.6 }
+        valve.retic_front_grass: { crop: 0.7, rate: 0.6 }
+      most_mm: 40
+    sensor:
+      - name: Retic dryness
+        unique_id: retic_dryness
+        icon: mdi:water-percent
+        # The last day counted, like 2026-11-19.
+        state: >
+          {% set daily = state_attr('sensor.retic_weather', 'daily') %}
+          {% set yesterday = (now().date() - timedelta(days=1)).isoformat() %}
+          {% set old = this.state if this.state is match('[0-9]{4}-[0-9]{2}-[0-9]{2}$') else (now().date() - timedelta(days=5)).isoformat() %}
+          {{ yesterday if daily is mapping and yesterday in daily.time and old < yesterday else old }}
+        attributes:
+          setup: "{{ setup }}"
+          # Each zone's mm short.
+          short: >
+            {% set daily = state_attr('sensor.retic_weather', 'daily') %}
+            {% set yesterday = (now().date() - timedelta(days=1)).isoformat() %}
+            {% set old = this.state if this.state is match('[0-9]{4}-[0-9]{2}-[0-9]{2}$') else (now().date() - timedelta(days=5)).isoformat() %}
+            {% set before = this.attributes.short if this.attributes.short is defined and this.attributes.short is mapping else {} %}
+            {% set ns = namespace(out={}, mm=0) %}
+            {% for zone, zone_setup in setup.items() %}
+              {% set ns.mm = before[zone] | default(0) | float(0) %}
+              {% if daily is mapping and old < yesterday %}
+                {% for day in daily.time if day > old and day <= yesterday %}
+                  {% set i = daily.time.index(day) %}
+                  {% set lost = (daily.et0_fao_evapotranspiration[i] or 0) * zone_setup.crop %}
+                  {% set ns.mm = [[ns.mm + lost - (daily.precipitation_sum[i] or 0), 0] | max, most_mm] | min %}
+                {% endfor %}
+              {% endif %}
+              {% if trigger.id == 'watered' and trigger.event.data.zone == zone %}
+                {% set ns.mm = [ns.mm - (trigger.event.data.minutes | float(0)) * zone_setup.rate, 0] | max %}
+              {% endif %}
+              {% set ns.out = dict(ns.out, **{zone: ns.mm | round(1)}) %}
+            {% endfor %}
+            {{ ns.out }}
+
+  - triggers:
+      - trigger: homeassistant
+        event: start
+      - trigger: event
+        event_type: event_template_reloaded
+      - trigger: time_pattern
+        minutes: /5
+      # A change from Cannvas, or a run logged, shows straight away.
+      - trigger: state
+        entity_id:
+          - input_text.retic_schedule
+          - sensor.retic_history
+    # The schedule: from 1 September to 31 May, every few days at the start
+    # time. The start time, the zones in order with their minutes, how many
+    # days apart and whether amounts are automatic all come from
     # input_text.retic_schedule, which Cannvas sets.
     variables:
-      days: !secret retic_watering_days
       off_months: [6, 7, 8]
       default_start: "06:00"
       default_zones: "valve.retic_back_grass_right:15,valve.retic_back_grass_left:15,valve.retic_back_flower_beds:10,valve.retic_front_garden_beds:10,valve.retic_front_grass:15"
+      default_every: 2
       saved: "{{ states('input_text.retic_schedule') }}"
+      parts: "{{ saved.split(';') if ';' in saved else [] }}"
       start: >-
-        {% set text = saved.split(';')[0] if ';' in saved else '' %}
+        {% set text = parts[0] if parts | length > 0 else '' %}
         {{ text if text is match('([01][0-9]|2[0-3]):[0-5][0-9]$') else default_start }}
       # Each zone once, 1 to 15 minutes (the WX8's own limit for a manual run).
+      # With automatic amounts, these are the most each zone gets.
       zones: >-
-        {% set text = saved.split(';')[1] if ';' in saved else '' %}
+        {% set text = parts[1] if parts | length > 1 else '' %}
         {% set items = text.split(',') | select('match', 'valve\\.retic_[a-z0-9_]+:([1-9]|1[0-5])$') | list %}
         {% set ns = namespace(out=[], seen=[]) %}
         {% for item in (items or default_zones.split(',')) %}
-          {% set parts = item.split(':') %}
-          {% if parts[0] not in ns.seen %}
-            {% set ns.seen = ns.seen + [parts[0]] %}
-            {% set ns.out = ns.out + [{'entity': parts[0], 'minutes': parts[1] | int}] %}
+          {% set bits = item.split(':') %}
+          {% if bits[0] not in ns.seen %}
+            {% set ns.seen = ns.seen + [bits[0]] %}
+            {% set ns.out = ns.out + [{'entity': bits[0], 'minutes': bits[1] | int}] %}
           {% endif %}
         {% endfor %}
         {{ ns.out }}
+      every: >-
+        {% set text = parts[2] if parts | length > 2 else '' %}
+        {{ text | int if text is match('[1-7]$') else default_every }}
+      auto: "{{ (parts[3] if parts | length > 3 else 'auto') != 'fixed' }}"
       # Skip when the grass is likely wet already, or about to be.
       skip_past_mm: 3
       skip_forecast_mm: 5
@@ -123,21 +254,31 @@ template:
         unique_id: retic_next_run
         device_class: timestamp
         icon: mdi:calendar-clock
+        # The last run that watered, or was skipped for rain, sets the next
+        # one `every` days later. A run skipped for any other reason (no rain
+        # data, switched off) tries again the next day. Today's run is kept
+        # for a few minutes past its start, so the sensor doesn't move on
+        # before the automation's time trigger fires.
         state: >
+          {% set log = state_attr('sensor.retic_history', 'log') %}
+          {% set entries = log if log is not string and log is iterable else [] %}
+          {% set done = entries | selectattr('result', 'in', ['watered', 'stopped']) | list
+             + entries | selectattr('result', 'eq', 'skipped') | selectattr('wet', 'defined') | selectattr('wet') | list %}
+          {% set last = done | map(attribute='at') | map('as_datetime', none) | reject('none') | map('as_local') | max if done else none %}
           {% set ns = namespace(next=none) %}
           {% for day in range(0, 120) %}
             {% set at = today_at(start) + timedelta(days=day) %}
-            {# Keep today's run for a few minutes past its start, so the sensor
-               doesn't move on before the automation's time trigger fires. #}
-            {% if ns.next is none and at + timedelta(minutes=5) > now() and at.isoweekday() in days and at.month not in off_months %}
+            {% if ns.next is none and at + timedelta(minutes=5) > now() and at.month not in off_months
+                  and (last is none or (at.date() - last.date()).days >= every) %}
               {% set ns.next = at %}
             {% endif %}
           {% endfor %}
           {{ ns.next.isoformat() if ns.next else none }}
         attributes:
-          days: "{{ days }}"
           start: "{{ start }}"
           zones: "{{ zones }}"
+          every: "{{ every }}"
+          auto: "{{ auto }}"
           skip_past_mm: "{{ skip_past_mm }}"
           skip_forecast_mm: "{{ skip_forecast_mm }}"
 
@@ -165,6 +306,7 @@ template:
               'minutes': data.minutes | default(none),
               'rainBefore': data.rain_before | default(none),
               'rainAfter': data.rain_after | default(none),
+              'wet': data.wet | default(false) in [true, 'true', 'True'],
             } %}
             {% if old and old[-1].at == entry.at %}
               {% set old = old[:-1] %}
@@ -231,6 +373,12 @@ script:
       - action: valve.close_valve
         target:
           entity_id: "{{ zone }}"
+      # For sensor.retic_dryness. A run cut short doesn't count, so the zone
+      # looks drier than it is and gets a little more next time.
+      - event: retic_zone_watered
+        event_data:
+          zone: "{{ zone }}"
+          minutes: "{{ run_minutes }}"
 
   retic_queue:
     alias: Retic queue
@@ -347,9 +495,12 @@ script:
         description: Rain in the 24 hours before, in mm.
       ahead:
         description: Rain forecast for the 12 hours after, in mm.
+      zones:
+        description: The zones to water in order, each {entity, minutes}. Leave out for the schedule's own minutes.
     sequence:
       - variables:
-          planned: "{{ (state_attr('sensor.retic_next_run', 'zones') or []) | map(attribute='minutes') | map('int', 0) | sum }}"
+          plan: "{{ zones if zones is defined and zones is not string and zones is iterable else (state_attr('sensor.retic_next_run', 'zones') or []) }}"
+          planned: "{{ plan | map(attribute='minutes') | map('int', 0) | sum }}"
           logged: "{{ started is defined and started is string and started != '' }}"
       # The schedule takes over from zones queued by hand, the way a run by
       # hand takes over from the schedule. Both running would fight over
@@ -379,7 +530,7 @@ script:
               rain_before: "{{ past }}"
               rain_after: "{{ ahead }}"
       - repeat:
-          for_each: "{{ state_attr('sensor.retic_next_run', 'zones') or [] }}"
+          for_each: "{{ plan }}"
           sequence:
             - if:
                 - condition: state
@@ -457,35 +608,61 @@ automation:
       - variables:
           when: "{{ now().strftime('%a %-d %b, %-I:%M %p') }}"
           started: "{{ now().isoformat() }}"
-      # The rain sensors refresh every 30 minutes, so their windows could be
+      # The weather refreshes every 30 minutes, so the rain windows could be
       # an hour behind. Refreshing now makes them end at this hour, the same
       # windows the Cannvas page predicts with. The refresh can return before
       # the new numbers arrive (a fetch already under way), so wait for them,
-      # and fall back to the last ones if Open-Meteo is slow.
+      # and fall back to the last good ones if Open-Meteo is slow or down.
       - action: homeassistant.update_entity
         continue_on_error: true
         target:
-          entity_id: sensor.retic_rain_last_24h
+          entity_id: sensor.retic_weather_fetch
       - wait_template: >
-          {{ states.sensor.retic_rain_last_24h is not none
-             and states.sensor.retic_rain_last_24h.last_reported >= as_datetime(started) }}
-        timeout: "00:00:30"
+          {{ states.sensor.retic_weather is not none
+             and states.sensor.retic_weather.last_changed >= as_datetime(started) }}
+        timeout: "00:00:45"
         continue_on_timeout: true
+      # Let the rain sensors take in the new numbers.
+      - delay:
+          seconds: 2
       - variables:
           past: "{{ states('sensor.retic_rain_last_24h') | float(none) }}"
           ahead: "{{ states('sensor.retic_rain_next_12h') | float(none) }}"
           past_limit: "{{ state_attr('sensor.retic_next_run', 'skip_past_mm') | float(3) }}"
           ahead_limit: "{{ state_attr('sensor.retic_next_run', 'skip_forecast_mm') | float(5) }}"
-          reason: >
-            {% if is_state('input_boolean.retic_enabled', 'off') %}the retic is switched off
-            {% elif states.valve | selectattr('entity_id', 'match', 'valve\.retic_') | selectattr('state', 'in', ['unknown', 'unavailable']) | list %}Home Assistant can't read every zone
-            {% elif is_state('binary_sensor.retic_rain_sensor', 'on') %}the rain sensor is wet
+          auto: "{{ state_attr('sensor.retic_next_run', 'auto') in [true, 'true', 'True'] }}"
+          # With automatic amounts, each zone gets what it's short (see
+          # sensor.retic_dryness), up to its minutes in the schedule. A zone
+          # needing under 3 minutes waits for next time.
+          plan: >
+            {% set short = state_attr('sensor.retic_dryness', 'short') %}
+            {% set setup = state_attr('sensor.retic_dryness', 'setup') %}
+            {% set ns = namespace(out=[]) %}
+            {% for zone in state_attr('sensor.retic_next_run', 'zones') or [] %}
+              {% if not auto %}
+                {% set ns.out = ns.out + [zone] %}
+              {% elif short is mapping and setup is mapping and zone.entity in short and zone.entity in setup %}
+                {% set minutes = [(short[zone.entity] / setup[zone.entity].rate) | round(0, 'ceil') | int, zone.minutes] | min %}
+                {% if minutes >= 3 %}{% set ns.out = ns.out + [{'entity': zone.entity, 'minutes': minutes}] %}{% endif %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.out }}
+          # wet: skipped because the garden doesn't need it, so the next run is
+          # the usual number of days away. Any other skip tries again tomorrow.
+          skip: >
+            {% if is_state('input_boolean.retic_enabled', 'off') %}{{ {'reason': 'the retic is switched off'} }}
+            {% elif states.valve | selectattr('entity_id', 'match', 'valve\.retic_') | selectattr('state', 'in', ['unknown', 'unavailable']) | list %}{{ {'reason': "Home Assistant can't read every zone"} }}
+            {% elif is_state('binary_sensor.retic_rain_sensor', 'on') %}{{ {'reason': 'the rain sensor is wet', 'wet': true} }}
             {# Fail closed: a missed watering is cheap, watering after heavy rain isn't,
                and the skip reason shows in Cannvas so a dead feed gets noticed. #}
-            {% elif past is none or ahead is none %}there's no rain data
-            {% elif past is not none and past >= past_limit %}{{ past }} mm of rain in the last 24 hours
-            {% elif ahead is not none and ahead >= ahead_limit %}{{ ahead }} mm of rain forecast in the next 12 hours
+            {% elif past is none or ahead is none %}{{ {'reason': "there's no rain data"} }}
+            {% elif auto and states('sensor.retic_dryness') in ['unknown', 'unavailable'] %}{{ {'reason': "Home Assistant doesn't know how dry it is"} }}
+            {% elif not auto and past >= past_limit %}{{ {'reason': past ~ ' mm of rain in the last 24 hours', 'wet': true} }}
+            {% elif ahead >= ahead_limit %}{{ {'reason': ahead ~ ' mm of rain forecast in the next 12 hours', 'wet': true} }}
+            {% elif plan | length == 0 %}{{ {'reason': "nothing's dry enough to need it", 'wet': true} }}
+            {% else %}{{ {} }}
             {% endif %}
+          reason: "{{ skip.reason | default('') }}"
       - if:
           - condition: template
             value_template: "{{ reason | trim != '' }}"
@@ -500,6 +677,7 @@ automation:
               at: "{{ started }}"
               result: skipped
               reason: "{{ reason | trim }}"
+              wet: "{{ skip.wet | default(false) }}"
               rain_before: "{{ past }}"
               rain_after: "{{ ahead }}"
           - stop: Skipped
@@ -509,6 +687,7 @@ automation:
           when: "{{ when }}"
           past: "{{ past }}"
           ahead: "{{ ahead }}"
+          zones: "{{ plan }}"
 
   # A scheduled run that never reached the end of retic_run_schedule: switched
   # off, Stop pressed, another zone started, or Home Assistant restarted. Its

@@ -10,8 +10,10 @@ export type ReticZone = {
 export type ReticSchedule = {
   /** ISO time of the next scheduled watering, or null outside the season. */
   nextRun: string | null;
-  /** ISO weekdays, Monday = 1. */
-  days: number[];
+  /** How many days apart runs are: the next is this many days after the last that watered or was skipped for rain. */
+  everyDays: number | null;
+  /** Each zone gets what rain and evaporation say it's short, up to its minutes. */
+  auto: boolean;
   /** Local start time, like "06:00". */
   start: string | null;
   skipPastMm: number | null;
@@ -58,6 +60,8 @@ export type ReticStatus = {
   batteryVolts?: number | null;
   mainsProblem?: boolean | null;
   history?: ReticRun[];
+  /** How many mm of water each zone is short, and the minutes that would put it back. */
+  dryness?: { entityId: string; shortMm: number; minutes: number }[];
 };
 
 export type ReticQueueItem = { entityId: string; minutes: number };
@@ -125,8 +129,6 @@ export function dialBlocksWatering(dial: string | null | undefined): boolean {
   return dial != null && dial.toLowerCase() !== "run";
 }
 
-const DAY_NAMES = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
 /** "6:00 am" from "06:00", or null if it isn't a time. Past midnight wraps round. */
 export function startLabel(start: string | null, addMinutes = 0): string | null {
   const [hours, minutes] = (start ?? "").split(":").map(Number);
@@ -136,27 +138,34 @@ export function startLabel(start: string | null, addMinutes = 0): string | null 
   return `${hour % 12 || 12}:${String(total % 60).padStart(2, "0")} ${hour < 12 ? "am" : "pm"}`;
 }
 
-/** "Tue and Fri at 6:00 am" from ISO weekdays and a "06:00" start. */
-export function scheduleLabel(days: number[], start: string | null): string {
-  const names = [...days].sort((left, right) => left - right).map((day) => DAY_NAMES[day]).filter(Boolean);
-  const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0] ?? "No days";
-  const time = startLabel(start);
-  return time ? `${list} at ${time}` : list;
+/** "Every day", "Every 2 days". */
+export function everyLabel(days: number | null): string {
+  return days === 1 ? "Every day" : `Every ${days ?? "few"} days`;
 }
 
-/** A schedule being changed on the page: when it starts, and the zones in the order they water. */
-export type ReticScheduleDraft = { start: string; zones: ReticQueueItem[] };
+/** "Every 2 days at 6:00 am". */
+export function scheduleLabel(everyDays: number | null, start: string | null): string {
+  const time = startLabel(start);
+  return time ? `${everyLabel(everyDays)} at ${time}` : everyLabel(everyDays);
+}
+
+/** A schedule being changed on the page: when and how often it runs, how much, and the zones in the order they water. */
+export type ReticScheduleDraft = { start: string; everyDays: number; auto: boolean; zones: ReticQueueItem[] };
 
 /** The schedule Home Assistant is running, as a draft to change. */
 export function scheduleDraft(schedule: ReticSchedule | undefined): ReticScheduleDraft {
   return {
     start: schedule?.start ?? "06:00",
+    everyDays: schedule?.everyDays ?? 2,
+    auto: schedule?.auto ?? true,
     zones: (schedule?.zones ?? []).flatMap(({ entityId, minutes }) => (minutes == null ? [] : [{ entityId, minutes }])),
   };
 }
 
 export function sameSchedule(left: ReticScheduleDraft, right: ReticScheduleDraft): boolean {
   return left.start === right.start
+    && left.everyDays === right.everyDays
+    && left.auto === right.auto
     && left.zones.length === right.zones.length
     && left.zones.every((zone, index) => zone.entityId === right.zones[index].entityId && zone.minutes === right.zones[index].minutes);
 }
@@ -209,7 +218,8 @@ export function predictedSkip(
   if (schedule && (schedule.rainLast24h == null || schedule.rainNext12h == null)) return "Home Assistant has no rain data";
   const pastLimit = schedule?.skipPastMm ?? 3;
   const forecastLimit = schedule?.skipForecastMm ?? 5;
-  if (runRain && runRain.before >= pastLimit) return `${formatMm(runRain.before)} of rain by then`;
+  // With automatic amounts, rain that's already fallen just means less watering.
+  if (runRain && !schedule?.auto && runRain.before >= pastLimit) return `${formatMm(runRain.before)} of rain by then`;
   if (runRain && runRain.after >= forecastLimit) return `${formatMm(runRain.after)} of rain forecast that morning`;
   return null;
 }

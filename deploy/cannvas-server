@@ -11,6 +11,7 @@ from __future__ import annotations
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from http.cookiejar import CookieJar
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -607,10 +608,16 @@ RETIC_ZONES = (
 )
 RETIC_ZONE_IDS = {entity for _, entity, _ in RETIC_ZONES}
 RETIC_RUN_MINUTES = (5, 10, 15)
-# The schedule's start time and zones in order, set from the Retic page as
-# "06:00;valve.retic_x:15,valve.retic_y:10". Home Assistant falls back to its
-# own defaults for anything it can't read.
+# The schedule, set from the Retic page as
+# "06:00;valve.retic_x:15,valve.retic_y:10;2;auto": the start time, the zones
+# in order with their minutes, how many days apart, and whether amounts are
+# automatic (the minutes are then the most each zone gets). Home Assistant
+# falls back to its own defaults for anything it can't read.
 RETIC_SCHEDULE_SETTING = "input_text.retic_schedule"
+RETIC_EVERY_DAYS = range(1, 8)
+# How many mm of water each zone is short, from rain and evaporation, kept by
+# the Home Assistant package for automatic amounts.
+RETIC_DRYNESS = "sensor.retic_dryness"
 # Early-morning starts every 15 minutes, so even all five zones at 15 minutes
 # finish before 9:30 am.
 RETIC_START_TIMES = tuple(f"{minutes // 60:02d}:{minutes % 60:02d}" for minutes in range(4 * 60, 8 * 60 + 1, 15))
@@ -693,6 +700,22 @@ def retic_schedule_zones(zones: Any) -> list[dict[str, Any]]:
     ]
 
 
+def retic_dryness(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """Each zone's mm short, and the minutes that would put it back, rounded up."""
+    attributes = state.get("attributes") if isinstance(state.get("attributes"), dict) else {}
+    short = attributes.get("short") if isinstance(attributes.get("short"), dict) else {}
+    setup = attributes.get("setup") if isinstance(attributes.get("setup"), dict) else {}
+    zones = []
+    for _, entity_id, _ in RETIC_ZONES:
+        mm = number(short.get(entity_id))
+        zone_setup = setup.get(entity_id) if isinstance(setup.get(entity_id), dict) else {}
+        rate = number(zone_setup.get("rate"))
+        if mm is None or rate is None or rate <= 0:
+            continue
+        zones.append({"entityId": entity_id, "shortMm": mm, "minutes": math.ceil(round(mm / rate, 6))})
+    return zones
+
+
 def retic_queue(state: dict[str, Any]) -> list[dict[str, Any]]:
     """The queue's "valve.retic_x:15,valve.retic_y:5" text, keeping only real zones."""
     queue = []
@@ -726,7 +749,8 @@ def retic_status(config: dict[str, str]) -> dict[str, Any]:
 
     next_run = by_id.get(RETIC_NEXT_RUN) or {}
     schedule_attributes = next_run.get("attributes") if isinstance(next_run.get("attributes"), dict) else {}
-    days = schedule_attributes.get("days")
+    every = number(schedule_attributes.get("every"))
+    auto = schedule_attributes.get("auto")
     return {
         "configured": True,
         "enabled": on_off(by_id.get(RETIC_ENABLED) or {}),
@@ -745,7 +769,8 @@ def retic_status(config: dict[str, str]) -> dict[str, Any]:
         "mainsProblem": on_off(sensors["mainsProblem"]),
         "schedule": {
             "nextRun": known_state(next_run),
-            "days": [day for day in days if type(day) is int] if isinstance(days, list) else [],
+            "everyDays": int(every) if every is not None and every in RETIC_EVERY_DAYS else None,
+            "auto": auto is True or auto in {"true", "True"},
             "start": schedule_attributes.get("start") if isinstance(schedule_attributes.get("start"), str) else None,
             "skipPastMm": number(schedule_attributes.get("skip_past_mm")),
             "skipForecastMm": number(schedule_attributes.get("skip_forecast_mm")),
@@ -757,6 +782,7 @@ def retic_status(config: dict[str, str]) -> dict[str, Any]:
             "rainNext12h": number(known_state(sensors["rainNext12h"])),
         },
         "history": retic_history(by_id.get(RETIC_HISTORY) or {}),
+        "dryness": retic_dryness(by_id.get(RETIC_DRYNESS) or {}),
     }
 
 
@@ -831,7 +857,13 @@ def retic_schedule_setting(body: dict[str, Any]) -> str:
         if any(item.startswith(f"{entity_id}:") for item in items):
             raise ValueError("Each zone can only be in the schedule once")
         items.append(f"{entity_id}:{minutes}")
-    return f"{start};{','.join(items)}"
+    every = body.get("everyDays")
+    if type(every) is not int or every not in RETIC_EVERY_DAYS:
+        raise ValueError("Choose every 1 to 7 days")
+    auto = body.get("auto")
+    if type(auto) is not bool:
+        raise ValueError("Expected auto to be true or false")
+    return f"{start};{','.join(items)};{every};{'auto' if auto else 'fixed'}"
 
 
 def retic_zone(body: dict[str, Any]) -> str:

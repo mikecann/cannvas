@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { errorText, readJsonResponse } from "../lib/http";
 import {
   editQueue,
+  everyLabel,
   formatMm,
   minutesLeftLabel,
   perthDate,
@@ -449,13 +450,21 @@ function ScheduleInfo({ retic, rain, refresh, startEditing, onClose }: {
       <section className={`dialog-card retic-info-card${editing ? " editing" : ""}`} role="dialog" aria-modal="true" aria-labelledby="retic-info-title" onPointerDown={(event) => event.stopPropagation()}>
         {editing ? <ScheduleEditor retic={retic} refresh={refresh} onDone={startEditing ? onClose : () => setEditing(false)} /> : (
           <>
-            <h2 id="retic-info-title">{schedule ? scheduleLabel(schedule.days, schedule.start) : "No schedule"}</h2>
+            <h2 id="retic-info-title">{schedule ? scheduleLabel(schedule.everyDays, schedule.start) : "No schedule"}</h2>
             <p>
-              September to May: {order.map(({ entityId, minutes }, index) => `${index === 0 ? "" : "then "}${(names.get(entityId) ?? entityId).toLowerCase()} for ${minutes ?? "?"} min`).join(", ")}.
-              {order.length > 0 && ` ${totalMinutes(order)} min in all.`}
+              September to May: {order.map(({ entityId, minutes }, index) => `${index === 0 ? "" : "then "}${(names.get(entityId) ?? entityId).toLowerCase()} for ${schedule?.auto ? "up to " : ""}${minutes ?? "?"} min`).join(", ")}.
+              {schedule?.auto
+                ? " Each zone gets what rain and evaporation say it's short, so it waters less after rain and more when it's hot."
+                : order.length > 0 && ` ${totalMinutes(order)} min in all.`}
             </p>
+            {schedule?.auto && (retic.dryness ?? []).length > 0 && (
+              <p>
+                <strong>Right now:</strong>{" "}
+                {(retic.dryness ?? []).map(({ entityId, minutes }) => `${(names.get(entityId) ?? entityId).toLowerCase()} ${minutes < 3 ? "is fine" : `needs ${minutes} min`}`).join(", ")}.
+              </p>
+            )}
             <p>
-              It skips when {schedule?.skipPastMm ?? 3} mm or more fell in the 24 hours before, {schedule?.skipForecastMm ?? 5} mm or more is
+              It skips when {schedule?.auto ? "" : `${schedule?.skipPastMm ?? 3} mm or more fell in the 24 hours before, `}{schedule?.skipForecastMm ?? 5} mm or more is
               forecast for the 12 hours after, or the rain sensor is wet. Home Assistant decides at the start time.
             </p>
             <dl>
@@ -490,6 +499,7 @@ function ScheduleEditor({ retic, refresh, onDone }: { retic: ReticStatus; refres
   const at = times.indexOf(draft.start);
   const minutes = totalMinutes(draft.zones);
   const busy = saving != null;
+  const needs = new Map((retic.dryness ?? []).map(({ entityId, minutes: needed }) => [entityId, needed]));
 
   useEffect(() => {
     if (saving && sameSchedule(saving, saved)) onDone();
@@ -540,13 +550,35 @@ function ScheduleEditor({ retic, refresh, onDone }: { retic: ReticStatus; refres
           <button aria-label="Later" disabled={busy || at === times.length - 1} onClick={() => step(1)}><Plus /></button>
         </div>
       </div>
-      <p className="retic-edit-hint">Tap zones in the order to water them.</p>
+      <div className="retic-edit-start">
+        <span>Waters</span>
+        <div className="car-stepper">
+          <button aria-label="More often" disabled={busy || draft.everyDays <= 1} onClick={() => setDraft({ ...draft, everyDays: draft.everyDays - 1 })}><Minus /></button>
+          <strong>{everyLabel(draft.everyDays).toLowerCase()}</strong>
+          <button aria-label="Less often" disabled={busy || draft.everyDays >= 7} onClick={() => setDraft({ ...draft, everyDays: draft.everyDays + 1 })}><Plus /></button>
+        </div>
+      </div>
+      <div className="retic-edit-start">
+        <span>Amounts</span>
+        <div className="retic-edit-choice" role="radiogroup" aria-label="Amounts">
+          {([[true, "Auto"], [false, "Fixed"]] as const).map(([value, label]) => (
+            <button key={label} role="radio" aria-checked={draft.auto === value} className={draft.auto === value ? "on" : ""} disabled={busy} onClick={() => setDraft({ ...draft, auto: value })}>{label}</button>
+          ))}
+        </div>
+      </div>
+      <p className="retic-edit-hint">
+        Tap zones in the order to water them.
+        {draft.auto && " Auto waters what rain hasn't, up to these times."}
+      </p>
       <div className="retic-edit-zones">
         {(retic.zones ?? []).map((zone) => {
           const place = draft.zones.findIndex(({ entityId }) => entityId === zone.entityId);
           return (
             <div key={zone.entityId} className={`retic-edit-zone${place < 0 ? " left-out" : ""}`}>
-              <h3>{zone.name}</h3>
+              <div className="retic-edit-zone-text">
+                <h3>{zone.name}</h3>
+                {draft.auto && needs.has(zone.entityId) && <small>{(needs.get(zone.entityId) ?? 0) < 3 ? "Fine right now" : `Needs ${needs.get(zone.entityId)} min right now`}</small>}
+              </div>
               <div className="retic-zone-actions">
                 {(retic.runMinutes ?? []).map((value) => {
                   const picked = place >= 0 && draft.zones[place].minutes === value;
@@ -574,7 +606,9 @@ function ScheduleEditor({ retic, refresh, onDone }: { retic: ReticStatus; refres
       <p className="retic-edit-summary">
         {draft.zones.length === 0
           ? "Pick at least one zone"
-          : `${draft.zones.length} ${draft.zones.length === 1 ? "zone" : "zones"}, ${minutes} min, done about ${startLabel(draft.start, minutes)}`}
+          : draft.auto
+            ? `${draft.zones.length} ${draft.zones.length === 1 ? "zone" : "zones"}, up to ${minutes} min`
+            : `${draft.zones.length} ${draft.zones.length === 1 ? "zone" : "zones"}, ${minutes} min, done about ${startLabel(draft.start, minutes)}`}
         {draft.zones.length > 0 && (
           <button className="retic-edit-reset" onClick={() => setDraft({ ...draft, zones: [] })} disabled={busy}>
             <RotateCcw aria-hidden="true" />
