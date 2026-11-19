@@ -291,7 +291,8 @@ Home Assistant won't load its configuration.
   settings:
   - **Auto** waters when the garden needs it. Every morning a zone is dry
     enough to need water by that night (or half way there on a day of 36°C or
-    more), it waters, and gives each zone what it's short. Zones the next
+    more), it waters, and gives each zone what it's short less the rain
+    expected in the next 24 hours. Zones the next
     24 hours' rain (weighted by its chance) will see to are left, and once
     one zone goes, any other at 70% of its trigger goes too. A morning when
     nothing's needed after all isn't logged as a skip. `sensor.retic_next_run`

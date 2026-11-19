@@ -800,10 +800,10 @@ automation:
           #   fixed (Manual): each zone's set minutes.
           #   days (Set days): what each zone is short (see
           #     sensor.retic_dryness) less the rain since midnight.
-          #   smart (Auto): the same amounts, but only on a morning when a zone
-          #     will reach its trigger by tonight (or is half way there on a
-          #     day of 36 degrees or more), and only for zones the rain
-          #     coming won't see to. When one zone goes, any other at 70% of
+          #   smart (Auto): the same, less the rain coming, but only on a
+          #     morning when a zone will reach its trigger by tonight (or is
+          #     half way there on a day of 36 degrees or more), and only for
+          #     zones the rain coming won't see to. When one zone goes, any other at 70% of
           #     its trigger goes too. `rain` says the rain coming is the only
           #     reason nothing waters.
           decision: >
@@ -817,12 +817,15 @@ automation:
               {% elif short is mapping and setup is mapping and zone.entity in short and zone.entity in setup %}
                 {% set s = setup[zone.entity] %}
                 {% set mm = [short[zone.entity] - (rain_today | float(0)), 0] | max %}
-                {% set minutes = [(mm / s.rate) | round(0, 'ceil') | int, 15] | min %}
+                {% set minutes = [(mm / s.rate) | round(2) | round(0, 'ceil') | int, 15] | min %}
                 {% set item = {'entity': zone.entity, 'minutes': minutes} %}
                 {% if mode == 'days' %}
                   {% if minutes >= 3 %}{% set ns.out = ns.out + [item] %}{% endif %}
                 {% else %}
                   {% set covered = mm > 0 and (rain_coming | float(0)) >= 0.8 * mm %}
+                  {# Only what the rain coming won't put back. #}
+                  {% set minutes = [([mm - (rain_coming | float(0)), 0] | max / s.rate) | round(2) | round(0, 'ceil') | int, 15] | min %}
+                  {% set item = {'entity': zone.entity, 'minutes': minutes} %}
                   {% set needs = mm + today_weather.et * s.crop >= s.trigger or (hot and mm >= s.trigger / 2) %}
                   {% if needs and covered %}{% set ns.rain = true %}{% endif %}
                   {% if needs and not covered and minutes >= 3 %}{% set ns.go = true %}{% endif %}
