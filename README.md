@@ -302,13 +302,16 @@ Home Assistant won't load its configuration.
   each zone is short. Each day takes away that day's evaporation (Open-Meteo's
   FAO ET0) times the zone's crop factor and adds the rain, and each finished
   zone run (`retic_zone_watered`) puts back its minutes times the zone's
-  sprinkler rate. At run time each zone gets the minutes that put it back, up
-  to its minutes in the schedule, and a zone needing under 3 minutes waits.
+  sprinkler rate, if the valve really opened. A day only counts once weather
+  fetched after it ended has both its numbers, so a forecast is never taken
+  as what happened. At run time each zone gets the minutes that put back what
+  it's short less the rain since midnight, up to its minutes in the schedule,
+  and a zone needing under 3 minutes waits.
   The crop factors (0.7 for lawn, 0.5 for beds) and rates (0.6 mm a minute)
   are estimates in the package: to measure a rate, put a few straight-sided
   tins on the zone, run it 15 minutes and divide the average depth in mm by 15.
 - **Skips.** At run time, the `Retic scheduled watering` automation skips if
-  the rain sensor is wet, 5 mm or more is forecast for the next 12 hours, or
+  the controller's dial is off RUN (it would take the run but not water), the rain sensor is wet, 5 mm or more is forecast for the next 12 hours, or
   there's no rain data. With fixed amounts it also skips when 3 mm or more
   fell in the last 24 hours, and with automatic amounts when no zone needs
   watering. It writes what happened to `input_text.retic_last_result`.
