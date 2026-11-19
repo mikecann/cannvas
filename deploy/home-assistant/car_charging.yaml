@@ -291,10 +291,15 @@ automation:
       - condition: state
         entity_id: binary_sensor.byd_atto_3_plug
         state: "on"
+      # A reading under the level, and a recent one: the BYD cloud answered in
+      # the last 45 minutes (it's polled every 10). A stale number could be
+      # long out of date, and grid charging on it would have no end.
       - condition: template
         value_template: >
           {% set battery = states('sensor.byd_atto_3_battery_level') %}
-          {{ is_number(battery) and battery | float < states('input_number.car_keep_at_least') | float(0) }}
+          {% set seen = as_timestamp(states('sensor.byd_atto_3_telemetry_last_updated'), 0) %}
+          {{ is_number(battery) and battery | float < states('input_number.car_keep_at_least') | float(0)
+             and now().timestamp() - seen < 45 * 60 }}
     actions:
       - action: input_boolean.turn_on
         target: { entity_id: input_boolean.car_minimum_active }
@@ -320,15 +325,17 @@ automation:
         entity_id: binary_sensor.byd_atto_3_plug
         to: "off"
         id: unplugged
-      # No battery reading for half an hour: without one it can't tell when to
-      # stop, so hand back to the sun rules (which switch off without sun)
-      # rather than charge from the grid with no end. It starts again once a
-      # reading under the level comes back.
-      - trigger: state
-        entity_id: sensor.byd_atto_3_battery_level
-        to: [unavailable, unknown]
-        for: "00:30:00"
-        id: no_reading
+      # Checked every 5 minutes and at startup: with no recent battery reading
+      # it can't tell when to stop, so hand back to the sun rules (which switch
+      # off without sun) rather than charge from the grid with no end. It starts
+      # again once a fresh reading under the level comes back. A periodic check
+      # rather than a `for:` timer, which a reload or restart would lose.
+      - trigger: time_pattern
+        minutes: "/5"
+        id: check
+      - trigger: homeassistant
+        event: start
+        id: check
     conditions:
       - condition: state
         entity_id: input_boolean.car_minimum_active
@@ -336,7 +343,16 @@ automation:
       - condition: or
         conditions:
           - condition: trigger
-            id: [mode, unplugged, no_reading]
+            id: [mode, unplugged]
+          - condition: and
+            conditions:
+              - condition: trigger
+                id: check
+              - condition: template
+                value_template: >
+                  {% set battery = states('sensor.byd_atto_3_battery_level') %}
+                  {% set seen = as_timestamp(states('sensor.byd_atto_3_telemetry_last_updated'), 0) %}
+                  {{ not is_number(battery) or now().timestamp() - seen >= 45 * 60 }}
           - condition: template
             value_template: >
               {% set battery = states('sensor.byd_atto_3_battery_level') %}
@@ -352,8 +368,11 @@ automation:
             target: { entity_id: input_text.car_charging_reason }
             data:
               value: >
+                {% set battery = states('sensor.byd_atto_3_battery_level') %}
+                {% set seen = as_timestamp(states('sensor.byd_atto_3_telemetry_last_updated'), 0) %}
+                {% set stale = not is_number(battery) or now().timestamp() - seen >= 45 * 60 %}
                 {{ 'Unplugged' if trigger.id == 'unplugged'
-                   else 'No battery reading from the car, so sun only for now' if trigger.id == 'no_reading'
+                   else 'No recent battery reading from the car, so sun only for now' if stale
                    else 'Back to ' ~ (states('input_number.car_keep_at_least') | int) ~ '%, waiting for spare sun' }}
 
   # Boost is for one charge: back to Auto once the car reaches the boost
