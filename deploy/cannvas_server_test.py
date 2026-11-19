@@ -89,11 +89,8 @@ def fake_states() -> list[dict]:
         {"entity_id": "sensor.byd_atto_3_battery_level", "state": "48.0", "last_changed": "2026-11-16T05:00:00+00:00"},
         {"entity_id": "sensor.byd_atto_3_range", "state": "232"},
         {"entity_id": "binary_sensor.byd_atto_3_plug", "state": "on"},
-        {"entity_id": "input_boolean.car_overnight_active", "state": "off"},
         {"entity_id": "input_number.car_charge_limit", "state": "80.0"},
-        {"entity_id": "input_number.car_overnight_below", "state": "30.0"},
-        {"entity_id": "input_number.car_overnight_target", "state": "50.0"},
-        {"entity_id": "input_number.car_day_minimum", "state": "50.0"},
+        {"entity_id": "input_number.car_keep_at_least", "state": "50.0"},
         {"entity_id": "input_number.car_boost_target", "state": "80.0"},
         {"entity_id": "input_boolean.car_minimum_active", "state": "on"},
         {"entity_id": "sensor.byd_atto_3_battery_power", "state": "unavailable"},
@@ -939,14 +936,13 @@ class CannvasServerTest(unittest.TestCase):
             "batteryUpdatedAt": "2026-11-16T05:00:00+00:00",
             "rangeKm": 232.0,
             "pluggedIn": True,
-            "overnightActive": False,
             "minimumActive": True,
             "boostTarget": 80.0,
             "batteryKw": None,
             "fullInMinutes": None,
             "carCharging": None,
             "telemetryAt": None,
-            "settings": {"chargeLimit": 80.0, "overnightBelow": 30.0, "overnightTarget": 50.0, "dayMinimum": 50.0},
+            "settings": {"chargeLimit": 80.0, "keepAtLeast": 50.0},
         })
 
     def test_car_reads_the_cars_own_countdown_only_while_it_charges(self) -> None:
@@ -991,16 +987,16 @@ class CannvasServerTest(unittest.TestCase):
 
     def test_car_settings_set_the_input_numbers(self) -> None:
         self.connect_home_assistant()
-        response, _ = self.post_json("/api/car/settings", {"chargeLimit": 90, "overnightBelow": 25})
+        response, _ = self.post_json("/api/car/settings", {"chargeLimit": 90, "keepAtLeast": 25})
         self.assertEqual(response.status, 200)
         self.assertEqual(FakeUpstream.posts, [
             ("/api/services/input_number/set_value", {"entity_id": "input_number.car_charge_limit", "value": 90}),
-            ("/api/services/input_number/set_value", {"entity_id": "input_number.car_overnight_below", "value": 25}),
+            ("/api/services/input_number/set_value", {"entity_id": "input_number.car_keep_at_least", "value": 25}),
         ])
 
     def test_car_settings_reject_bad_values(self) -> None:
         self.connect_home_assistant()
-        for body in ({"chargeLimit": 45}, {"chargeLimit": 105}, {"chargeLimit": 82}, {"chargeLimit": 80.0}, {"overnightTarget": "50"}, {"other": 5}, {}):
+        for body in ({"chargeLimit": 45}, {"chargeLimit": 105}, {"chargeLimit": 82}, {"chargeLimit": 80.0}, {"keepAtLeast": "50"}, {"other": 5}, {}):
             response, _ = self.post_json("/api/car/settings", body)
             self.assertEqual(response.status, 400, body)
         self.assertEqual(FakeUpstream.posts, [])
@@ -1056,7 +1052,8 @@ class CannvasServerTest(unittest.TestCase):
             ("switch.car_charger", "turn_on"),
             ("switch.car_charger", "turn_off"),
             ("switch.car_charger_led", "turn_off"),
-            ("input_boolean.car_overnight_active", "turn_on"),
+            ("input_boolean.car_minimum_active", "turn_on"),
+            ("input_number.car_keep_at_least", "set_value"),
         ):
             response, _ = self.action(entity_id, action)
             self.assertEqual(response.status, 400, (entity_id, action))
