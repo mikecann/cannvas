@@ -45,6 +45,8 @@ export type ReticStatus = {
   /** A timed run started from Cannvas, while Home Assistant is timing it. */
   run?: { entityId: string; endsAt: string } | null;
   runMinutes?: number[];
+  /** The start times the schedule can be set to, like "05:45", earliest first. */
+  startTimes?: string[];
   /** Zones queued by hand, in order. The first is watering while `queueRunning`. */
   queue?: ReticQueueItem[];
   queueRunning?: boolean;
@@ -125,13 +127,42 @@ export function dialBlocksWatering(dial: string | null | undefined): boolean {
 
 const DAY_NAMES = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+/** "6:00 am" from "06:00", or null if it isn't a time. Past midnight wraps round. */
+export function startLabel(start: string | null, addMinutes = 0): string | null {
+  const [hours, minutes] = (start ?? "").split(":").map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  const total = (((hours * 60 + minutes + addMinutes) % 1440) + 1440) % 1440;
+  const hour = Math.floor(total / 60);
+  return `${hour % 12 || 12}:${String(total % 60).padStart(2, "0")} ${hour < 12 ? "am" : "pm"}`;
+}
+
 /** "Tue and Fri at 6:00 am" from ISO weekdays and a "06:00" start. */
 export function scheduleLabel(days: number[], start: string | null): string {
   const names = [...days].sort((left, right) => left - right).map((day) => DAY_NAMES[day]).filter(Boolean);
   const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0] ?? "No days";
-  const [hours, minutes] = (start ?? "").split(":").map(Number);
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return list;
-  return `${list} at ${hours % 12 || 12}:${String(minutes).padStart(2, "0")} ${hours < 12 ? "am" : "pm"}`;
+  const time = startLabel(start);
+  return time ? `${list} at ${time}` : list;
+}
+
+/** A schedule being changed on the page: when it starts, and the zones in the order they water. */
+export type ReticScheduleDraft = { start: string; zones: ReticQueueItem[] };
+
+/** The schedule Home Assistant is running, as a draft to change. */
+export function scheduleDraft(schedule: ReticSchedule | undefined): ReticScheduleDraft {
+  return {
+    start: schedule?.start ?? "06:00",
+    zones: (schedule?.zones ?? []).flatMap(({ entityId, minutes }) => (minutes == null ? [] : [{ entityId, minutes }])),
+  };
+}
+
+export function sameSchedule(left: ReticScheduleDraft, right: ReticScheduleDraft): boolean {
+  return left.start === right.start
+    && left.zones.length === right.zones.length
+    && left.zones.every((zone, index) => zone.entityId === right.zones[index].entityId && zone.minutes === right.zones[index].minutes);
+}
+
+export function totalMinutes(zones: { minutes: number | null }[]): number {
+  return zones.reduce((total, zone) => total + (zone.minutes ?? 0), 0);
 }
 
 export function formatMm(value: number | null | undefined): string {

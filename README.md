@@ -286,9 +286,15 @@ Home Assistant won't load its configuration.
   takes it out. **Stop watering** empties the queue and closes every zone. The
   schedule empties it too when it starts, and so does the master switch going
   off. The queue starts empty after a restart.
-- **Smart schedule.** `sensor.retic_next_run` holds the schedule: 6am on the
-  watering days from September to May, plus each zone's minutes and the rain
-  limits. At run time, the `Retic scheduled watering` automation skips if the
+- **Smart schedule.** `sensor.retic_next_run` holds the schedule: the start
+  time on the watering days from September to May, plus the zones in order
+  with their minutes and the rain limits. **Change schedule**, in the info
+  panel, sets the start time (4 to 8 am) and picks the zones the same way as
+  the queue: tap them in the order to water them, and leave out any to skip.
+  That's saved in `input_text.retic_schedule` (like
+  `06:00;valve.retic_back_grass_right:15,valve.retic_front_grass:10`), and the
+  sensor falls back to 6am and all five zones for anything it can't read. The
+  watering days stay in `secrets.yaml`. At run time, the `Retic scheduled watering` automation skips if the
   rain sensor is wet, 3 mm or more fell in the last 24 hours, or 5 mm or more
   is forecast for the next 12. It writes what happened to
   `input_text.retic_last_result`.
@@ -314,7 +320,9 @@ zone reports closed.
 
 The server only accepts those five zones and those three durations, through
 `/api/retic/run` (queue a zone), `/api/retic/queue` (take one out, or clear)
-and `/api/retic/stop`, and refuses runs while the retic is switched off. `/api/retic/enabled` only changes the master switch. The
+and `/api/retic/stop`, and refuses runs while the retic is switched off.
+`/api/retic/schedule` saves the schedule, checking each zone, duration and
+start time. `/api/retic/enabled` only changes the master switch. The
 generic Home controls action refuses anything named `retic_`, and Home controls
 doesn't list those entities. Voice commands can't switch them either.
 

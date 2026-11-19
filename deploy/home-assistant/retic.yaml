@@ -32,6 +32,13 @@ input_text:
     name: Retic queue
     max: 255
     initial: ""
+  # The schedule's start time and zones in order, set from Cannvas, like
+  # "06:00;valve.retic_back_grass_right:15,valve.retic_front_grass:10". No
+  # initial, so it keeps its value across restarts. Empty or unreadable parts
+  # fall back to the defaults in the Retic next run sensor below.
+  retic_schedule:
+    name: Retic schedule
+    max: 255
 
 # Rain from Open-Meteo, which needs no key and returns yesterday's modelled rain
 # with the forecast in one call. Each hourly value is the rain in the hour
@@ -77,25 +84,37 @@ template:
         event_type: event_template_reloaded
       - trigger: time_pattern
         minutes: /5
-    # The schedule: from 1 September to 31 May, at 6am on the watering days.
-    # Those are ISO weekdays (1 is Monday) kept in secrets.yaml, for example
+      # A change from Cannvas shows straight away.
+      - trigger: state
+        entity_id: input_text.retic_schedule
+    # The schedule: from 1 September to 31 May, on the watering days. Those
+    # are ISO weekdays (1 is Monday) kept in secrets.yaml, for example
     # `retic_watering_days: [2, 5]` for Tuesday and Friday. Home Assistant
-    # won't load its configuration until that secret exists.
+    # won't load its configuration until that secret exists. The start time
+    # and the zones, in order with their minutes, come from
+    # input_text.retic_schedule, which Cannvas sets.
     variables:
       days: !secret retic_watering_days
-      start: "06:00"
       off_months: [6, 7, 8]
-      zones:
-        - entity: valve.retic_back_grass_right
-          minutes: 15
-        - entity: valve.retic_back_grass_left
-          minutes: 15
-        - entity: valve.retic_back_flower_beds
-          minutes: 10
-        - entity: valve.retic_front_garden_beds
-          minutes: 10
-        - entity: valve.retic_front_grass
-          minutes: 15
+      default_start: "06:00"
+      default_zones: "valve.retic_back_grass_right:15,valve.retic_back_grass_left:15,valve.retic_back_flower_beds:10,valve.retic_front_garden_beds:10,valve.retic_front_grass:15"
+      saved: "{{ states('input_text.retic_schedule') }}"
+      start: >-
+        {% set text = saved.split(';')[0] if ';' in saved else '' %}
+        {{ text if text is match('([01][0-9]|2[0-3]):[0-5][0-9]$') else default_start }}
+      # Each zone once, 1 to 15 minutes (the WX8's own limit for a manual run).
+      zones: >-
+        {% set text = saved.split(';')[1] if ';' in saved else '' %}
+        {% set items = text.split(',') | select('match', 'valve\\.retic_[a-z0-9_]+:([1-9]|1[0-5])$') | list %}
+        {% set ns = namespace(out=[], seen=[]) %}
+        {% for item in (items or default_zones.split(',')) %}
+          {% set parts = item.split(':') %}
+          {% if parts[0] not in ns.seen %}
+            {% set ns.seen = ns.seen + [parts[0]] %}
+            {% set ns.out = ns.out + [{'entity': parts[0], 'minutes': parts[1] | int}] %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.out }}
       # Skip when the grass is likely wet already, or about to be.
       skip_past_mm: 3
       skip_forecast_mm: 5
