@@ -286,42 +286,54 @@ Home Assistant won't load its configuration.
   takes it out. **Stop watering** empties the queue and closes every zone. The
   schedule empties it too when it starts, and so does the master switch going
   off. The queue starts empty after a restart.
-- **Smart schedule.** `sensor.retic_next_run` holds the schedule: from
-  September to May, every few days at the start time, plus the zones in order
-  with their minutes and the rain limits. The next run is that many days after
-  the last one that watered or was skipped for rain; any other skip (no rain
-  data, switched off) tries again the next day. The cog next to the master
-  switch (or **Change schedule** in the info panel) sets the start time (4 to
-  8 am), how many days apart (1 to 7), whether amounts are automatic, and picks
-  the zones the same way as the queue: tap them in the order to water them,
-  and leave out any to skip. That's saved in `input_text.retic_schedule` (like
-  `06:00;valve.retic_back_grass_right:15,valve.retic_front_grass:10;2;auto`),
-  and the sensor falls back to 6am, all five zones, every 2 days and automatic
-  amounts for anything it can't read.
-- **Automatic amounts.** `sensor.retic_dryness` keeps how many mm of water
+- **Schedule.** The cog next to the master switch (or **Change schedule** in
+  the info panel) picks one of three modes, and shows only that mode's
+  settings:
+  - **Auto** waters when the garden needs it. Every morning a zone is dry
+    enough to need water by that night (or half way there on a day of 36°C or
+    more), it waters, and gives each zone what it's short less the rain
+    expected in the next 24 hours. Zones the next
+    24 hours' rain (weighted by its chance) will see to are left, and once
+    one zone goes, any other at 70% of its trigger goes too. A morning when
+    nothing's needed after all isn't logged as a skip. `sensor.retic_next_run`
+    predicts the morning from the forecast, so the page can say when.
+  - **Set days** waters every few days, giving each zone what it's short.
+  - **Manual** waters every few days for the minutes picked, in the order
+    tapped, like the queue.
+  Auto and Set days have zone on/off switches and a level (Greener, Normal,
+  Saver) that moves the triggers 2 mm and the crop factors 15% either way.
+  It's all saved in `input_text.retic_schedule`, like
+  `06:00;valve.retic_back_grass_right:15,...;2;smart;normal`, and anything
+  unreadable falls back to 6am, all five zones, every 2 days, Auto and Normal.
+  In Set days and Manual, the next run is that many days after the last one
+  that watered (or was stopped after 5 minutes or more) or was skipped for
+  rain; any other skip (no rain data, switched off) tries again the next day.
+- **How dry each zone is.** `sensor.retic_dryness` keeps how many mm of water
   each zone is short. Each day takes away that day's evaporation (Open-Meteo's
-  FAO ET0) times the zone's crop factor and adds the rain, and each finished
-  zone run (`retic_zone_watered`) puts back its minutes times the zone's
-  sprinkler rate, if the valve really opened. A day only counts once weather
-  fetched after it ended has both its numbers, so a forecast is never taken
-  as what happened. At run time each zone gets the minutes that put back what
-  it's short less the rain since midnight, up to its minutes in the schedule,
-  and a zone needing under 3 minutes waits.
-  The crop factors (0.7 for lawn, 0.5 for beds) and rates (0.6 mm a minute)
-  are estimates in the package: to measure a rate, put a few straight-sided
-  tins on the zone, run it 15 minutes and divide the average depth in mm by 15.
-- **Skips.** At run time, the `Retic scheduled watering` automation skips if
-  the controller's dial is off RUN (it would take the run but not water), the rain sensor is wet, 5 mm or more is forecast for the next 12 hours, or
-  there's no rain data. With fixed amounts it also skips when 3 mm or more
-  fell in the last 24 hours, and with automatic amounts when no zone needs
-  watering. It writes what happened to `input_text.retic_last_result`.
+  FAO ET0, which takes in heat, wind, humidity and sun) times the zone's crop
+  factor, and adds the rain. Each finished zone run (`retic_zone_watered`)
+  puts back its minutes times the zone's sprinkler rate, if the valve really
+  opened. A day only counts once weather fetched after it ended has both its
+  numbers, so a forecast is never taken as what happened. Runs give each zone
+  what it's short less the rain since midnight, up to 15 minutes (the WX8's
+  limit), and a zone needing under 3 minutes waits. Each zone's trigger (7 mm,
+  about what a lawn's roots reach in sand) is kept under what 15 minutes puts
+  back, or it could never catch up. The crop factors (0.7 lawn, 0.5 beds) and
+  rates (0.6 mm a minute) are estimates in the package: to measure a rate, put
+  a few straight-sided tins on the zone, run it 15 minutes and divide the
+  average depth in mm by 15.
+- **Skips.** Every mode skips when the controller's dial is off RUN (it would
+  take the run but not water), the rain sensor is wet or there's no rain
+  data. Set days and Manual also skip when 5 mm or more is forecast for the
+  next 12 hours, and Manual when 3 mm or more fell in the last 24. What
+  happened goes in `input_text.retic_last_result`.
 - **History.** Each scheduled run (watered, skipped with the reason, or stopped
   early) fires a `retic_schedule_result` event, and `sensor.retic_history`
   keeps the last 40 in its `log` attribute. It's a trigger-based template
   sensor, so the log survives restarts and outlives the recorder's ~10 days.
 - **Weather.** One REST sensor reads Open-Meteo, which needs no key: hourly
-  rain from a day ago to a day and a half ahead, and each day's rain and
-  evaporation for the last two weeks. It uses the location of Home
+  rain (and its chance) from a day ago to a day and a half ahead, and each
+  day's rain, evaporation and top temperature for the last two weeks. It uses the location of Home
   Assistant's home zone, rounded to two decimal places, kept in the
   `retic_open_meteo_url` secret so the package holds no coordinates. Fetches
   time out now and then (for 16 hours on 17-18 Nov 2026, which skipped a

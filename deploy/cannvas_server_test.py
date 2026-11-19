@@ -68,7 +68,7 @@ def fake_states() -> list[dict]:
         {"entity_id": "sensor.retic_rain_last_24h", "state": "0.2"},
         {"entity_id": "sensor.retic_rain_next_12h", "state": "1.5"},
         {"entity_id": "sensor.retic_next_run", "state": "2026-10-01T22:00:00+00:00", "attributes": {
-            "every": 2, "auto": True, "start": "06:00", "skip_past_mm": 3, "skip_forecast_mm": 5,
+            "every": 2, "mode": "smart", "start": "06:00", "skip_past_mm": 3, "skip_forecast_mm": 5,
             "zones": [{"entity": "valve.retic_back_grass_right", "minutes": 15}, {"entity": "valve.not_retic", "minutes": 5}, {"entity": "valve.retic_front_grass", "minutes": 10}],
         }},
         {"entity_id": "sensor.retic_history", "state": "2026-09-29T06:00:00+08:00", "attributes": {"log": [
@@ -79,7 +79,8 @@ def fake_states() -> list[dict]:
         ]}},
         {"entity_id": "sensor.retic_dryness", "state": "2026-09-28", "attributes": {
             "short": {"valve.retic_back_grass_right": 6.1, "valve.retic_front_grass": 0.0, "valve.not_retic": 9, "valve.retic_back_grass_left": "x"},
-            "setup": {"valve.retic_back_grass_right": {"crop": 0.7, "rate": 0.6}, "valve.retic_front_grass": {"crop": 0.7, "rate": 0.6}},
+            "setup": {"valve.retic_back_grass_right": {"crop": 0.7, "rate": 0.6, "trigger": 7}, "valve.retic_front_grass": {"crop": 0.7, "rate": 0.6, "trigger": 7}},
+            "level": "greener",
         }},
         {"entity_id": "switch.car_charger", "state": "on"},
         {"entity_id": "sensor.car_charger_current_consumption", "state": "1712.4", "attributes": {"unit_of_measurement": "W"}},
@@ -767,13 +768,13 @@ class CannvasServerTest(unittest.TestCase):
 
     def test_retic_schedule_saves_start_and_zones_in_order(self) -> None:
         self.connect_home_assistant()
-        response, _ = self.post_json("/api/retic/schedule", {"start": "05:30", "everyDays": 3, "auto": False, "zones": [
+        response, _ = self.post_json("/api/retic/schedule", {"start": "05:30", "everyDays": 3, "mode": "fixed", "level": "normal", "zones": [
             {"entityId": "valve.retic_front_grass", "minutes": 5},
             {"entityId": "valve.retic_back_grass_left", "minutes": 15},
         ]})
         self.assertEqual(response.status, 200)
         self.assertEqual(FakeUpstream.posts, [
-            ("/api/services/input_text/set_value", {"entity_id": "input_text.retic_schedule", "value": "05:30;valve.retic_front_grass:5,valve.retic_back_grass_left:15;3;fixed"}),
+            ("/api/services/input_text/set_value", {"entity_id": "input_text.retic_schedule", "value": "05:30;valve.retic_front_grass:5,valve.retic_back_grass_left:15;3;fixed;normal"}),
         ])
         self.assertEqual(self.retic()["startTimes"][0], "04:00")
         self.assertEqual(self.retic()["startTimes"][-1], "08:00")
@@ -781,12 +782,13 @@ class CannvasServerTest(unittest.TestCase):
     def test_retic_schedule_rejects_bad_starts_zones_and_minutes(self) -> None:
         self.connect_home_assistant()
         zone = {"entityId": "valve.retic_front_grass", "minutes": 10}
-        rest = {"everyDays": 2, "auto": True}
+        rest = {"everyDays": 2, "mode": "smart", "level": "normal"}
         for body in (
-            {"start": "05:30", "zones": [zone], "everyDays": 0, "auto": True},
-            {"start": "05:30", "zones": [zone], "everyDays": 8, "auto": True},
-            {"start": "05:30", "zones": [zone], "everyDays": "2", "auto": True},
-            {"start": "05:30", "zones": [zone], "everyDays": 2, "auto": "yes"},
+            {"start": "05:30", "zones": [zone], "everyDays": 0, "mode": "smart", "level": "normal"},
+            {"start": "05:30", "zones": [zone], "everyDays": 8, "mode": "smart", "level": "normal"},
+            {"start": "05:30", "zones": [zone], "everyDays": "2", "mode": "smart", "level": "normal"},
+            {"start": "05:30", "zones": [zone], "everyDays": 2, "mode": "auto", "level": "normal"},
+            {"start": "05:30", "zones": [zone], "everyDays": 2, "mode": "smart", "level": "lush"},
             {"start": "05:30", "zones": [zone]},
             {"start": "05:30", "zones": [], **rest},
             {"start": "12:00", "zones": [zone], **rest},
@@ -835,7 +837,8 @@ class CannvasServerTest(unittest.TestCase):
         self.assertEqual(value["schedule"], {
             "nextRun": "2026-10-01T22:00:00+00:00",
             "everyDays": 2,
-            "auto": True,
+            "mode": "smart",
+            "level": "greener",
             "start": "06:00",
             "skipPastMm": 3,
             "skipForecastMm": 5,
@@ -865,14 +868,14 @@ class CannvasServerTest(unittest.TestCase):
         self.assertIsNone(value["enabled"])
         self.assertIsNone(value["schedule"]["nextRun"])
         self.assertIsNone(value["schedule"]["everyDays"])
-        self.assertIs(value["schedule"]["auto"], False)
+        self.assertIsNone(value["schedule"]["mode"])
 
     def test_retic_reports_how_dry_each_zone_is(self) -> None:
         self.connect_home_assistant()
         # Only real zones with readable numbers. 6.1 mm at 0.6 mm a minute is 10.2, so 11 minutes.
         self.assertEqual(self.retic()["dryness"], [
-            {"entityId": "valve.retic_back_grass_right", "shortMm": 6.1, "minutes": 11},
-            {"entityId": "valve.retic_front_grass", "shortMm": 0.0, "minutes": 0},
+            {"entityId": "valve.retic_back_grass_right", "shortMm": 6.1, "minutes": 11, "triggerMm": 7},
+            {"entityId": "valve.retic_front_grass", "shortMm": 0.0, "minutes": 0, "triggerMm": 7},
         ])
 
     def test_retic_run_rejects_other_entities_and_durations(self) -> None:

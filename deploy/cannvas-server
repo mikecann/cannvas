@@ -609,12 +609,16 @@ RETIC_ZONES = (
 RETIC_ZONE_IDS = {entity for _, entity, _ in RETIC_ZONES}
 RETIC_RUN_MINUTES = (5, 10, 15)
 # The schedule, set from the Retic page as
-# "06:00;valve.retic_x:15,valve.retic_y:10;2;auto": the start time, the zones
-# in order with their minutes, how many days apart, and whether amounts are
-# automatic (the minutes are then the most each zone gets). Home Assistant
-# falls back to its own defaults for anything it can't read.
+# "06:00;valve.retic_x:15,valve.retic_y:10;2;smart;normal": the start time,
+# the zones in order (with their minutes, used by Manual), how many days
+# apart (Set days and Manual), the mode and how green to keep things (Auto
+# and Set days). Home Assistant falls back to its own defaults for anything
+# it can't read.
 RETIC_SCHEDULE_SETTING = "input_text.retic_schedule"
 RETIC_EVERY_DAYS = range(1, 8)
+# smart is "Auto", days is "Set days", fixed is "Manual".
+RETIC_MODES = ("smart", "days", "fixed")
+RETIC_LEVELS = ("greener", "normal", "saver")
 # How many mm of water each zone is short, from rain and evaporation, kept by
 # the Home Assistant package for automatic amounts.
 RETIC_DRYNESS = "sensor.retic_dryness"
@@ -712,7 +716,7 @@ def retic_dryness(state: dict[str, Any]) -> list[dict[str, Any]]:
         rate = number(zone_setup.get("rate"))
         if mm is None or rate is None or rate <= 0:
             continue
-        zones.append({"entityId": entity_id, "shortMm": mm, "minutes": math.ceil(round(mm / rate, 6))})
+        zones.append({"entityId": entity_id, "shortMm": mm, "minutes": math.ceil(round(mm / rate, 6)), "triggerMm": number(zone_setup.get("trigger"))})
     return zones
 
 
@@ -750,7 +754,9 @@ def retic_status(config: dict[str, str]) -> dict[str, Any]:
     next_run = by_id.get(RETIC_NEXT_RUN) or {}
     schedule_attributes = next_run.get("attributes") if isinstance(next_run.get("attributes"), dict) else {}
     every = number(schedule_attributes.get("every"))
-    auto = schedule_attributes.get("auto")
+    mode = schedule_attributes.get("mode")
+    dryness_attributes = (by_id.get(RETIC_DRYNESS) or {}).get("attributes")
+    level = dryness_attributes.get("level") if isinstance(dryness_attributes, dict) else None
     return {
         "configured": True,
         "enabled": on_off(by_id.get(RETIC_ENABLED) or {}),
@@ -770,7 +776,8 @@ def retic_status(config: dict[str, str]) -> dict[str, Any]:
         "schedule": {
             "nextRun": known_state(next_run),
             "everyDays": int(every) if every is not None and every in RETIC_EVERY_DAYS else None,
-            "auto": auto is True or auto in {"true", "True"},
+            "mode": mode if mode in RETIC_MODES else None,
+            "level": level if level in RETIC_LEVELS else "normal",
             "start": schedule_attributes.get("start") if isinstance(schedule_attributes.get("start"), str) else None,
             "skipPastMm": number(schedule_attributes.get("skip_past_mm")),
             "skipForecastMm": number(schedule_attributes.get("skip_forecast_mm")),
@@ -860,10 +867,13 @@ def retic_schedule_setting(body: dict[str, Any]) -> str:
     every = body.get("everyDays")
     if type(every) is not int or every not in RETIC_EVERY_DAYS:
         raise ValueError("Choose every 1 to 7 days")
-    auto = body.get("auto")
-    if type(auto) is not bool:
-        raise ValueError("Expected auto to be true or false")
-    return f"{start};{','.join(items)};{every};{'auto' if auto else 'fixed'}"
+    mode = body.get("mode")
+    if mode not in RETIC_MODES:
+        raise ValueError("Choose Auto, Set days or Manual")
+    level = body.get("level")
+    if level not in RETIC_LEVELS:
+        raise ValueError("Choose greener, normal or saver")
+    return f"{start};{','.join(items)};{every};{mode};{level}"
 
 
 def retic_zone(body: dict[str, Any]) -> str:
