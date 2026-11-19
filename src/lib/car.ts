@@ -23,8 +23,7 @@ export type CarStatus = {
   batteryUpdatedAt?: string | null;
   rangeKm?: number | null;
   pluggedIn?: boolean | null;
-  overnightActive?: boolean;
-  /** Charging up to the daytime minimum, sun or not. */
+  /** Charging up to the keep-at-least level, sun or not. */
   minimumActive?: boolean;
   /** The % the last (or current) boost charges to. */
   boostTarget?: number | null;
@@ -38,14 +37,12 @@ export type CarStatus = {
   settings?: Partial<Record<CarSettingKey, number | null>>;
 };
 
-export type CarSettingKey = "chargeLimit" | "dayMinimum" | "overnightBelow" | "overnightTarget";
+export type CarSettingKey = "chargeLimit" | "keepAtLeast";
 
 /** Matches CAR_SETTINGS in deploy/cannvas-server and the input_numbers in car_charging.yaml. */
 export const CAR_SETTING_RANGES: Record<CarSettingKey, { min: number; max: number }> = {
   chargeLimit: { min: 50, max: 100 },
-  dayMinimum: { min: 0, max: 90 },
-  overnightBelow: { min: 0, max: 90 },
-  overnightTarget: { min: 10, max: 100 },
+  keepAtLeast: { min: 0, max: 90 },
 };
 export const CAR_SETTING_STEP = 5;
 
@@ -70,7 +67,7 @@ export function carHeadline(car: CarStatus): { title: string; detail: string | n
       title: car.mode === "boost" && car.boostTarget != null ? `Boosting to ${Math.round(car.boostTarget)}%` : `Charging at ${formatKw(car.powerKw)}`,
       detail: car.mode === "boost"
         ? `${formatKw(car.powerKw)}, sun or not. Back to Auto when it gets there.`
-        : car.overnightActive || car.minimumActive
+        : car.minimumActive
           ? car.reason ?? "Charging, sun or not."
           : "From sun that would otherwise go unused.",
       charging,

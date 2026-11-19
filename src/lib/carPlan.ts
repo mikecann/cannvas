@@ -25,7 +25,7 @@ export type ChargePlan = {
   /** The % it's expected to be at when it stops. */
   endPct: number;
   endAt: Date;
-  /** A rule stops it before it reaches the target (9pm, 7am or sunset). */
+  /** Sunset stops it before it reaches the target. */
   cutShort: boolean;
   /** Sun charging: only true if the sun holds. */
   needsSun: boolean;
@@ -36,19 +36,11 @@ export type ChargePlan = {
 
 const HOUR_MS = 60 * 60_000;
 
-/** The next time the clock reads `hour`:00 (local time), after `now`. */
-function nextHour(now: Date, hour: number) {
-  const at = new Date(now);
-  at.setHours(hour, 0, 0, 0);
-  if (at.getTime() <= now.getTime()) at.setDate(at.getDate() + 1);
-  return at;
-}
-
 /**
  * When the current charge should end, following the rules in
- * deploy/home-assistant/car_charging.yaml: a boost runs to its target, an
- * overnight top-up to its target or 7am, the daytime minimum to the minimum or
- * 9pm, and sun charging to the limit or sunset.
+ * deploy/home-assistant/car_charging.yaml: a boost runs to its target, a
+ * charge under the keep-at-least level to that level (day or night), and sun
+ * charging to the limit or sunset.
  */
 export function chargePlan(car: CarStatus, now: Date, sunset: Date | null): ChargePlan | null {
   if (!car.plugOn || (car.powerKw ?? 0) < CHARGING_KW || car.batteryPct == null) return null;
@@ -66,12 +58,8 @@ export function chargePlan(car: CarStatus, now: Date, sunset: Date | null): Char
   let needsSun = false;
   if (car.mode === "boost") {
     target = car.boostTarget ?? 100;
-  } else if (car.overnightActive) {
-    target = settings.overnightTarget ?? 100;
-    deadline = nextHour(now, 7);
   } else if (car.minimumActive) {
-    target = settings.dayMinimum ?? 100;
-    deadline = nextHour(now, 21);
+    target = settings.keepAtLeast ?? 100;
   } else {
     target = settings.chargeLimit ?? 100;
     needsSun = true;

@@ -832,7 +832,6 @@ CAR_ENTITIES = {
     "battery": "sensor.byd_atto_3_battery_level",
     "range": "sensor.byd_atto_3_range",
     "pluggedIn": "binary_sensor.byd_atto_3_plug",
-    "overnightActive": "input_boolean.car_overnight_active",
     "minimumActive": "input_boolean.car_minimum_active",
     "boostTarget": CAR_BOOST_TARGET,
     # The car's own view while it charges: power into the pack (W, negative
@@ -848,9 +847,7 @@ CAR_ENTITIES = {
 # matching the input_numbers in car_charging.yaml.
 CAR_SETTINGS = {
     "chargeLimit": ("input_number.car_charge_limit", 50, 100),
-    "overnightBelow": ("input_number.car_overnight_below", 0, 90),
-    "overnightTarget": ("input_number.car_overnight_target", 10, 100),
-    "dayMinimum": ("input_number.car_day_minimum", 0, 90),
+    "keepAtLeast": ("input_number.car_keep_at_least", 0, 90),
 }
 
 
@@ -858,7 +855,7 @@ def is_car_entity(entity_id: str) -> bool:
     """The charger plug and its helpers only change through /api/car/mode, so
     the generic home controls can't fight the charging rules."""
     name = entity_id.partition(".")[2]
-    return name.startswith(("car_charger", "car_charging", "car_overnight", "car_charge_limit", "car_minimum", "car_day_minimum", "car_boost"))
+    return name.startswith(("car_charger", "car_charging", "car_overnight", "car_charge_limit", "car_minimum", "car_day_minimum", "car_keep_at_least", "car_boost"))
 
 
 def car_status(config: dict[str, str]) -> dict[str, Any]:
@@ -888,7 +885,6 @@ def car_status(config: dict[str, str]) -> dict[str, Any]:
         "batteryUpdatedAt": states["battery"].get("last_changed") if number(states["battery"].get("state")) is not None else None,
         "rangeKm": number(states["range"].get("state")),
         "pluggedIn": on_off(states["pluggedIn"]),
-        "overnightActive": on_off(states["overnightActive"]) is True,
         "minimumActive": on_off(states["minimumActive"]) is True,
         "boostTarget": number(states["boostTarget"].get("state")),
         "batteryKw": in_kilo(states["batteryPower"]),

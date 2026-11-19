@@ -93,19 +93,9 @@ const SETTING_ROWS: Array<{ key: CarSettingKey; label: string; about: string }> 
     about: "When the roof makes more power than the house is using, Auto puts the spare into the car for free. It stops once the battery reaches this.",
   },
   {
-    key: "dayMinimum",
-    label: "By day, charge anyway below",
-    about: "Between 6am and 9pm, if the battery drops under this, Auto charges even on a cloudy day, paying for grid power, until it's back up to this.",
-  },
-  {
-    key: "overnightBelow",
-    label: "Top up overnight when below",
-    about: "If the battery is under this after 9pm, Auto charges from the grid overnight so the car isn't low in the morning.",
-  },
-  {
-    key: "overnightTarget",
-    label: "Overnight top-up to",
-    about: "Where that overnight charge stops. It also stops at 7am. The charger adds about 2.4% an hour, so a night adds about 24%.",
+    key: "keepAtLeast",
+    label: "Always keep at least",
+    about: "If the battery is ever under this, day or night, Auto charges straight away, paying for grid power if there's no sun, until it's back up to this. Above it, Auto only uses spare sun.",
   },
 ];
 
