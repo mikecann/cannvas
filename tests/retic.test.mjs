@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { dialBlocksWatering, editQueue, minutesLeftLabel, predictedSkip, reticOutlook, runMarks, scheduleLabel, tapEdit, zoneMinutesLeft } from "../src/lib/retic.ts";
+import { dialBlocksWatering, editQueue, minutesLeftLabel, predictedSkip, reticOutlook, runMarks, sameSchedule, scheduleDraft, scheduleLabel, startLabel, tapEdit, totalMinutes, zoneMinutesLeft } from "../src/lib/retic.ts";
 import { dailyRain, rainAroundRun } from "../src/lib/reticRain.ts";
 
 const now = Date.parse("2026-09-29T15:20:00+08:00");
@@ -234,4 +234,28 @@ test("tapping a queued zone's minutes again takes it out", () => {
   assert.deepEqual(tapEdit(queued, B, 5), { action: "remove", entityId: B });
   assert.deepEqual(tapEdit(queued, B, 10), { action: "add", entityId: B, minutes: 10 });
   assert.deepEqual(tapEdit(queued, C, 10), { action: "add", entityId: C, minutes: 10 });
+});
+
+test("labels a start time and when a run that long finishes", () => {
+  assert.equal(startLabel("05:45"), "5:45 am");
+  assert.equal(startLabel("06:00", 65), "7:05 am");
+  assert.equal(startLabel("11:30", 45), "12:15 pm");
+  assert.equal(startLabel("23:30", 45), "12:15 am");
+  assert.equal(startLabel(null), null);
+});
+
+test("turns the running schedule into a draft and spots changes to it", () => {
+  const draft = scheduleDraft(ready().schedule);
+  assert.deepEqual(draft, {
+    start: "06:00",
+    zones: [{ entityId: "valve.retic_back_grass_right", minutes: 15 }, { entityId: "valve.retic_back_grass_left", minutes: 15 }, { entityId: "valve.retic_front_grass", minutes: 10 }],
+  });
+  assert.equal(totalMinutes(draft.zones), 40);
+  assert.ok(sameSchedule(draft, structuredClone(draft)));
+  assert.ok(!sameSchedule(draft, { ...draft, start: "05:45" }));
+  assert.ok(!sameSchedule(draft, { ...draft, zones: [...draft.zones].reverse() }));
+  assert.ok(!sameSchedule(draft, { ...draft, zones: draft.zones.slice(1) }));
+  // The schedule's zones are picked the same way as the queue's: in the order they're tapped.
+  const picked = editQueue(editQueue([], tapEdit([], "valve.retic_front_grass", 5), false), { action: "add", entityId: "valve.retic_back_grass_left", minutes: 15 }, false);
+  assert.deepEqual(picked.map(({ entityId }) => entityId), ["valve.retic_front_grass", "valve.retic_back_grass_left"]);
 });

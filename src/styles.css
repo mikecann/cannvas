@@ -1186,7 +1186,26 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .retic-info-card dl div { padding: 14px 16px; border-radius: 16px; background: #eef4f8; }
 .retic-info-card dt { color: var(--muted); font-size: 1rem; font-weight: 600; }
 .retic-info-card dd { margin: 4px 0 0; color: #1f6fa6; font: 700 1.6rem "Fraunces", serif; }
-.retic-info-card .button { width: 100%; margin-top: 8px; }
+.retic-info-actions { margin-top: 8px; display: flex; gap: 12px; }
+.retic-info-actions .button { flex: 1 1 0; min-height: 64px; font-size: 1.15rem; }
+.retic-info-actions .button .spin { width: 22px; }
+
+/* Changing the schedule: the start time, then the zones picked like the queue. */
+.retic-info-card.editing { width: min(94vw, 900px); }
+.retic-edit-start { margin-top: 18px; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 14px 14px 14px 22px; border-radius: 20px; background: #f7f3ec; }
+.retic-edit-start > span { font: 700 1.6rem "Fraunces", serif; }
+.retic-edit-start .car-stepper strong { min-width: 150px; }
+.retic-info-card .retic-edit-hint { margin: 18px 0 10px; }
+.retic-edit-zones { display: flex; flex-direction: column; gap: 10px; }
+.retic-edit-zone { min-height: 112px; padding: 6px 6px 6px 22px; display: flex; align-items: center; gap: 16px; border: 1px solid #e2dbd0; border-radius: 22px; }
+.retic-edit-zone h3 { min-width: 0; flex: 1 1 auto; margin: 0; font: 700 1.75rem/1.1 "Fraunces", serif; }
+.retic-edit-zone.left-out h3 { color: var(--muted); }
+.retic-edit-zone .retic-run { min-height: 92px; width: 104px; }
+.retic-info-card .retic-edit-summary { margin: 16px 0 6px; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--ink); font-size: 1.35rem; font-weight: 700; }
+.retic-edit-reset { min-height: 52px; padding: 0 16px; display: inline-flex; align-items: center; gap: 8px; border: 1px solid #e2dbd0; border-radius: 14px; color: var(--ink); background: var(--paper); font-size: 1.05rem; font-weight: 800; cursor: pointer; }
+.retic-edit-reset svg { width: 20px; height: 20px; }
+.retic-edit-reset:disabled { opacity: .45; cursor: default; }
+.retic-info-card .retic-edit-error { color: #b0473f; font-weight: 700; }
 
 @media (prefers-reduced-motion: reduce) {
   .retic-zone.open .retic-zone-number { animation: none; }

@@ -761,6 +761,37 @@ class CannvasServerTest(unittest.TestCase):
             self.assertEqual(response.status, 400, body)
         self.assertEqual(len(FakeUpstream.posts), 2)
 
+    def test_retic_schedule_saves_start_and_zones_in_order(self) -> None:
+        self.connect_home_assistant()
+        response, _ = self.post_json("/api/retic/schedule", {"start": "05:30", "zones": [
+            {"entityId": "valve.retic_front_grass", "minutes": 5},
+            {"entityId": "valve.retic_back_grass_left", "minutes": 15},
+        ]})
+        self.assertEqual(response.status, 200)
+        self.assertEqual(FakeUpstream.posts, [
+            ("/api/services/input_text/set_value", {"entity_id": "input_text.retic_schedule", "value": "05:30;valve.retic_front_grass:5,valve.retic_back_grass_left:15"}),
+        ])
+        self.assertEqual(self.retic()["startTimes"][0], "04:00")
+        self.assertEqual(self.retic()["startTimes"][-1], "08:00")
+
+    def test_retic_schedule_rejects_bad_starts_zones_and_minutes(self) -> None:
+        self.connect_home_assistant()
+        zone = {"entityId": "valve.retic_front_grass", "minutes": 10}
+        for body in (
+            {"start": "05:30", "zones": []},
+            {"start": "12:00", "zones": [zone]},
+            {"start": "05:31", "zones": [zone]},
+            {"zones": [zone]},
+            {"start": "05:30", "zones": [zone, {"entityId": "valve.retic_front_grass", "minutes": 5}]},
+            {"start": "05:30", "zones": [{"entityId": "valve.retic_zone_6", "minutes": 5}]},
+            {"start": "05:30", "zones": [{"entityId": "valve.retic_front_grass", "minutes": 20}]},
+            {"start": "05:30", "zones": [{"entityId": "valve.retic_front_grass", "minutes": True}]},
+            {"start": "05:30", "zones": ["valve.retic_front_grass:5"]},
+        ):
+            response, _ = self.post_json("/api/retic/schedule", body)
+            self.assertEqual(response.status, 400, body)
+        self.assertEqual(FakeUpstream.posts, [])
+
     def test_retic_run_is_refused_while_switched_off(self) -> None:
         self.connect_home_assistant()
         self.override_states({"entity_id": "input_boolean.retic_enabled", "state": "off"})

@@ -607,6 +607,13 @@ RETIC_ZONES = (
 )
 RETIC_ZONE_IDS = {entity for _, entity, _ in RETIC_ZONES}
 RETIC_RUN_MINUTES = (5, 10, 15)
+# The schedule's start time and zones in order, set from the Retic page as
+# "06:00;valve.retic_x:15,valve.retic_y:10". Home Assistant falls back to its
+# own defaults for anything it can't read.
+RETIC_SCHEDULE_SETTING = "input_text.retic_schedule"
+# Early-morning starts every 15 minutes, so even all five zones at 15 minutes
+# finish before 9:30 am.
+RETIC_START_TIMES = tuple(f"{minutes // 60:02d}:{minutes % 60:02d}" for minutes in range(4 * 60, 8 * 60 + 1, 15))
 RETIC_SCRIPT = "script.retic_run_zone"
 RETIC_SCHEDULE_SCRIPT = "script.retic_run_schedule"
 # Zones queued by hand. Every edit goes through the queue script so edits and
@@ -727,6 +734,7 @@ def retic_status(config: dict[str, str]) -> dict[str, Any]:
         "zones": zones,
         "run": run,
         "runMinutes": list(RETIC_RUN_MINUTES),
+        "startTimes": list(RETIC_START_TIMES),
         "queue": retic_queue(by_id.get(RETIC_QUEUE) or {}),
         "queueRunning": known_state(by_id.get(RETIC_QUEUE_RUNNER) or {}) == "on",
         "controllerMinutesLeft": number(known_state(sensors["remaining"])) if open_zones else None,
@@ -802,6 +810,28 @@ def retic_rain(config: dict[str, str]) -> dict[str, Any]:
     with _RETIC_RAIN_LOCK:
         _RETIC_RAIN_CACHE.update(key=key, body=body, fetched_at=time.monotonic())
     return body
+
+
+def retic_schedule_setting(body: dict[str, Any]) -> str:
+    """The input_text value for a schedule sent from the Retic page, checked."""
+    start = body.get("start")
+    if start not in RETIC_START_TIMES:
+        raise ValueError("Choose a start time between 4 and 8 am")
+    zones = body.get("zones")
+    if not isinstance(zones, list) or not zones:
+        raise ValueError("Choose at least one zone")
+    items = []
+    for zone in zones:
+        if not isinstance(zone, dict):
+            raise ValueError("Expected each zone to have an entityId and minutes")
+        entity_id = retic_zone(zone)
+        minutes = zone.get("minutes")
+        if type(minutes) is not int or minutes not in RETIC_RUN_MINUTES:
+            raise ValueError("Choose 5, 10 or 15 minutes")
+        if any(item.startswith(f"{entity_id}:") for item in items):
+            raise ValueError("Each zone can only be in the schedule once")
+        items.append(f"{entity_id}:{minutes}")
+    return f"{start};{','.join(items)}"
 
 
 def retic_zone(body: dict[str, Any]) -> str:
@@ -1468,6 +1498,21 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         except Exception as error:
             self.home_assistant_error(error)
 
+    def post_retic_schedule(self) -> None:
+        """Saves the schedule's start time and zones. Home Assistant runs it."""
+        config = load_config()
+        if not config:
+            self.send_json(409, {"error": "Home Assistant is not connected"})
+            return
+        try:
+            value = retic_schedule_setting(self.read_json())
+            home_assistant_request(config, "/api/services/input_text/set_value", {"entity_id": RETIC_SCHEDULE_SETTING, "value": value})
+            self.send_json(200, {"ok": True})
+        except ValueError as error:
+            self.send_json(400, {"error": str(error)})
+        except Exception as error:
+            self.home_assistant_error(error)
+
     def post_retic_enabled(self) -> None:
         config = load_config()
         if not config:
@@ -1802,6 +1847,7 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         "/api/retic/stop": post_retic_stop,
         "/api/retic/queue": post_retic_queue,
         "/api/retic/enabled": post_retic_enabled,
+        "/api/retic/schedule": post_retic_schedule,
         "/api/car/mode": post_car_mode,
         "/api/lights/power": post_lights_power,
         "/api/lights/restart": post_lights_restart,

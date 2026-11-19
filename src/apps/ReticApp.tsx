@@ -1,4 +1,4 @@
-import { CircleCheck, Info, ListX, LoaderCircle, Square, TriangleAlert } from "lucide-react";
+import { CircleCheck, Info, ListX, LoaderCircle, Minus, Plus, RotateCcw, Square, TriangleAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { errorText, readJsonResponse } from "../lib/http";
 import {
@@ -13,10 +13,15 @@ import {
   type ReticQueueItem,
   type ReticStatus,
   type ReticZone,
+  type ReticScheduleDraft,
   type RunMark,
   runMarks,
+  sameSchedule,
+  scheduleDraft,
   scheduleLabel,
+  startLabel,
   tapEdit,
+  totalMinutes,
   zoneMinutesLeft,
 } from "../lib/retic";
 import { dailyRain, type HourlyRain, rainAroundRun } from "../lib/reticRain";
@@ -193,7 +198,7 @@ export function ReticApp() {
             </div>
           )}
           <HealthLine retic={retic} />
-          {infoOpen && <ScheduleInfo retic={retic} rain={rain} onClose={() => setInfoOpen(false)} />}
+          {infoOpen && <ScheduleInfo retic={retic} rain={rain} refresh={refresh} onClose={() => setInfoOpen(false)} />}
         </>
       )}
     </section>
@@ -420,27 +425,163 @@ function HealthLine({ retic }: { retic: ReticStatus }) {
   );
 }
 
-function ScheduleInfo({ retic, rain, onClose }: { retic: ReticStatus; rain: HourlyRain | null; onClose: () => void }) {
+function ScheduleInfo({ retic, rain, refresh, onClose }: {
+  retic: ReticStatus;
+  rain: HourlyRain | null;
+  refresh: () => Promise<void>;
+  onClose: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
   const schedule = retic.schedule;
   const runRain = rain ? rainAroundRun(rain, schedule?.nextRun ?? null) : null;
+  const names = new Map((retic.zones ?? []).map(({ entityId, name }) => [entityId, name]));
+  const order = schedule?.zones ?? [];
   return (
     <div className="dialog-backdrop" role="presentation" onPointerDown={onClose}>
-      <section className="dialog-card retic-info-card" role="dialog" aria-modal="true" aria-labelledby="retic-info-title" onPointerDown={(event) => event.stopPropagation()}>
-        <h2 id="retic-info-title">{schedule ? scheduleLabel(schedule.days, schedule.start) : "No schedule"}</h2>
-        <p>September to May, all five zones in turn.</p>
-        <p>
-          It skips when {schedule?.skipPastMm ?? 3} mm or more fell in the 24 hours before, {schedule?.skipForecastMm ?? 5} mm or more is
-          forecast for the 12 hours after, or the rain sensor is wet. Home Assistant decides at the start time.
-        </p>
-        <dl>
-          <div><dt>Rain, last 24 hours</dt><dd>{formatMm(schedule?.rainLast24h)}</dd></div>
-          <div><dt>Forecast, next 12 hours</dt><dd>{formatMm(schedule?.rainNext12h)}</dd></div>
-          {runRain && <div><dt>24 hours before the next run</dt><dd>{formatMm(runRain.before)}</dd></div>}
-          {runRain && <div><dt>12 hours after it starts</dt><dd>{formatMm(runRain.after)}</dd></div>}
-        </dl>
-        {schedule?.lastResult && <p><strong>Last time:</strong> {schedule.lastResult}</p>}
-        <button className="button primary" onClick={onClose}>Got it</button>
+      <section className={`dialog-card retic-info-card${editing ? " editing" : ""}`} role="dialog" aria-modal="true" aria-labelledby="retic-info-title" onPointerDown={(event) => event.stopPropagation()}>
+        {editing ? <ScheduleEditor retic={retic} refresh={refresh} onDone={() => setEditing(false)} /> : (
+          <>
+            <h2 id="retic-info-title">{schedule ? scheduleLabel(schedule.days, schedule.start) : "No schedule"}</h2>
+            <p>
+              September to May: {order.map(({ entityId, minutes }, index) => `${index === 0 ? "" : "then "}${(names.get(entityId) ?? entityId).toLowerCase()} for ${minutes ?? "?"} min`).join(", ")}.
+              {order.length > 0 && ` ${totalMinutes(order)} min in all.`}
+            </p>
+            <p>
+              It skips when {schedule?.skipPastMm ?? 3} mm or more fell in the 24 hours before, {schedule?.skipForecastMm ?? 5} mm or more is
+              forecast for the 12 hours after, or the rain sensor is wet. Home Assistant decides at the start time.
+            </p>
+            <dl>
+              <div><dt>Rain, last 24 hours</dt><dd>{formatMm(schedule?.rainLast24h)}</dd></div>
+              <div><dt>Forecast, next 12 hours</dt><dd>{formatMm(schedule?.rainNext12h)}</dd></div>
+              {runRain && <div><dt>24 hours before the next run</dt><dd>{formatMm(runRain.before)}</dd></div>}
+              {runRain && <div><dt>12 hours after it starts</dt><dd>{formatMm(runRain.after)}</dd></div>}
+            </dl>
+            {schedule?.lastResult && <p><strong>Last time:</strong> {schedule.lastResult}</p>}
+            <div className="retic-info-actions">
+              <button className="button secondary" onClick={() => setEditing(true)} disabled={!schedule || !retic.startTimes?.length}>Change schedule</button>
+              <button className="button primary" onClick={onClose}>Got it</button>
+            </div>
+          </>
+        )}
       </section>
     </div>
+  );
+}
+
+// Home Assistant saves at once, but the schedule only shows once the next poll reads it back.
+const SAVE_LIMIT_MS = 10_000;
+
+/** The schedule's start time and zones, picked the same way as the queue: tap zones in the order to water them. */
+function ScheduleEditor({ retic, refresh, onDone }: { retic: ReticStatus; refresh: () => Promise<void>; onDone: () => void }) {
+  const saved = scheduleDraft(retic.schedule);
+  const [draft, setDraft] = useState<ReticScheduleDraft>(saved);
+  // The draft being saved, until a refresh shows Home Assistant has it.
+  const [saving, setSaving] = useState<ReticScheduleDraft | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const times = retic.startTimes ?? [];
+  const at = times.indexOf(draft.start);
+  const minutes = totalMinutes(draft.zones);
+  const busy = saving != null;
+
+  useEffect(() => {
+    if (saving && sameSchedule(saving, saved)) onDone();
+  });
+
+  useEffect(() => {
+    if (!saving) return;
+    const timer = window.setTimeout(() => {
+      setSaving(null);
+      setError("Home Assistant didn't save the schedule. Try again.");
+    }, SAVE_LIMIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [saving]);
+
+  async function save() {
+    setError(null);
+    setSaving(draft);
+    try {
+      await readJsonResponse(await fetch("/api/retic/schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(draft),
+        signal: AbortSignal.timeout(SAVE_LIMIT_MS),
+      }), "Home Assistant didn't answer");
+      await refresh();
+    } catch (requestError) {
+      setSaving(null);
+      setError(requestError instanceof DOMException ? "Home Assistant didn't answer" : errorText(requestError, "Home Assistant didn't answer"));
+    }
+  }
+
+  // A start the page doesn't offer (set some other way) snaps to the nearest one it does.
+  function step(by: number) {
+    const minutesOf = (time: string) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
+    const nearest = times.reduce((best, time, index) => (Math.abs(minutesOf(time) - minutesOf(draft.start)) < Math.abs(minutesOf(times[best]) - minutesOf(draft.start)) ? index : best), 0);
+    const next = at >= 0 ? times[Math.min(Math.max(at + by, 0), times.length - 1)] : times[nearest];
+    if (next) setDraft({ ...draft, start: next });
+  }
+
+  return (
+    <>
+      <h2 id="retic-info-title">Change the schedule</h2>
+      <div className="retic-edit-start">
+        <span>Starts</span>
+        <div className="car-stepper">
+          <button aria-label="Earlier" disabled={busy || at === 0} onClick={() => step(-1)}><Minus /></button>
+          <strong>{startLabel(draft.start)}</strong>
+          <button aria-label="Later" disabled={busy || at === times.length - 1} onClick={() => step(1)}><Plus /></button>
+        </div>
+      </div>
+      <p className="retic-edit-hint">Tap zones in the order to water them.</p>
+      <div className="retic-edit-zones">
+        {(retic.zones ?? []).map((zone) => {
+          const place = draft.zones.findIndex(({ entityId }) => entityId === zone.entityId);
+          return (
+            <div key={zone.entityId} className={`retic-edit-zone${place < 0 ? " left-out" : ""}`}>
+              <h3>{zone.name}</h3>
+              <div className="retic-zone-actions">
+                {(retic.runMinutes ?? []).map((value) => {
+                  const picked = place >= 0 && draft.zones[place].minutes === value;
+                  return (
+                    <button
+                      key={value}
+                      className={`retic-run${picked ? " picked" : ""}`}
+                      disabled={busy}
+                      onClick={() => setDraft({ ...draft, zones: editQueue(draft.zones, tapEdit(draft.zones, zone.entityId, value), false) })}
+                      aria-label={picked
+                        ? `${zone.name} for ${value} minutes, number ${place + 1} in the schedule. Tap to leave it out.`
+                        : `${zone.name} for ${value} minutes`}
+                    >
+                      <strong>{value}</strong>
+                      <small>min</small>
+                      {picked && <span className="retic-run-place" aria-hidden="true">{place + 1}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <p className="retic-edit-summary">
+        {draft.zones.length === 0
+          ? "Pick at least one zone"
+          : `${draft.zones.length} ${draft.zones.length === 1 ? "zone" : "zones"}, ${minutes} min, done about ${startLabel(draft.start, minutes)}`}
+        {draft.zones.length > 0 && (
+          <button className="retic-edit-reset" onClick={() => setDraft({ ...draft, zones: [] })} disabled={busy}>
+            <RotateCcw aria-hidden="true" />
+            Start again
+          </button>
+        )}
+      </p>
+      {error && <p className="retic-edit-error" role="alert">{error}</p>}
+      <div className="retic-info-actions">
+        <button className="button secondary" onClick={onDone} disabled={busy}>Cancel</button>
+        <button className="button primary" onClick={() => void save()} disabled={busy || draft.zones.length === 0 || at < 0 || sameSchedule(draft, saved)}>
+          {busy && <LoaderCircle className="spin" aria-hidden="true" />}
+          {busy ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </>
   );
 }
