@@ -48,6 +48,8 @@ input_number:
     mode: box
   # Below this the car charges whatever the sun is doing, day or night, up to
   # this same %, so it's always usable. Set from Cannvas, started at 50.
+  # A new helper starts at its min (0, so off) until set: after installing,
+  # set it once (input_number.set_value, 50 on 19 Nov 2026) and check it stuck.
   car_keep_at_least:
     name: Car keep at least
     min: 0
@@ -236,6 +238,11 @@ automation:
         entity_id: sensor.byd_atto_3_battery_level
       - trigger: state
         entity_id: input_number.car_charge_limit
+      # Keep-at-least just handed back while the car is already over the sun
+      # limit (say the level was lowered mid-charge): stop now, not at the next reading.
+      - trigger: state
+        entity_id: input_boolean.car_minimum_active
+        to: "off"
     conditions:
       - condition: state
         entity_id: input_select.car_charging_mode
@@ -271,9 +278,16 @@ automation:
       - condition: state
         entity_id: input_select.car_charging_mode
         state: solar
-      - condition: state
-        entity_id: input_boolean.car_minimum_active
-        state: "off"
+      # Not already charging for it. If the flag is on but the plug is off (a
+      # switch-on that failed, or the plug dropped off the network), try again.
+      - condition: or
+        conditions:
+          - condition: state
+            entity_id: input_boolean.car_minimum_active
+            state: "off"
+          - condition: state
+            entity_id: switch.car_charger
+            state: "off"
       - condition: state
         entity_id: binary_sensor.byd_atto_3_plug
         state: "on"
@@ -301,6 +315,20 @@ automation:
       - trigger: state
         entity_id: input_select.car_charging_mode
         id: mode
+      # Unplugged: drop the flag so the sun rules aren't blocked while it's away.
+      - trigger: state
+        entity_id: binary_sensor.byd_atto_3_plug
+        to: "off"
+        id: unplugged
+      # No battery reading for half an hour: without one it can't tell when to
+      # stop, so hand back to the sun rules (which switch off without sun)
+      # rather than charge from the grid with no end. It starts again once a
+      # reading under the level comes back.
+      - trigger: state
+        entity_id: sensor.byd_atto_3_battery_level
+        to: [unavailable, unknown]
+        for: "00:30:00"
+        id: no_reading
     conditions:
       - condition: state
         entity_id: input_boolean.car_minimum_active
@@ -308,7 +336,7 @@ automation:
       - condition: or
         conditions:
           - condition: trigger
-            id: mode
+            id: [mode, unplugged, no_reading]
           - condition: template
             value_template: >
               {% set battery = states('sensor.byd_atto_3_battery_level') %}
@@ -323,7 +351,10 @@ automation:
           - action: input_text.set_value
             target: { entity_id: input_text.car_charging_reason }
             data:
-              value: "Back to {{ states('input_number.car_keep_at_least') | int }}%, waiting for spare sun"
+              value: >
+                {{ 'Unplugged' if trigger.id == 'unplugged'
+                   else 'No battery reading from the car, so sun only for now' if trigger.id == 'no_reading'
+                   else 'Back to ' ~ (states('input_number.car_keep_at_least') | int) ~ '%, waiting for spare sun' }}
 
   # Boost is for one charge: back to Auto once the car reaches the boost
   # target, or once it's been drawing nothing for a while (full, or unplugged).
