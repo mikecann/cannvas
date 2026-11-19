@@ -473,7 +473,7 @@ function ScheduleInfo({ retic, rain, refresh, startEditing, onClose }: {
             {schedule?.mode !== "fixed" && (retic.dryness ?? []).length > 0 && (
               <p>
                 <strong>Right now:</strong>{" "}
-                {(retic.dryness ?? []).filter(({ entityId }) => order.some((zone) => zone.entityId === entityId)).map(({ entityId, minutes }) => `${(names.get(entityId) ?? entityId).toLowerCase()} ${minutes < 3 ? "is fine" : `needs ${minutes} min`}`).join(", ")}.
+                {(retic.dryness ?? []).filter(({ entityId }) => order.some((zone) => zone.entityId === entityId)).map(({ entityId, minutes }) => `${(names.get(entityId) ?? entityId).toLowerCase()} ${minutes < 3 ? "is fine" : `needs ${Math.min(minutes, 15)} min`}`).join(", ")}.
               </p>
             )}
             <dl>
