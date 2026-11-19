@@ -7,13 +7,18 @@ export type ReticZone = {
   open: boolean;
 };
 
+export type ReticMode = "smart" | "days" | "fixed";
+export type ReticLevel = "greener" | "normal" | "saver";
+
 export type ReticSchedule = {
   /** ISO time of the next scheduled watering, or null outside the season. */
   nextRun: string | null;
   /** How many days apart runs are: the next is this many days after the last that watered or was skipped for rain. */
   everyDays: number | null;
-  /** Each zone gets what rain and evaporation say it's short, up to its minutes. */
-  auto: boolean;
+  /** Auto (smart) picks the mornings and amounts, Set days (days) picks amounts, Manual (fixed) picks neither. */
+  mode: ReticMode | null;
+  /** How green Auto and Set days keep things. */
+  level: ReticLevel;
   /** Local start time, like "06:00". */
   start: string | null;
   skipPastMm: number | null;
@@ -61,7 +66,7 @@ export type ReticStatus = {
   mainsProblem?: boolean | null;
   history?: ReticRun[];
   /** How many mm of water each zone is short, and the minutes that would put it back. */
-  dryness?: { entityId: string; shortMm: number; minutes: number }[];
+  dryness?: { entityId: string; shortMm: number; minutes: number; triggerMm: number | null }[];
 };
 
 export type ReticQueueItem = { entityId: string; minutes: number };
@@ -143,21 +148,23 @@ export function everyLabel(days: number | null): string {
   return days === 1 ? "Every day" : `Every ${days ?? "few"} days`;
 }
 
-/** "Every 2 days at 6:00 am". */
-export function scheduleLabel(everyDays: number | null, start: string | null): string {
+/** "Every 2 days at 6:00 am", or "When needed, at 6:00 am" for Auto. */
+export function scheduleLabel(everyDays: number | null, start: string | null, mode: ReticMode | null = "fixed"): string {
   const time = startLabel(start);
+  if (mode === "smart") return time ? `When needed, at ${time}` : "When needed";
   return time ? `${everyLabel(everyDays)} at ${time}` : everyLabel(everyDays);
 }
 
-/** A schedule being changed on the page: when and how often it runs, how much, and the zones in the order they water. */
-export type ReticScheduleDraft = { start: string; everyDays: number; auto: boolean; zones: ReticQueueItem[] };
+/** A schedule being changed on the page. */
+export type ReticScheduleDraft = { start: string; everyDays: number; mode: ReticMode; level: ReticLevel; zones: ReticQueueItem[] };
 
 /** The schedule Home Assistant is running, as a draft to change. */
 export function scheduleDraft(schedule: ReticSchedule | undefined): ReticScheduleDraft {
   return {
     start: schedule?.start ?? "06:00",
     everyDays: schedule?.everyDays ?? 2,
-    auto: schedule?.auto ?? true,
+    mode: schedule?.mode ?? "smart",
+    level: schedule?.level ?? "normal",
     zones: (schedule?.zones ?? []).flatMap(({ entityId, minutes }) => (minutes == null ? [] : [{ entityId, minutes }])),
   };
 }
@@ -165,7 +172,8 @@ export function scheduleDraft(schedule: ReticSchedule | undefined): ReticSchedul
 export function sameSchedule(left: ReticScheduleDraft, right: ReticScheduleDraft): boolean {
   return left.start === right.start
     && left.everyDays === right.everyDays
-    && left.auto === right.auto
+    && left.mode === right.mode
+    && left.level === right.level
     && left.zones.length === right.zones.length
     && left.zones.every((zone, index) => zone.entityId === right.zones[index].entityId && zone.minutes === right.zones[index].minutes);
 }
@@ -218,8 +226,10 @@ export function predictedSkip(
   if (schedule && (schedule.rainLast24h == null || schedule.rainNext12h == null)) return "Home Assistant has no rain data";
   const pastLimit = schedule?.skipPastMm ?? 3;
   const forecastLimit = schedule?.skipForecastMm ?? 5;
-  // With automatic amounts, rain that's already fallen just means less watering.
-  if (runRain && !schedule?.auto && runRain.before >= pastLimit) return `${formatMm(runRain.before)} of rain by then`;
+  // Auto already plans its mornings around the rain.
+  if (schedule?.mode === "smart") return null;
+  // With Set days, rain that's already fallen just means less watering.
+  if (runRain && schedule?.mode !== "days" && runRain.before >= pastLimit) return `${formatMm(runRain.before)} of rain by then`;
   if (runRain && runRain.after >= forecastLimit) return `${formatMm(runRain.after)} of rain forecast that morning`;
   return null;
 }
@@ -279,7 +289,12 @@ export function reticOutlook(
   }
 
   const at = schedule?.nextRun ? Date.parse(schedule.nextRun) : Number.NaN;
-  if (!Number.isFinite(at)) return { headline: "No watering scheduled", detail: "The schedule is off June to August", tone: "off" };
+  if (!Number.isFinite(at)) {
+    if (schedule?.mode === "smart" && ![6, 7, 8].includes(Number(perthDate(now).slice(5, 7)))) {
+      return { headline: "No watering needed this week", detail: "Auto checks again every morning", tone: "off" };
+    }
+    return { headline: "No watering scheduled", detail: "The schedule is off June to August", tone: "off" };
+  }
   const day = dayLabel(at, now);
 
   // Home Assistant keeps the start time for 5 minutes after a run, so a run
@@ -291,6 +306,9 @@ export function reticOutlook(
     return { headline: last.result === "stopped" ? `${capitalise(day)}'s watering stopped early` : `${capitalise(day)}'s watering is done`, detail: "Nothing else is due today", tone: "off" };
   }
 
+  if (schedule?.mode === "smart") {
+    return { headline: `Next watering ${day}, ${clockLabel(at)}`, detail: "When Auto expects the garden to need it", tone: "water" };
+  }
   const skip = predictedSkip(status, runRain);
   if (skip) return { headline: `${capitalise(day)}'s watering will skip`, detail: capitalise(skip), tone: "skip" };
   const due = runRain ? runRain.before + runRain.after : null;

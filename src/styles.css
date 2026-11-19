@@ -1201,7 +1201,7 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .retic-edit-start > span { font: 700 1.6rem "Fraunces", serif; }
 .retic-edit-start .car-stepper strong { min-width: 190px; }
 .retic-info-card .retic-edit-hint { margin: 18px 0 10px; }
-.retic-edit-zones { display: flex; flex-direction: column; gap: 10px; }
+.retic-edit-zones { margin: 12px 0 16px; display: flex; flex-direction: column; gap: 10px; }
 .retic-edit-zone { min-height: 112px; padding: 6px 6px 6px 22px; display: flex; align-items: center; gap: 16px; border: 1px solid #e2dbd0; border-radius: 22px; }
 .retic-edit-zone-text { min-width: 0; flex: 1 1 auto; }
 .retic-edit-zone h3 { margin: 0; font: 700 1.75rem/1.1 "Fraunces", serif; }
@@ -1211,6 +1211,14 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .retic-edit-choice button { min-width: 120px; min-height: 56px; border: 0; border-radius: 14px; color: var(--muted); background: transparent; font-size: 1.2rem; font-weight: 800; cursor: pointer; }
 .retic-edit-choice button.on { color: var(--ink); background: var(--paper); box-shadow: 0 2px 8px rgba(0,0,0,.1); }
 .retic-edit-choice button:disabled { cursor: default; }
+.retic-edit-modes { margin-top: 18px; }
+.retic-edit-modes button { flex: 1 1 0; min-height: 68px; font-size: 1.35rem; }
+.retic-info-card .retic-edit-modes + .retic-edit-hint { margin: 10px 0 14px; }
+.retic-edit-zone .retic-zone-switch { position: relative; width: 112px; height: 64px; margin-right: 12px; flex: 0 0 auto; padding: 6px; border: 0; border-radius: 32px; background: #c9c2b6; cursor: pointer; transition: background .2s; }
+.retic-zone-switch span { display: block; width: 52px; height: 52px; border-radius: 50%; background: white; box-shadow: 0 3px 10px rgba(0,0,0,.18); transition: transform .2s; }
+.retic-zone-switch[aria-checked="true"] { background: #2f7fb8; }
+.retic-zone-switch[aria-checked="true"] span { transform: translateX(48px); }
+.retic-zone-switch:disabled { opacity: .6; cursor: default; }
 .retic-edit-zone.left-out h3 { color: var(--muted); }
 .retic-edit-zone .retic-run { min-height: 92px; width: 104px; }
 .retic-info-card .retic-edit-summary { margin: 16px 0 6px; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--ink); font-size: 1.35rem; font-weight: 700; }

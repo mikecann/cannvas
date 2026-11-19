@@ -14,6 +14,8 @@ import {
   type ReticQueueItem,
   type ReticStatus,
   type ReticZone,
+  type ReticLevel,
+  type ReticMode,
   type ReticScheduleDraft,
   type RunMark,
   runMarks,
@@ -450,23 +452,30 @@ function ScheduleInfo({ retic, rain, refresh, startEditing, onClose }: {
       <section className={`dialog-card retic-info-card${editing ? " editing" : ""}`} role="dialog" aria-modal="true" aria-labelledby="retic-info-title" onPointerDown={(event) => event.stopPropagation()}>
         {editing ? <ScheduleEditor retic={retic} refresh={refresh} onDone={startEditing ? onClose : () => setEditing(false)} /> : (
           <>
-            <h2 id="retic-info-title">{schedule ? scheduleLabel(schedule.everyDays, schedule.start) : "No schedule"}</h2>
-            <p>
-              September to May: {order.map(({ entityId, minutes }, index) => `${index === 0 ? "" : "then "}${(names.get(entityId) ?? entityId).toLowerCase()} for ${schedule?.auto ? "up to " : ""}${minutes ?? "?"} min`).join(", ")}.
-              {schedule?.auto
-                ? " Each zone gets what rain and evaporation say it's short, so it waters less after rain and more when it's hot."
-                : order.length > 0 && ` ${totalMinutes(order)} min in all.`}
-            </p>
-            {schedule?.auto && (retic.dryness ?? []).length > 0 && (
+            <h2 id="retic-info-title">{schedule ? scheduleLabel(schedule.everyDays, schedule.start, schedule.mode) : "No schedule"}</h2>
+            {schedule?.mode === "fixed" ? (
               <p>
-                <strong>Right now:</strong>{" "}
-                {(retic.dryness ?? []).map(({ entityId, minutes }) => `${(names.get(entityId) ?? entityId).toLowerCase()} ${minutes < 3 ? "is fine" : `needs ${minutes} min`}`).join(", ")}.
+                September to May: {order.map(({ entityId, minutes }, index) => `${index === 0 ? "" : "then "}${(names.get(entityId) ?? entityId).toLowerCase()} for ${minutes ?? "?"} min`).join(", ")}.
+                {order.length > 0 && ` ${totalMinutes(order)} min in all.`} It skips when {schedule.skipPastMm ?? 3} mm or more fell in the 24 hours before,
+                {" "}{schedule.skipForecastMm ?? 5} mm or more is forecast for the 12 hours after, or the rain sensor is wet.
+              </p>
+            ) : schedule?.mode === "days" ? (
+              <p>
+                September to May, each zone gets what rain and evaporation (heat, wind and sun) say it&apos;s short, up to 15 min.
+                It skips when {schedule.skipForecastMm ?? 5} mm or more is forecast for the 12 hours after, or the rain sensor is wet.
+              </p>
+            ) : (
+              <p>
+                September to May, it works out how dry each zone is from rain and evaporation (heat, wind and sun), and waters the
+                ones that need it that morning. It leaves zones the coming rain will see to, and skips when the rain sensor is wet.
               </p>
             )}
-            <p>
-              It skips when {schedule?.auto ? "" : `${schedule?.skipPastMm ?? 3} mm or more fell in the 24 hours before, `}{schedule?.skipForecastMm ?? 5} mm or more is
-              forecast for the 12 hours after, or the rain sensor is wet. Home Assistant decides at the start time.
-            </p>
+            {schedule?.mode !== "fixed" && (retic.dryness ?? []).length > 0 && (
+              <p>
+                <strong>Right now:</strong>{" "}
+                {(retic.dryness ?? []).filter(({ entityId }) => order.some((zone) => zone.entityId === entityId)).map(({ entityId, minutes }) => `${(names.get(entityId) ?? entityId).toLowerCase()} ${minutes < 3 ? "is fine" : `needs ${minutes} min`}`).join(", ")}.
+              </p>
+            )}
             <dl>
               <div><dt>Rain, last 24 hours</dt><dd>{formatMm(schedule?.rainLast24h)}</dd></div>
               <div><dt>Forecast, next 12 hours</dt><dd>{formatMm(schedule?.rainNext12h)}</dd></div>
@@ -485,6 +494,14 @@ function ScheduleInfo({ retic, rain, refresh, startEditing, onClose }: {
   );
 }
 
+const MODES: [ReticMode, string][] = [["smart", "Auto"], ["days", "Set days"], ["fixed", "Manual"]];
+const MODE_HINTS: Record<ReticMode, string> = {
+  smart: "Waters when the garden needs it.",
+  days: "Waters every few days, as much as each zone needs.",
+  fixed: "Waters every few days for the minutes you pick.",
+};
+const LEVELS: [ReticLevel, string][] = [["greener", "Greener"], ["normal", "Normal"], ["saver", "Saver"]];
+
 // Home Assistant saves at once, but the schedule only shows once the next poll reads it back.
 const SAVE_LIMIT_MS = 10_000;
 
@@ -499,7 +516,7 @@ function ScheduleEditor({ retic, refresh, onDone }: { retic: ReticStatus; refres
   const at = times.indexOf(draft.start);
   const minutes = totalMinutes(draft.zones);
   const busy = saving != null;
-  const needs = new Map((retic.dryness ?? []).map(({ entityId, minutes: needed }) => [entityId, needed]));
+  const dryness = new Map((retic.dryness ?? []).map((zone) => [zone.entityId, zone]));
 
   useEffect(() => {
     if (saving && sameSchedule(saving, saved)) onDone();
@@ -542,6 +559,12 @@ function ScheduleEditor({ retic, refresh, onDone }: { retic: ReticStatus; refres
   return (
     <>
       <h2 id="retic-info-title">Change the schedule</h2>
+      <div className="retic-edit-choice retic-edit-modes" role="radiogroup" aria-label="How it decides">
+        {MODES.map(([value, label]) => (
+          <button key={value} role="radio" aria-checked={draft.mode === value} className={draft.mode === value ? "on" : ""} disabled={busy} onClick={() => setDraft({ ...draft, mode: value })}>{label}</button>
+        ))}
+      </div>
+      <p className="retic-edit-hint">{MODE_HINTS[draft.mode]}</p>
       <div className="retic-edit-start">
         <span>Starts</span>
         <div className="car-stepper">
@@ -550,34 +573,61 @@ function ScheduleEditor({ retic, refresh, onDone }: { retic: ReticStatus; refres
           <button aria-label="Later" disabled={busy || at === times.length - 1} onClick={() => step(1)}><Plus /></button>
         </div>
       </div>
-      <div className="retic-edit-start">
-        <span>Waters</span>
-        <div className="car-stepper">
-          <button aria-label="More often" disabled={busy || draft.everyDays <= 1} onClick={() => setDraft({ ...draft, everyDays: draft.everyDays - 1 })}><Minus /></button>
-          <strong>{everyLabel(draft.everyDays).toLowerCase()}</strong>
-          <button aria-label="Less often" disabled={busy || draft.everyDays >= 7} onClick={() => setDraft({ ...draft, everyDays: draft.everyDays + 1 })}><Plus /></button>
+      {draft.mode !== "smart" && (
+        <div className="retic-edit-start">
+          <span>Waters</span>
+          <div className="car-stepper">
+            <button aria-label="More often" disabled={busy || draft.everyDays <= 1} onClick={() => setDraft({ ...draft, everyDays: draft.everyDays - 1 })}><Minus /></button>
+            <strong>{everyLabel(draft.everyDays).toLowerCase()}</strong>
+            <button aria-label="Less often" disabled={busy || draft.everyDays >= 7} onClick={() => setDraft({ ...draft, everyDays: draft.everyDays + 1 })}><Plus /></button>
+          </div>
         </div>
-      </div>
-      <div className="retic-edit-start">
-        <span>Amounts</span>
-        <div className="retic-edit-choice" role="radiogroup" aria-label="Amounts">
-          {([[true, "Auto"], [false, "Fixed"]] as const).map(([value, label]) => (
-            <button key={label} role="radio" aria-checked={draft.auto === value} className={draft.auto === value ? "on" : ""} disabled={busy} onClick={() => setDraft({ ...draft, auto: value })}>{label}</button>
-          ))}
+      )}
+      {draft.mode !== "fixed" && (
+        <div className="retic-edit-start">
+          <span>Level</span>
+          <div className="retic-edit-choice" role="radiogroup" aria-label="Level">
+            {LEVELS.map(([value, label]) => (
+              <button key={value} role="radio" aria-checked={draft.level === value} className={draft.level === value ? "on" : ""} disabled={busy} onClick={() => setDraft({ ...draft, level: value })}>{label}</button>
+            ))}
+          </div>
         </div>
-      </div>
-      <p className="retic-edit-hint">
-        Tap zones in the order to water them.
-        {draft.auto && " Auto waters what rain hasn't, up to these times."}
-      </p>
+      )}
+      {draft.mode === "fixed" && <p className="retic-edit-hint">Tap zones in the order to water them.</p>}
       <div className="retic-edit-zones">
         {(retic.zones ?? []).map((zone) => {
           const place = draft.zones.findIndex(({ entityId }) => entityId === zone.entityId);
+          if (draft.mode !== "fixed") {
+            const dry = dryness.get(zone.entityId);
+            const on = place >= 0;
+            return (
+              <div key={zone.entityId} className={`retic-edit-zone${on ? "" : " left-out"}`}>
+                <div className="retic-edit-zone-text">
+                  <h3>{zone.name}</h3>
+                  {dry && <small>{dry.minutes < 3 ? "Fine right now" : `${dry.shortMm.toFixed(0)} mm dry, needs ${Math.min(dry.minutes, 15)} min`}</small>}
+                </div>
+                <button
+                  className="retic-zone-switch"
+                  role="switch"
+                  aria-checked={on}
+                  aria-label={`Water ${zone.name}`}
+                  disabled={busy}
+                  onClick={() => setDraft({
+                    ...draft,
+                    zones: on
+                      ? draft.zones.filter(({ entityId }) => entityId !== zone.entityId)
+                      : [...draft.zones, { entityId: zone.entityId, minutes: saved.zones.find(({ entityId }) => entityId === zone.entityId)?.minutes ?? 15 }],
+                  })}
+                >
+                  <span />
+                </button>
+              </div>
+            );
+          }
           return (
             <div key={zone.entityId} className={`retic-edit-zone${place < 0 ? " left-out" : ""}`}>
               <div className="retic-edit-zone-text">
                 <h3>{zone.name}</h3>
-                {draft.auto && needs.has(zone.entityId) && <small>{(needs.get(zone.entityId) ?? 0) < 3 ? "Fine right now" : `Needs ${needs.get(zone.entityId)} min right now`}</small>}
               </div>
               <div className="retic-zone-actions">
                 {(retic.runMinutes ?? []).map((value) => {
@@ -603,19 +653,19 @@ function ScheduleEditor({ retic, refresh, onDone }: { retic: ReticStatus; refres
           );
         })}
       </div>
-      <p className="retic-edit-summary">
-        {draft.zones.length === 0
-          ? "Pick at least one zone"
-          : draft.auto
-            ? `${draft.zones.length} ${draft.zones.length === 1 ? "zone" : "zones"}, up to ${minutes} min`
+      {draft.mode === "fixed" ? (
+        <p className="retic-edit-summary">
+          {draft.zones.length === 0
+            ? "Pick at least one zone"
             : `${draft.zones.length} ${draft.zones.length === 1 ? "zone" : "zones"}, ${minutes} min, done about ${startLabel(draft.start, minutes)}`}
-        {draft.zones.length > 0 && (
-          <button className="retic-edit-reset" onClick={() => setDraft({ ...draft, zones: [] })} disabled={busy}>
-            <RotateCcw aria-hidden="true" />
-            Start again
-          </button>
-        )}
-      </p>
+          {draft.zones.length > 0 && (
+            <button className="retic-edit-reset" onClick={() => setDraft({ ...draft, zones: [] })} disabled={busy}>
+              <RotateCcw aria-hidden="true" />
+              Start again
+            </button>
+          )}
+        </p>
+      ) : draft.zones.length === 0 && <p className="retic-edit-summary">Turn on at least one zone</p>}
       {error && <p className="retic-edit-error" role="alert">{error}</p>}
       <div className="retic-info-actions">
         <button className="button secondary" onClick={onDone} disabled={busy}>Cancel</button>
