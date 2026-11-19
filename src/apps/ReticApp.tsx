@@ -1,4 +1,4 @@
-import { CircleCheck, Info, ListX, LoaderCircle, Minus, Plus, RotateCcw, Square, TriangleAlert } from "lucide-react";
+import { CircleCheck, Info, ListX, LoaderCircle, Minus, Plus, RotateCcw, Settings, Square, TriangleAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { errorText, readJsonResponse } from "../lib/http";
 import {
@@ -45,7 +45,8 @@ export function ReticApp() {
   // The state the master switch is being moved to, until Home Assistant reports it.
   const [switchPending, setSwitchPending] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [infoOpen, setInfoOpen] = useState(false);
+  // The schedule panel: what it does, or straight to changing it.
+  const [panel, setPanel] = useState<"info" | "edit" | null>(null);
   const timers = useRef<number[]>([]);
   const nextEdit = useRef(0);
   // Requests go one at a time, in the order they were tapped.
@@ -157,7 +158,8 @@ export function ReticApp() {
             rain={rain}
             switchPending={switchPending}
             onSwitch={(enabled) => void setEnabled(enabled)}
-            onInfo={() => setInfoOpen(true)}
+            onInfo={() => setPanel("info")}
+            onSettings={() => setPanel("edit")}
           />
           {error && <div className="retic-alert error" role="alert">{error}</div>}
           {retic.available && (retic.zones ?? []).some(({ state }) => state == null) && (
@@ -198,20 +200,21 @@ export function ReticApp() {
             </div>
           )}
           <HealthLine retic={retic} />
-          {infoOpen && <ScheduleInfo retic={retic} rain={rain} refresh={refresh} onClose={() => setInfoOpen(false)} />}
+          {panel && <ScheduleInfo retic={retic} rain={rain} refresh={refresh} startEditing={panel === "edit"} onClose={() => setPanel(null)} />}
         </>
       )}
     </section>
   );
 }
 
-function AnswerCard({ retic, rain, switchPending, onSwitch, onInfo }: {
+function AnswerCard({ retic, rain, switchPending, onSwitch, onInfo, onSettings }: {
   retic: ReticStatus;
   rain: HourlyRain | null;
   /** The state the switch is being moved to, or null. */
   switchPending: boolean | null;
   onSwitch: (enabled: boolean) => void;
   onInfo: () => void;
+  onSettings: () => void;
 }) {
   const runRain = rain ? rainAroundRun(rain, retic.schedule?.nextRun ?? null) : null;
   const outlook: ReticOutlook = reticOutlook(retic, runRain, Date.now(), rain != null);
@@ -226,7 +229,10 @@ function AnswerCard({ retic, rain, switchPending, onSwitch, onInfo }: {
             <button className="retic-info" onClick={onInfo} aria-label="How the schedule works"><Info aria-hidden="true" /></button>
           </p>
         </div>
-        <MasterSwitch enabled={retic.enabled ?? null} pending={switchPending} onChange={onSwitch} />
+        <div className="retic-answer-controls">
+          <button className="retic-settings" onClick={onSettings} disabled={!retic.schedule || !retic.startTimes?.length} aria-label="Change the schedule"><Settings aria-hidden="true" /></button>
+          <MasterSwitch enabled={retic.enabled ?? null} pending={switchPending} onChange={onSwitch} />
+        </div>
       </div>
       <RainChart rain={rain} marks={runMarks(retic, willSkip)} />
     </article>
@@ -425,13 +431,15 @@ function HealthLine({ retic }: { retic: ReticStatus }) {
   );
 }
 
-function ScheduleInfo({ retic, rain, refresh, onClose }: {
+function ScheduleInfo({ retic, rain, refresh, startEditing, onClose }: {
   retic: ReticStatus;
   rain: HourlyRain | null;
   refresh: () => Promise<void>;
+  /** Opened from the settings button: straight to the editor, and closing it closes the panel. */
+  startEditing: boolean;
   onClose: () => void;
 }) {
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(startEditing);
   const schedule = retic.schedule;
   const runRain = rain ? rainAroundRun(rain, schedule?.nextRun ?? null) : null;
   const names = new Map((retic.zones ?? []).map(({ entityId, name }) => [entityId, name]));
@@ -439,7 +447,7 @@ function ScheduleInfo({ retic, rain, refresh, onClose }: {
   return (
     <div className="dialog-backdrop" role="presentation" onPointerDown={onClose}>
       <section className={`dialog-card retic-info-card${editing ? " editing" : ""}`} role="dialog" aria-modal="true" aria-labelledby="retic-info-title" onPointerDown={(event) => event.stopPropagation()}>
-        {editing ? <ScheduleEditor retic={retic} refresh={refresh} onDone={() => setEditing(false)} /> : (
+        {editing ? <ScheduleEditor retic={retic} refresh={refresh} onDone={startEditing ? onClose : () => setEditing(false)} /> : (
           <>
             <h2 id="retic-info-title">{schedule ? scheduleLabel(schedule.days, schedule.start) : "No schedule"}</h2>
             <p>

@@ -1109,6 +1109,11 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .retic-info svg { width: 30px; height: 30px; stroke-width: 1.8; }
 .retic-info:active { background: #f0eae0; }
 
+.retic-answer-top > .retic-answer-controls { display: flex; align-items: center; gap: 14px; flex: 0 0 auto; }
+.retic-settings { flex: 0 0 auto; width: 84px; height: 84px; margin-top: 4px; padding: 0; display: grid; place-items: center; border: 1px solid #e2dbd0; border-radius: 50%; color: var(--ink); background: var(--paper); cursor: pointer; transition: transform .1s; }
+.retic-settings svg { width: 38px; height: 38px; stroke-width: 1.8; }
+.retic-settings:active:not(:disabled) { transform: scale(.94); background: #f0eae0; }
+.retic-settings:disabled { opacity: .4; cursor: default; }
 .retic-toggle { position: relative; width: 150px; height: 84px; margin-top: 4px; flex: 0 0 auto; padding: 8px; border: 0; border-radius: 42px; background: #b8b2a8; cursor: pointer; transition: background .2s; }
 .retic-toggle em { position: absolute; top: 50%; right: 24px; transform: translateY(-50%); color: white; font: 800 1.5rem "DM Sans", sans-serif; font-style: normal; }
 .retic-toggle span { display: grid; place-items: center; width: 68px; height: 68px; border-radius: 50%; background: white; box-shadow: 0 4px 12px rgba(0,0,0,.2); transition: transform .2s; }
