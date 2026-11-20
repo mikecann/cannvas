@@ -318,7 +318,8 @@ Home Assistant won't load its configuration.
   what it's short less the rain since midnight, up to 15 minutes (the WX8's
   limit), and a zone needing under 3 minutes waits. Each zone's trigger (7 mm,
   about what a lawn's roots reach in sand) is kept under what 15 minutes puts
-  back, or it could never catch up. The crop factors (0.7 lawn, 0.5 beds) and
+  back, or it could never catch up. The crop factors (0.7 lawn, 0.5 beds, but 0.7 for the front
+  beds, which has two lawn heads on it) and
   rates (0.6 mm a minute) are estimates in the package: to measure a rate, put
   a few straight-sided tins on the zone, run it 15 minutes and divide the
   average depth in mm by 15.
