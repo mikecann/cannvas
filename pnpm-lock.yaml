@@ -91,8 +91,8 @@ importers:
         specifier: ^10.15.0
         version: 10.15.0
       mikecann-lint:
-        specifier: 0.1.1
-        version: 0.1.1(convex@1.49.0(react@19.2.8))(eslint@10.15.0)(typescript@6.0.2)
+        specifier: 0.2.0
+        version: 0.2.0(convex@1.49.0(react@19.2.8))(eslint@10.15.0)(typescript@6.0.2)
       typescript:
         specifier: 6.0.2
         version: 6.0.2
@@ -1691,8 +1691,8 @@ packages:
     peerDependencies:
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
-  mikecann-lint@0.1.1:
-    resolution: {integrity: sha512-QFf/ucrBJp7/cNGcq5vyQZUzVFu+HrEKZQ+AZn+S6Qw4E+SZrWfz4SVwfC/l+xGFwQGVYdiDJfWE85hx47pxCA==}
+  mikecann-lint@0.2.0:
+    resolution: {integrity: sha512-ttrhQMyjU2IBwQ6/k0Lj8kXUeWh/rQCsaliwynBFYfWk6Xk44yTaiq0fwolz6Zul20VpVRDxxuLATsEH4oOiNw==}
     engines: {node: ^22.15.0 || >=23.5.0}
     hasBin: true
     peerDependencies:
@@ -3422,7 +3422,7 @@ snapshots:
     dependencies:
       react: 19.2.8
 
-  mikecann-lint@0.1.1(convex@1.49.0(react@19.2.8))(eslint@10.15.0)(typescript@6.0.2):
+  mikecann-lint@0.2.0(convex@1.49.0(react@19.2.8))(eslint@10.15.0)(typescript@6.0.2):
     dependencies:
       '@convex-dev/eslint-plugin': 5.0.1(convex@1.49.0(react@19.2.8))(eslint@10.15.0)
       '@eslint-community/eslint-plugin-eslint-comments': 4.8.1(eslint@10.15.0)
