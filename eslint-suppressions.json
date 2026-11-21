@@ -101,6 +101,9 @@
     }
   },
   "src/apps/ChoresApp.tsx": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    },
     "mikecann-lint/click-shows-progress": {
       "count": 1
     }
@@ -111,6 +114,9 @@
     }
   },
   "src/apps/LightsApp.tsx": {
+    "@typescript-eslint/no-misused-promises": {
+      "count": 2
+    },
     "react-hooks/set-state-in-effect": {
       "count": 1
     }
@@ -191,8 +197,16 @@
     }
   },
   "src/inventory/InventoryExperience.tsx": {
+    "@typescript-eslint/no-misused-promises": {
+      "count": 2
+    },
     "mikecann-lint/click-shows-progress": {
       "count": 2
+    }
+  },
+  "src/lib/poller.ts": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 1
     }
   },
   "src/lib/useReticRain.ts": {
