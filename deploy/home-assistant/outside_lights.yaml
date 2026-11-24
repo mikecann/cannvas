@@ -46,6 +46,12 @@ automation:
     conditions:
       - condition: template
         value_template: "{{ trigger.id == states('input_select.outside_lights_on_at') }}"
+      # The off automation fires on the same minute with its own random
+      # sub-second offset, so on could land after off and stay on all night.
+      # Equal times mean off wins: don't come on at all.
+      - condition: template
+        value_template: >-
+          {{ trigger.id != 'time' or states('input_datetime.outside_lights_on_time') != states('input_datetime.outside_lights_off_time') }}
     actions:
       - action: switch.turn_on
         target:

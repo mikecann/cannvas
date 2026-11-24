@@ -118,6 +118,9 @@ function LightsScheduleCard({ schedule, refresh }: { schedule: LightsSchedule; r
         <strong>Goes off</strong>
         <TimeStepper label="Goes off" value={shown.offTime ?? null} onChange={(offTime) => change({ offTime })} />
       </div>
+      {shown.onAt === "time" && shown.onTime != null && shown.onTime === shown.offTime && (
+        <small>Same time on and off, so they stay off</small>
+      )}
       {(busy || error) && (
         <small className={error ? "lights-error" : undefined}>
           {error ?? <><LoaderCircle className="spin" aria-hidden="true" /> Saving</>}
