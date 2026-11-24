@@ -103,6 +103,9 @@ def fake_states() -> list[dict]:
         {"entity_id": "binary_sensor.byd_atto_3_charging", "state": "unavailable"},
         {"entity_id": "switch.athom_outside_lights_smart_plug_v2", "state": "on"},
         {"entity_id": "sensor.athom_outside_lights_power", "state": "168.2"},
+        {"entity_id": "input_select.outside_lights_on_at", "state": "sunset"},
+        {"entity_id": "input_datetime.outside_lights_on_time", "state": "19:00:00"},
+        {"entity_id": "input_datetime.outside_lights_off_time", "state": "22:00:00"},
     ]
     return [FakeUpstream.state_overrides.get(str(state["entity_id"]), state) for state in states]
 
@@ -959,6 +962,35 @@ class CannvasServerTest(unittest.TestCase):
         self.assertEqual(FakeUpstream.posts, [
             ("/api/services/switch/turn_on", {"entity_id": "switch.athom_outside_lights_smart_plug_v2"}),
             ("/api/services/switch/turn_off", {"entity_id": "switch.athom_outside_lights_smart_plug_v2"}),
+        ])
+
+    def test_lights_report_the_schedule(self) -> None:
+        self.connect_home_assistant()
+        self.fake_wled({})
+        _, body = self.request("GET", "/api/lights")
+        self.assertEqual(json.loads(body)["schedule"], {"onAt": "sunset", "onTime": "19:00", "offTime": "22:00", "sunset": "2026-09-25T10:18:00+00:00"})
+
+    def test_lights_schedule_is_none_before_the_package_is_installed(self) -> None:
+        self.connect_home_assistant()
+        self.fake_wled({})
+        self.module.LIGHTS_ON_AT = "input_select.not_installed"
+        self.addCleanup(setattr, self.module, "LIGHTS_ON_AT", "input_select.outside_lights_on_at")
+        _, body = self.request("GET", "/api/lights")
+        lights = json.loads(body)
+        self.assertIsNone(lights["schedule"])
+        self.assertTrue(lights["on"])
+
+    def test_lights_schedule_sets_the_helpers(self) -> None:
+        self.connect_home_assistant()
+        response, _ = self.post_json("/api/lights/schedule", {"onAt": "time", "onTime": "18:30", "offTime": "23:45"})
+        self.assertEqual(response.status, 200)
+        for body in ({}, {"onAt": "dusk"}, {"onTime": "7pm"}, {"offTime": "24:00"}, {"offTime": 2200}, {"onTime": "9:00"}):
+            response, _ = self.post_json("/api/lights/schedule", body)
+            self.assertEqual(response.status, 400, body)
+        self.assertEqual(FakeUpstream.posts, [
+            ("/api/services/input_select/select_option", {"entity_id": "input_select.outside_lights_on_at", "option": "time"}),
+            ("/api/services/input_datetime/set_datetime", {"entity_id": "input_datetime.outside_lights_on_time", "time": "18:30:00"}),
+            ("/api/services/input_datetime/set_datetime", {"entity_id": "input_datetime.outside_lights_off_time", "time": "23:45:00"}),
         ])
 
     def test_lights_restart_only_a_known_string(self) -> None:
