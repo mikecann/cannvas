@@ -1303,5 +1303,21 @@ h1 { margin-bottom: 0; font: 700 clamp(2rem, 3.4vw, 3.3rem)/1.05 "Fraunces", ser
 .lights-bars span.on { background: var(--green); }
 .lights-bars.weak span.on { background: var(--orange); }
 .lights-error { color: var(--orange) !important; }
+.lights-schedule { padding: 8px 26px 14px; display: flex; flex-direction: column; border: 1px solid #e2dbd0; border-radius: 26px; background: var(--paper); box-shadow: 0 8px 22px rgba(64,53,38,.06); }
+.lights-schedule-row { min-height: 84px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.lights-schedule-row + .lights-schedule-row:not(.lights-schedule-sub) { border-top: 1px solid #efe9df; }
+.lights-schedule-row > strong { font-size: 1.25rem; }
+.lights-schedule-sub { min-height: 0; padding-bottom: 16px; justify-content: flex-end; }
+.lights-schedule-sub > span { color: var(--muted); font-size: 1rem; font-weight: 700; }
+.lights-choice { display: flex; padding: 5px; gap: 4px; border-radius: 20px; background: #f1ece4; }
+.lights-choice button { min-width: 120px; height: 54px; padding: 0 18px; border: 0; border-radius: 16px; color: var(--muted); background: none; font: inherit; font-size: 1.05rem; font-weight: 700; cursor: pointer; }
+.lights-choice button.is-current { color: var(--paper); background: var(--ink); }
+.lights-stepper { display: flex; align-items: center; gap: 10px; }
+.lights-stepper button { width: 64px; height: 64px; display: grid; place-items: center; border: 0; border-radius: 18px; color: var(--ink); background: #f1ece4; cursor: pointer; }
+.lights-stepper button svg { width: 24px; height: 24px; }
+.lights-stepper button:disabled { opacity: .4; cursor: default; }
+.lights-stepper button:active:not(:disabled) { transform: scale(.95); }
+.lights-stepper strong { min-width: 150px; text-align: center; font: 700 1.8rem "Fraunces", serif; }
+.lights-schedule > small { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: .85rem; font-weight: 600; }
+.lights-schedule > small svg { width: 16px; height: 16px; }
 .lights-strings-error { padding: 12px 0 0; font-size: .9rem; font-weight: 700; }
-.lights-footnote { color: var(--muted); font-size: .85rem; font-weight: 700; text-align: center; }

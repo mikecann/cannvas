@@ -14,6 +14,18 @@ export type LightString = {
   version?: string | null;
 };
 
+export type LightsOnAt = "sunset" | "time";
+
+/** When the plug comes on and goes off: Home Assistant's outside_lights.yaml. */
+export type LightsSchedule = {
+  onAt: LightsOnAt | null;
+  /** "19:00", 24-hour. */
+  onTime: string | null;
+  offTime: string | null;
+  /** The next sunset, ISO. */
+  sunset: string | null;
+};
+
 /** What /api/lights reports. See LIGHTS_PLUG and LIGHT_STRINGS in deploy/cannvas-server. */
 export type LightsStatus = {
   configured: boolean;
@@ -21,6 +33,8 @@ export type LightsStatus = {
   watts?: number | null;
   /** Empty while the plug is off: the boards have no power to answer. */
   strings?: LightString[];
+  /** Null until outside_lights.yaml is installed in Home Assistant. */
+  schedule?: LightsSchedule | null;
 };
 
 export type LightsState =

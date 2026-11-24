@@ -1054,7 +1054,61 @@ def lights_status(config: dict[str, str]) -> dict[str, Any]:
     if on:
         with ThreadPoolExecutor(len(LIGHT_STRINGS)) as pool:
             strings = list(pool.map(light_string, LIGHT_STRINGS))
-    return {"configured": True, "on": on, "watts": number(power.get("state")), "strings": strings}
+    return {"configured": True, "on": on, "watts": number(power.get("state")), "strings": strings, "schedule": lights_schedule(config)}
+
+
+# When the plug comes on and goes off: Home Assistant's outside_lights.yaml.
+LIGHTS_ON_AT = "input_select.outside_lights_on_at"
+LIGHTS_ON_TIME = "input_datetime.outside_lights_on_time"
+LIGHTS_OFF_TIME = "input_datetime.outside_lights_off_time"
+LIGHTS_ON_AT_OPTIONS = ("sunset", "time")
+
+
+def clock_time(value: Any) -> str | None:
+    """An input_datetime's "19:00:00" as "19:00"."""
+    match = re.fullmatch(r"([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?", str(value or ""))
+    return f"{match[1]}:{match[2]}" if match else None
+
+
+def lights_schedule(config: dict[str, str]) -> dict[str, Any] | None:
+    """None until outside_lights.yaml is installed."""
+    try:
+        on_at = home_assistant_request(config, f"/api/states/{LIGHTS_ON_AT}") or {}
+        on_time = home_assistant_request(config, f"/api/states/{LIGHTS_ON_TIME}") or {}
+        off_time = home_assistant_request(config, f"/api/states/{LIGHTS_OFF_TIME}") or {}
+    except HTTPError as error:
+        error.close()
+        return None
+    try:
+        sun = home_assistant_request(config, "/api/states/sun.sun") or {}
+        attributes = sun.get("attributes") if isinstance(sun.get("attributes"), dict) else {}
+        sunset = str(attributes.get("next_setting") or "") or None
+    except Exception:
+        sunset = None
+    mode = on_at.get("state")
+    return {
+        "onAt": mode if mode in LIGHTS_ON_AT_OPTIONS else None,
+        "onTime": clock_time(on_time.get("state")),
+        "offTime": clock_time(off_time.get("state")),
+        "sunset": sunset,
+    }
+
+
+def lights_schedule_changes(body: dict[str, Any]) -> dict[str, str]:
+    changes: dict[str, str] = {}
+    if "onAt" in body:
+        if body["onAt"] not in LIGHTS_ON_AT_OPTIONS:
+            raise ValueError("onAt is sunset or time")
+        changes["onAt"] = body["onAt"]
+    for key in ("onTime", "offTime"):
+        if key in body:
+            value = body[key]
+            if not isinstance(value, str) or not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", value):
+                raise ValueError(f"{key} is a 24-hour time like 22:00")
+            changes[key] = value
+    if not changes:
+        raise ValueError("Nothing to change")
+    return changes
 
 
 def light_restart_target(body: dict[str, Any]) -> int:
@@ -1598,6 +1652,24 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         except Exception as error:
             self.home_assistant_error(error)
 
+    def post_lights_schedule(self) -> None:
+        config = load_config()
+        if not config:
+            self.send_json(409, {"error": "Home Assistant is not connected"})
+            return
+        try:
+            changes = lights_schedule_changes(self.read_json())
+            if "onAt" in changes:
+                home_assistant_request(config, "/api/services/input_select/select_option", {"entity_id": LIGHTS_ON_AT, "option": changes["onAt"]})
+            for key, entity_id in (("onTime", LIGHTS_ON_TIME), ("offTime", LIGHTS_OFF_TIME)):
+                if key in changes:
+                    home_assistant_request(config, "/api/services/input_datetime/set_datetime", {"entity_id": entity_id, "time": f"{changes[key]}:00"})
+            self.send_json(200, {"ok": True, "schedule": changes})
+        except ValueError as error:
+            self.send_json(400, {"error": str(error)})
+        except Exception as error:
+            self.home_assistant_error(error)
+
     def post_lights_restart(self) -> None:
         try:
             string = light_restart_target(self.read_json())
@@ -1893,6 +1965,7 @@ class CannvasHandler(SimpleHTTPRequestHandler):
         "/api/car/mode": post_car_mode,
         "/api/lights/power": post_lights_power,
         "/api/lights/restart": post_lights_restart,
+        "/api/lights/schedule": post_lights_schedule,
         "/api/car/settings": post_car_settings,
         "/api/voice/listen": post_voice_listen,
         "/api/voice/cancel": post_voice_cancel,

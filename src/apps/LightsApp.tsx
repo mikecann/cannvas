@@ -1,7 +1,8 @@
-import { LoaderCircle } from "lucide-react";
+import { LoaderCircle, Minus, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { errorText, readJsonResponse } from "../lib/http";
-import { type LightString, type LightsStatus, signalBars, useLights } from "../lib/lights";
+import { formatClockTime, shiftClockTime } from "../lib/clockTime";
+import { type LightsSchedule, type LightString, type LightsStatus, signalBars, useLights } from "../lib/lights";
 
 // The outdoor Christmas lights: the main plug, and how each WLED string is
 // connected. Far strings belong on the extender; one stuck on the indoor
@@ -19,9 +20,8 @@ export function LightsApp() {
       {status?.configured && (
         <>
           <LightsPower lights={status} refresh={lights.refresh} />
+          {status.schedule && <LightsScheduleCard schedule={status.schedule} refresh={lights.refresh} />}
           {status.on && <LightsStrings strings={status.strings ?? []} refresh={lights.refresh} />}
-          {/* Home Assistant's "When Sunset Turn Outside Lights On" and "Turn off Outside Lights at 10pm" automations. */}
-          <p className="lights-footnote">Comes on at sunset, off at 10pm</p>
         </>
       )}
     </section>
@@ -29,6 +29,113 @@ export function LightsApp() {
 }
 
 const ACTION_LIMIT_MS = 10_000;
+// Taps on a time land at once; the save waits for a pause so 10 taps are one save.
+const SCHEDULE_SAVE_DELAY_MS = 800;
+const SCHEDULE_STEP_MINUTES = 15;
+
+type ScheduleDraft = Partial<Pick<LightsSchedule, "onAt" | "onTime" | "offTime">>;
+
+function LightsScheduleCard({ schedule, refresh }: { schedule: LightsSchedule; refresh: () => void | Promise<void> }) {
+  // Changes not yet read back from Home Assistant, shown straight away.
+  const [draft, setDraft] = useState<ScheduleDraft>({});
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const saveTimer = useRef<number | undefined>(undefined);
+  const giveUpTimer = useRef<number | undefined>(undefined);
+  const latest = useRef<ScheduleDraft>({});
+
+  const current = useRef(schedule);
+  useEffect(() => { current.current = schedule; });
+  useEffect(() => () => { window.clearTimeout(saveTimer.current); window.clearTimeout(giveUpTimer.current); }, []);
+
+  function change(next: ScheduleDraft) {
+    setError(null);
+    const merged = { ...latest.current, ...next };
+    latest.current = merged;
+    setDraft(merged);
+    window.clearTimeout(saveTimer.current);
+    window.clearTimeout(giveUpTimer.current);
+    saveTimer.current = window.setTimeout(() => void save(merged), SCHEDULE_SAVE_DELAY_MS);
+  }
+
+  async function save(changes: ScheduleDraft) {
+    setSaving(true);
+    try {
+      await readJsonResponse(await fetch("/api/lights/schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(changes),
+        signal: AbortSignal.timeout(ACTION_LIMIT_MS),
+      }), "Home Assistant didn't answer");
+      void refresh();
+      // By now the poll has read it back. Let go of the draft either way.
+      giveUpTimer.current = window.setTimeout(() => {
+        if (latest.current !== changes) return;
+        setDraft({});
+        latest.current = {};
+        if (Object.entries(changes).some(([key, value]) => current.current[key as keyof ScheduleDraft] !== value)) {
+          setError("Home Assistant didn't save that. Try again.");
+        }
+      }, ACTION_LIMIT_MS);
+    } catch (err) {
+      if (latest.current === changes) {
+        setDraft({});
+        latest.current = {};
+      }
+      setError(errorText(err, "Home Assistant didn't answer"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Changes Home Assistant hasn't reported back yet.
+  const unsaved = Object.fromEntries(Object.entries(draft).filter(([key, value]) => schedule[key as keyof ScheduleDraft] !== value)) as ScheduleDraft;
+  const shown = { ...schedule, ...unsaved };
+  const busy = saving || Object.keys(unsaved).length > 0;
+  const sunset = schedule.sunset ? new Date(schedule.sunset) : null;
+  const sunsetText = sunset && !Number.isNaN(sunset.getTime())
+    ? `Sunset is ${sunset.toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" }).replace(" ", "").toLowerCase()}`
+    : "At sunset";
+
+  return (
+    <div className="lights-schedule">
+      <div className="lights-schedule-row">
+        <strong>Comes on</strong>
+        <div className="lights-choice" role="radiogroup" aria-label="Comes on">
+          {(["sunset", "time"] as const).map((onAt) => (
+            <button key={onAt} type="button" role="radio" aria-checked={shown.onAt === onAt} className={shown.onAt === onAt ? "is-current" : ""} onClick={() => shown.onAt !== onAt && change({ onAt })}>
+              {onAt === "sunset" ? "Sunset" : "Set time"}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="lights-schedule-row lights-schedule-sub">
+        {shown.onAt === "time"
+          ? <><span /><TimeStepper label="Comes on" value={shown.onTime ?? null} onChange={(onTime) => change({ onTime })} /></>
+          : <span>{sunsetText}</span>}
+      </div>
+      <div className="lights-schedule-row">
+        <strong>Goes off</strong>
+        <TimeStepper label="Goes off" value={shown.offTime ?? null} onChange={(offTime) => change({ offTime })} />
+      </div>
+      {(busy || error) && (
+        <small className={error ? "lights-error" : undefined}>
+          {error ?? <><LoaderCircle className="spin" aria-hidden="true" /> Saving</>}
+        </small>
+      )}
+    </div>
+  );
+}
+
+function TimeStepper({ label, value, onChange }: { label: string; value: string | null; onChange: (value: string) => void }) {
+  return (
+    <div className="lights-stepper">
+      <button type="button" aria-label={`${label}: earlier`} disabled={value == null} onClick={() => value && onChange(shiftClockTime(value, SCHEDULE_STEP_MINUTES, -1))}><Minus /></button>
+      <strong>{value == null ? "–" : formatClockTime(value)}</strong>
+      <button type="button" aria-label={`${label}: later`} disabled={value == null} onClick={() => value && onChange(shiftClockTime(value, SCHEDULE_STEP_MINUTES, 1))}><Plus /></button>
+    </div>
+  );
+}
 
 function LightsPower({ lights, refresh }: { lights: LightsStatus; refresh: () => void | Promise<void> }) {
   // The state we asked for, until the plug reports it.

@@ -1,0 +1,63 @@
+# Outside (Christmas) lights: when the Athom plug feeding them switches on and
+# off. Both times are set from the Cannvas Lights page.
+#
+# They come on either at sunset or at a set time (input_select picks which),
+# and go off at a set time. Until 24 Nov 2026 this was two automations made in
+# the HA UI, "When Sunset Turn Outside Lights On" and "Turn off Outside Lights
+# at 10pm", with nothing to change them from Cannvas. They were deleted when
+# this was installed.
+#
+# To skip a night, turn automation.outside_lights_on_at_sunset_or_the_set_time off and back on
+# the next morning.
+#
+# Source of truth is cannvas deploy/home-assistant/outside_lights.yaml. Copy it
+# to /config/packages on the HA Pi after edits (`ssh ha`), then reload
+# automations, input selects and input datetimes (or restart Home Assistant).
+
+# No `initial` on these, so values set from Cannvas survive a restart. They were
+# set once by hand after installing (sunset, off at 22:00).
+input_select:
+  outside_lights_on_at:
+    name: Outside lights come on at
+    options: [sunset, time]
+    icon: mdi:weather-sunset-down
+
+input_datetime:
+  outside_lights_on_time:
+    name: Outside lights on time
+    has_date: false
+    has_time: true
+  outside_lights_off_time:
+    name: Outside lights off time
+    has_date: false
+    has_time: true
+
+automation:
+  - id: outside_lights_on_on_schedule
+    alias: "Outside lights: on at sunset or the set time"
+    mode: single
+    triggers:
+      - trigger: sun
+        event: sunset
+        id: sunset
+      - trigger: time
+        at: input_datetime.outside_lights_on_time
+        id: time
+    conditions:
+      - condition: template
+        value_template: "{{ trigger.id == states('input_select.outside_lights_on_at') }}"
+    actions:
+      - action: switch.turn_on
+        target:
+          entity_id: switch.athom_outside_lights_smart_plug_v2
+
+  - id: outside_lights_off_on_schedule
+    alias: "Outside lights: off at the set time"
+    mode: single
+    triggers:
+      - trigger: time
+        at: input_datetime.outside_lights_off_time
+    actions:
+      - action: switch.turn_off
+        target:
+          entity_id: switch.athom_outside_lights_smart_plug_v2
