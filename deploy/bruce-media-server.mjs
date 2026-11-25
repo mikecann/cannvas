@@ -2,6 +2,7 @@ import { createReadStream } from "node:fs";
 import { readdir, realpath, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, resolve, sep } from "node:path";
+import { pipeline } from "node:stream";
 import { pathToFileURL } from "node:url";
 
 const defaultRoot = "/Volumes/CannMedia/CannvasVideoCache";
@@ -27,6 +28,11 @@ function escapeHtml(value) {
 }
 
 function sendError(response, status, message) {
+  // Too late for a status once a reply has started (or the client has gone): just hang up.
+  if (response.headersSent || response.destroyed) {
+    response.destroy();
+    return;
+  }
   response.writeHead(status, { "Content-Type": "text/plain; charset=utf-8" });
   response.end(`${message}\n`);
 }
@@ -58,8 +64,15 @@ function serveFile(request, response, file, size) {
   let status = 200;
 
   if (range) {
-    start = range[1] ? Number(range[1]) : 0;
-    end = range[2] ? Number(range[2]) : end;
+    if (range[1]) {
+      start = Number(range[1]);
+      end = range[2] ? Number(range[2]) : end;
+    } else {
+      // "bytes=-500" is the last 500 bytes; players use it to find an MP4's index at the end.
+      // "bytes=-" and "bytes=-0" ask for nothing, so they fall through to 416.
+      const length = range[2] ? Number(range[2]) : 0;
+      start = length > 0 ? Math.max(0, size - length) : -1;
+    }
     if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || start >= size) {
       response.writeHead(416, { "Content-Range": `bytes */${size}` });
       response.end();
@@ -77,11 +90,17 @@ function serveFile(request, response, file, size) {
   };
   if (status === 206) headers["Content-Range"] = `bytes ${start}-${end}/${size}`;
   response.writeHead(status, headers);
-  if (request.method === "HEAD") {
+  // An empty file has nothing to stream (createReadStream rejects end -1), and a client that left
+  // while we looked the file up can't be piped to.
+  if (request.method === "HEAD" || size === 0 || response.destroyed) {
     response.end();
     return;
   }
-  createReadStream(file, { start, end }).pipe(response);
+  // pipe() leaves the file open when the wall drops a request part way (it skips and seeks videos
+  // all day). Those leaked until the server hit macOS's 256 open-file limit. pipeline() closes it.
+  pipeline(createReadStream(file, { start, end }), response, (error) => {
+    if (error && error.code !== "ERR_STREAM_PREMATURE_CLOSE") console.error(`Cannvas media: ${file}: ${error.message}`);
+  });
 }
 
 function isInside(parent, child) {
@@ -139,7 +158,11 @@ export function createMediaServer({
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const port = Number(process.env.CANNVAS_MEDIA_PORT ?? 6113);
-  createMediaServer().listen(port, "0.0.0.0", () => {
+  const server = createMediaServer();
+  // A client that vanishes without closing (the Pi dropping off Wi-Fi) would hold its file open
+  // until TCP gives up. Hang up on any connection idle for five minutes instead.
+  server.setTimeout(5 * 60 * 1000);
+  server.listen(port, "0.0.0.0", () => {
     console.log(`Cannvas media server listening on port ${port}, rooted at ${process.env.CANNVAS_MEDIA_ROOT ?? defaultRoot}`);
   });
 }
