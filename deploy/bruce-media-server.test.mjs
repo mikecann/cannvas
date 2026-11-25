@@ -149,13 +149,24 @@ test("answers empty files, suffix ranges and clients that leave early without cr
   assert.equal(await whole.text(), "0123456789");
   assert.equal((await fetch(`${base}/digits.mp4`, { headers: { Range: "bytes=-0" } })).status, 416);
 
-  // Leave while the server is still looking the file up.
+  // Leave while the server is still looking the file up. Before the fix this was an unhandled
+  // rejection (a second writeHead), which ends a real server process.
+  const failures = [];
+  const onFailure = (error) => failures.push(error);
+  process.on("unhandledRejection", onFailure);
+  context.after(() => process.off("unhandledRejection", onFailure));
+  let received = 0;
+  server.on("request", () => { received += 1; });
   for (let i = 0; i < 20; i += 1) {
     const early = request({ port: server.address().port, host: "127.0.0.1", path: "/digits.mp4" });
     early.on("error", () => {});
     early.end();
     setImmediate(() => early.destroy());
   }
-  await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+  for (let wait = 0; wait < 250 && received < 20; wait += 1) {
+    await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+  }
+  // This request's lookup queues behind theirs, so once it answers they've all finished theirs.
   assert.equal((await fetch(`${base}/digits.mp4`)).status, 200);
+  assert.deepEqual(failures, []);
 });
