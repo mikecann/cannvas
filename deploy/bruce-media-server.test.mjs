@@ -93,6 +93,7 @@ test("closes the file when a client drops a video part way", async (context) => 
   const server = createMediaServer({ root: cache, sourceRoot: source });
   await new Promise((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
   context.after(async () => {
+    server.closeAllConnections();
     await new Promise((resolveClose) => server.close(resolveClose));
     await rm(temporary, { recursive: true, force: true });
   });
