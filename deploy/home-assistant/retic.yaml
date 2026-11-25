@@ -174,12 +174,15 @@ template:
     variables:
       # Front grass measured 0.67 mm/min in a lush spot (20 Nov, windy, two
       # trays), before two odd nozzles were swapped, so 0.6 stays until a
-      # calm re-test. Front garden beds has two lawn heads plumbed on it, so
-      # it's counted like a lawn (0.7) to keep that strip watered as often
-      # as the lawn around it.
+      # calm re-test. Back grass left measured about 1.2 mm/min (25 Nov,
+      # calm, two trays: ~12 mm lush and ~10 mm bare after 9 minutes); 1.0
+      # is set, a little under, so it errs towards more water. Back grass
+      # right wasn't measured, so it stays at 0.6. Front garden beds has two
+      # lawn heads plumbed on it, so it's counted like a lawn (0.7) to keep
+      # that strip watered as often as the lawn around it.
       base_setup:
         valve.retic_back_grass_right: { crop: 0.7, rate: 0.6, trigger: 7 }
-        valve.retic_back_grass_left: { crop: 0.7, rate: 0.6, trigger: 7 }
+        valve.retic_back_grass_left: { crop: 0.7, rate: 1.0, trigger: 7 }
         valve.retic_back_flower_beds: { crop: 0.5, rate: 0.6, trigger: 7 }
         valve.retic_front_garden_beds: { crop: 0.7, rate: 0.6, trigger: 7 }
         valve.retic_front_grass: { crop: 0.7, rate: 0.6, trigger: 7 }

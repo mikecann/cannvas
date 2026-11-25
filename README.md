@@ -320,7 +320,8 @@ Home Assistant won't load its configuration.
   about what a lawn's roots reach in sand) is kept under what 15 minutes puts
   back, or it could never catch up. The crop factors (0.7 lawn, 0.5 beds, but 0.7 for the front
   beds, which has two lawn heads on it) and
-  rates (0.6 mm a minute) are estimates in the package: to measure a rate, put
+  rates (0.6 mm a minute, but 1.0 for the back left lawn, measured 25 Nov) are
+  estimates in the package: to measure a rate, put
   a few straight-sided tins on the zone, run it 15 minutes and divide the
   average depth in mm by 15.
 - **Skips.** Every mode skips when the controller's dial is off RUN (it would
